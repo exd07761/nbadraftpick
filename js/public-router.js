@@ -52,6 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
     el.addEventListener('click', e => {
       e.preventDefault();
       navigate(el.dataset.route);
+      // Mobile nav: close the collapsible menu after a link is picked
+      // (pure UI state — the checkbox drives CSS only, see main.css).
+      const navToggle = document.getElementById('navToggle');
+      if (navToggle) navToggle.checked = false;
     });
   });
 

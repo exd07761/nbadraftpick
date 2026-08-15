@@ -48,22 +48,28 @@
     <header class="admin-header">
       <div class="admin-header-inner">
         <div class="admin-logo">NBA <span>2K</span> <em>Admin</em></div>
-        <nav class="admin-nav">
-          <a class="admin-nav-link" data-view="seasons" href="#">Seasons</a>
-          <a class="admin-nav-link" data-view="participants" href="#">Participants</a>
-          <a class="admin-nav-link" data-view="players" href="#">Players</a>
-          <a class="admin-nav-link" data-view="draftOrder" href="#">Draft Orders</a>
-          <a class="admin-nav-link" data-view="draft" href="#">Draft</a>
-          <a class="admin-nav-link" data-view="teamAssignment" href="#">Team Assignment</a>
-          <a class="admin-nav-link" data-view="roster" href="#">Rosters</a>
-          <a class="admin-nav-link" data-view="schedule" href="#">Schedule</a>
-          <a class="admin-nav-link" data-view="playoffs" href="#">Playoffs</a>
-          <a class="admin-nav-link" data-view="trades" href="#">Trades</a>
-        </nav>
-        <div class="admin-user">
-          <span id="adminUsername"></span>
-          <button id="btnLogout" class="btn btn-sm btn-ghost">Sign Out</button>
-          <a href="index.html" class="btn btn-sm btn-ghost">Public Site ↗</a>
+        <input type="checkbox" id="adminNavToggle" class="nav-toggle-input">
+        <label for="adminNavToggle" class="nav-toggle-btn" aria-label="Toggle navigation">
+          <span></span><span></span><span></span>
+        </label>
+        <div class="admin-header-menu">
+          <nav class="admin-nav">
+            <a class="admin-nav-link" data-view="seasons" href="#">Seasons</a>
+            <a class="admin-nav-link" data-view="participants" href="#">Participants</a>
+            <a class="admin-nav-link" data-view="players" href="#">Players</a>
+            <a class="admin-nav-link" data-view="draftOrder" href="#">Draft Orders</a>
+            <a class="admin-nav-link" data-view="draft" href="#">Draft</a>
+            <a class="admin-nav-link" data-view="teamAssignment" href="#">Team Assignment</a>
+            <a class="admin-nav-link" data-view="roster" href="#">Rosters</a>
+            <a class="admin-nav-link" data-view="schedule" href="#">Schedule</a>
+            <a class="admin-nav-link" data-view="playoffs" href="#">Playoffs</a>
+            <a class="admin-nav-link" data-view="trades" href="#">Trades</a>
+          </nav>
+          <div class="admin-user">
+            <span id="adminUsername"></span>
+            <button id="btnLogout" class="btn btn-sm btn-ghost">Sign Out</button>
+            <a href="index.html" class="btn btn-sm btn-ghost">Public Site ↗</a>
+          </div>
         </div>
       </div>
     </header>

@@ -13,16 +13,22 @@
   <header class="site-header">
     <div class="header-inner">
       <div class="site-logo">NBA <span>2K</span> ASPAKAN</div>
-      <nav class="site-nav">
-        <a class="nav-link" data-route="home" href="#home">Home</a>
-        <a class="nav-link" data-route="schedule" href="#schedule">Schedule</a>
-        <a class="nav-link" data-route="standings" href="#standings">Standings</a>
-        <a class="nav-link" data-route="players" href="#players">Players</a>
-        <a class="nav-link" data-route="playoffs" href="#playoffs">Playoffs</a>
-        <a class="nav-link" data-route="rosters" href="#rosters">Rosters</a>
-      </nav>
-      <div class="header-right">
-        <a class="admin-link" href="admin.html">Admin ↗</a>
+      <input type="checkbox" id="navToggle" class="nav-toggle-input">
+      <label for="navToggle" class="nav-toggle-btn" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </label>
+      <div class="site-header-menu">
+        <nav class="site-nav">
+          <a class="nav-link" data-route="home" href="#home">Home</a>
+          <a class="nav-link" data-route="schedule" href="#schedule">Schedule</a>
+          <a class="nav-link" data-route="standings" href="#standings">Standings</a>
+          <a class="nav-link" data-route="players" href="#players">Players</a>
+          <a class="nav-link" data-route="playoffs" href="#playoffs">Playoffs</a>
+          <a class="nav-link" data-route="rosters" href="#rosters">Rosters</a>
+        </nav>
+        <div class="header-right">
+          <a class="admin-link" href="admin.html">Admin ↗</a>
+        </div>
       </div>
     </div>
   </header>

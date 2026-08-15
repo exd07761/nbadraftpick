@@ -165,12 +165,14 @@ const AdminRosterView = {
         </div>
 
         <!-- Player table -->
+        <div class="table-scroll">
         <table class="roster-table">
           <thead>
             <tr><th>#</th><th>Player</th><th>Pool</th><th>Pos</th><th>OVR</th><th>Source</th></tr>
           </thead>
           <tbody>${playerRows}</tbody>
         </table>
+        </div>
       </div>`;
   },
 

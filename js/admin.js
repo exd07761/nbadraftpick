@@ -41,6 +41,10 @@ const AdminApp = {
       el.addEventListener('click', e => {
         e.preventDefault();
         this.renderView(el.dataset.view);
+        // Mobile nav: close the collapsible menu after a link is picked
+        // (pure UI state — the checkbox drives CSS only, see admin.css).
+        const navToggle = document.getElementById('adminNavToggle');
+        if (navToggle) navToggle.checked = false;
       });
     });
 

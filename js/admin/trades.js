@@ -461,6 +461,7 @@ const AdminTradesView = {
     body.innerHTML = `
       <div class="admin-section" style="padding:0;border:none;background:none">
         ${!history.length ? '<div class="empty-state"><p>No transactions recorded yet.</p></div>' : `
+        <div class="table-scroll">
         <table class="admin-table">
           <thead>
             <tr>
@@ -479,7 +480,8 @@ const AdminTradesView = {
                 <td>${new Date(t.timestamp).toLocaleString()}</td>
               </tr>`).join('')}
           </tbody>
-        </table>`}
+        </table>
+        </div>`}
       </div>`;
   },
 

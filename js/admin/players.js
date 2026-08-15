@@ -254,6 +254,7 @@ const AdminPlayersView = {
         const sample = _parsedRows.slice(0, 5);
         preview.innerHTML = `
           <p class="helper-text">${_parsedRows.length} row(s) found. Preview (first 5):</p>
+          <div class="table-scroll">
           <table class="admin-table">
             <thead><tr><th>Name</th><th>Pos</th><th>OVR</th><th>Pool</th><th>Variant Group</th></tr></thead>
             <tbody>
@@ -271,7 +272,8 @@ const AdminPlayersView = {
                 </tr>`;
               }).join('')}
             </tbody>
-          </table>`;
+          </table>
+          </div>`;
         preview.classList.remove('hidden');
         importBtn.classList.remove('hidden');
       };

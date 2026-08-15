@@ -23,6 +23,7 @@ const AdminSeasonsView = {
         <div class="empty-state">
           <p>No seasons yet. Create one to get started.</p>
         </div>` : `
+        <div class="table-scroll">
         <table class="admin-table">
           <thead>
             <tr>
@@ -47,7 +48,8 @@ const AdminSeasonsView = {
                 </tr>`;
             }).join('')}
           </tbody>
-        </table>`}
+        </table>
+        </div>`}
       </div>`;
 
     // New season toggle
