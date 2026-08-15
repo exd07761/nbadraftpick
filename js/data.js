@@ -1673,6 +1673,30 @@ const AdminActions = {
       }
     }
 
+    // ── Position cap: max 2 players per position, across ALL 10 picks ───
+    // Not just the mandatory-first-five phase (picks 1-5, above) — the cap
+    // applies for the whole draft. Picks 1-5 already can't exceed 1 per
+    // position (the rule above enforces that), so this only starts to
+    // matter from pick 6 onward: a "sub" pick can only go to one of the
+    // 5 positions already started in the first five, and each position
+    // tops out at MAX_PLAYERS_PER_POSITION (2) — the same cap Phase 5
+    // already enforces on trade/swap results. This does NOT touch
+    // computePositionState/getPositionState (used by the Position Need UI
+    // and the mandatory-first-five rule above) — it's a separate count.
+    if (CORE_POSITIONS.includes(player.position)) {
+      const positionCountSoFar = season.playerDraftPicks.filter(
+        (p) =>
+          p.participantId === participantId &&
+          data.players[p.playerId]?.position === player.position
+      ).length;
+      if (positionCountSoFar >= MAX_PLAYERS_PER_POSITION) {
+        throw new Error(
+          `This participant already has ${MAX_PLAYERS_PER_POSITION} players at ` +
+          `${player.position} (max ${MAX_PLAYERS_PER_POSITION}).`
+        );
+      }
+    }
+
     // ── Roster cap: 10 players max per participant ──────────────────────
     // Enforced here at the data layer, same as every other draft rule, so
     // it can't be bypassed. ownPickNumber is this participant's OWN pick
