@@ -102,7 +102,7 @@ function createSeason(id, name) {
     // currentRosters[participantId] = [{ playerId, source }]
     //   source: 'draft' | 'trade' | 'swap'  (only 'draft' used in Phase 4A)
     // Single source of truth for "who has which player right now".
-    ratingCap: 875,       // max total OVR allowed per roster; enforced by UI only in Phase 4A
+    ratingCap: 875,       // max total OVR allowed per roster; enforced at draft time (makeDraftPick) and by Phase 5 trades/swaps
     rostersInitialized: false,
     // currentRosters[participantId] = [{ playerId, source, isJoker?, jokerPosition? }]
     //   source: 'draft' | 'trade' | 'swap'
@@ -1684,6 +1684,25 @@ const AdminActions = {
     if (ownPickNumber > MAX_ROSTER_SIZE) {
       throw new Error(
         `This participant already has ${MAX_ROSTER_SIZE} players — the roster is full.`
+      );
+    }
+
+    // ── Total roster rating cap (season.ratingCap, 875 default) ─────────
+    // Previously only surfaced as an informational isOverCap flag in the
+    // Roster view (Phase 4A) — never actually enforced at draft time, so a
+    // team's total OVR could exceed the cap. Enforced here the same way as
+    // every other draft rule now: this participant's already-drafted total
+    // plus this player's OVR must not exceed the cap.
+    const priorTotalRating = season.playerDraftPicks
+      .filter((p) => p.participantId === participantId)
+      .reduce((sum, p) => sum + (data.players[p.playerId]?.overall ?? 0), 0);
+    const ratingCap = season.ratingCap ?? 875;
+    const projectedTotal = priorTotalRating + player.overall;
+    if (projectedTotal > ratingCap) {
+      throw new Error(
+        `Drafting "${player.name}" (${player.overall} OVR) would put this participant's ` +
+        `total at ${projectedTotal} OVR, over the ${ratingCap} rating cap ` +
+        `(currently ${priorTotalRating}).`
       );
     }
 
