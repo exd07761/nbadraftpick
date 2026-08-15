@@ -224,6 +224,7 @@ const MAX_FOURTH_BLUE_RATING = 94;
 const MAX_TENTH_PICK_BLUE_RATING = 94;
 const TENTH_PICK_BLUE_FEE = 100;
 const MAX_PLAYERS_PER_POSITION = 2;
+const MAX_ROSTER_SIZE = 10; // 5 core positions x 2 max — enforced at draft time too, not just Phase 5 transactions
 const POOL_TRADE_FEE = { green: 100, blue: 200 };
 const REGULAR_SWAP_FEE = 100;
 const JOKER_SWAP_FEE = 300;
@@ -1672,6 +1673,20 @@ const AdminActions = {
       }
     }
 
+    // ── Roster cap: 10 players max per participant ──────────────────────
+    // Enforced here at the data layer, same as every other draft rule, so
+    // it can't be bypassed. ownPickNumber is this participant's OWN pick
+    // count (1st, 2nd, ... 10th player drafted) — not the global
+    // round/pick number — computed once here and reused below by the
+    // Phase 5 10th-pick-Blue rule.
+    const ownPickNumber =
+      season.playerDraftPicks.filter((p) => p.participantId === participantId).length + 1;
+    if (ownPickNumber > MAX_ROSTER_SIZE) {
+      throw new Error(
+        `This participant already has ${MAX_ROSTER_SIZE} players — the roster is full.`
+      );
+    }
+
     // ── Phase 5 / Rule D: 10th-pick Blue fee ─────────────────────────────
     // Enforced here (not as after-the-fact bookkeeping) so it can never be
     // forgotten: if this is the participant's OWN 10th pick (their 10th
@@ -1685,8 +1700,6 @@ const AdminActions = {
     // atomic write as the pick — there is no separate step to forget.
     // The Draft page UI is unchanged: this is invisible plumbing inside
     // the existing confirm-pick call.
-    const ownPickNumber =
-      season.playerDraftPicks.filter((p) => p.participantId === participantId).length + 1;
     let tenthPickBlueFeeCharged = false;
     if (ownPickNumber === 10 && player.pool === "blue") {
       if (player.overall > MAX_TENTH_PICK_BLUE_RATING) {
