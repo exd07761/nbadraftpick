@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NBA 2K ASPAKAN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="site-logo">NBA <span>2K</span> ASPAKAN</div>
+      <nav class="site-nav">
+        <a class="nav-link" data-route="home" href="#home">Home</a>
+        <a class="nav-link" data-route="schedule" href="#schedule">Schedule</a>
+        <a class="nav-link" data-route="standings" href="#standings">Standings</a>
+        <a class="nav-link" data-route="players" href="#players">Players</a>
+        <a class="nav-link" data-route="playoffs" href="#playoffs">Playoffs</a>
+        <a class="nav-link" data-route="rosters" href="#rosters">Rosters</a>
+      </nav>
+      <div class="header-right">
+        <a class="admin-link" href="admin.html">Admin ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content">
+    <div id="viewContainer"></div>
+  </main>
+
+  <!-- Data layer (read-only public access) -->
+  <script src="js/data.js"></script>
+
+  <!-- Public views -->
+  <script src="js/views/home.js"></script>
+  <script src="js/views/roster.js"></script>
+  <script src="js/views/schedule.js"></script>
+  <script src="js/views/standings.js"></script>
+  <script src="js/views/playoffs.js"></script>
+  <script src="js/views/players.js"></script>
+  <script src="js/views/stubs.js"></script>
+
+  <!-- Shared utilities (escapeHtml, showToast, formatStatus) -->
+  <script src="js/shared-utils.js"></script>
+
+  <!-- Public router (must load after views and shared-utils) -->
+  <script src="js/public-router.js"></script>
+
+</body>
+</html>

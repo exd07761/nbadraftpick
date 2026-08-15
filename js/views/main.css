@@ -1,0 +1,1004 @@
+/* ─── Design Tokens ─────────────────────────────────────────────────────────── */
+:root {
+  /* Court-inspired palette: deep charcoal floor, hardwood amber, orange accent */
+  --bg:          #111318;
+  --bg-card:     #1a1d24;
+  --bg-hover:    #22262f;
+  --border:      #2a2e38;
+  --border-light:#363b48;
+
+  --text:        #e8eaf0;
+  --text-muted:  #7a8099;
+  --text-dim:    #4a5068;
+
+  --accent:      #e8630a;       /* NBA orange */
+  --accent-dim:  rgba(232,99,10,0.15);
+  --accent-hover:#f07520;
+
+  --green:       #2ecc71;
+  --red:         #e74c3c;
+  --yellow:      #f1c40f;
+
+  /* Player pool identity — Green Pool (active 2K26 players) / Blue Pool
+     (legendary/prime/special). Distinct from --green/--red status colors
+     above; these two are reserved for the pool tabs/badges only. */
+  --pool-green:      #34d17c;
+  --pool-green-dim:  rgba(52,209,124,0.14);
+  --pool-blue:       #4d9bf5;
+  --pool-blue-dim:   rgba(77,155,245,0.14);
+
+  /* Typography */
+  --font-ui:     'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:   'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Spacing */
+  --r:           6px;
+  --r-lg:        10px;
+}
+
+/* ─── Reset & Base ───────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; }
+
+body {
+  font-family: var(--font-ui);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden; /* Phase 10: guard against accidental page-level horizontal overflow on mobile — components that legitimately need horizontal scroll (bracket, tables) get their own scoped scroll containers instead. */
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+/* ─── Layout ─────────────────────────────────────────────────────────────────── */
+.site-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  position: sticky; top: 0; z-index: 100;
+}
+
+.header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  height: 56px;
+}
+
+.site-logo {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.site-logo span { color: var(--accent); }
+
+.site-nav {
+  display: flex;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.nav-link {
+  font-size: 0.82rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--r);
+  color: var(--text-muted);
+  transition: color 0.15s, background 0.15s;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+.nav-link:hover { color: var(--text); background: var(--bg-hover); }
+.nav-link.active { color: var(--accent); background: var(--accent-dim); }
+
+.header-right { margin-left: auto; }
+
+.admin-link {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  color: var(--text-muted);
+}
+.admin-link:hover { color: var(--text); border-color: var(--border-light); }
+
+.main-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+/* ─── Dashboard ──────────────────────────────────────────────────────────────── */
+.season-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+}
+
+.season-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+
+.season-name {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 1.2rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stat-num {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ─── Section ────────────────────────────────────────────────────────────────── */
+.section { margin-bottom: 2.5rem; }
+
+.section-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ─── Team Grid ──────────────────────────────────────────────────────────────── */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.team-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  transition: border-color 0.15s;
+}
+.team-card:hover { border-color: var(--border-light); }
+
+.team-abbr {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--accent);
+  min-width: 3rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.team-owner {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.team-nba {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ─── Teams View ─────────────────────────────────────────────────────────────── */
+.teams-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 1.5rem;
+}
+
+.teams-sidebar { border-right: 1px solid var(--border); padding-right: 1.5rem; }
+
+.team-list { list-style: none; }
+
+.team-list-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--r);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.team-list-item:hover { background: var(--bg-hover); }
+.team-list-item.selected { background: var(--accent-dim); }
+.team-list-item.selected .list-owner { color: var(--accent); }
+
+.list-abbr { font-weight: 700; font-size: 0.85rem; width: 2.5rem; color: var(--accent); }
+.list-owner { font-size: 0.9rem; }
+
+.roster-panel { padding: 0.5rem 0; }
+
+.roster-header {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.roster-team-id { display: flex; align-items: center; gap: 1rem; }
+.roster-abbr { font-size: 2.5rem; font-weight: 900; color: var(--accent); }
+.roster-owner { font-size: 1.2rem; font-weight: 700; }
+.roster-teamname { font-size: 0.85rem; color: var(--text-muted); }
+
+/* ─── Roster Table ───────────────────────────────────────────────────────────── */
+.roster-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.roster-table th {
+  text-align: left;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.roster-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.roster-table tbody tr:hover { background: var(--bg-hover); }
+.ovr { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+
+/* ─── Phase 10.4: All Rosters (public) ────────────────────────────────────────── */
+.all-rosters-header { display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.all-rosters-title { font-size: 1.4rem; font-weight: 900; letter-spacing: -0.01em; }
+.all-rosters-cap-note { font-size: 0.82rem; color: var(--text-muted); }
+
+.roster-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.1rem;
+}
+
+.roster-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.85rem;
+}
+
+.roster-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.roster-card-name { font-size: 1.05rem; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roster-card-count { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
+
+.roster-card-cap-labels { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 0.35rem; }
+.roster-card-ovr-total { font-size: 1.3rem; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.roster-card-cap-value { font-size: 0.78rem; color: var(--text-muted); }
+.roster-card-remaining { text-align: right; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem; }
+
+.roster-card-table { font-size: 0.78rem; }
+.roster-card-table th, .roster-card-table td { padding: 0.4rem 0.5rem; }
+.roster-card-source { color: var(--text-dim); font-size: 0.72rem; text-transform: capitalize; }
+
+/* ─── Phase 10.4: Teams (public) — team-identity focus, no roster table ───────── */
+.team-detail-panel { padding: 0.5rem 0; }
+.team-detail-hero {
+  display: flex; align-items: center; gap: 1.1rem;
+  padding-bottom: 1.25rem; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border);
+}
+.team-detail-name { font-size: 1.4rem; font-weight: 800; }
+.team-detail-owner { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+.team-detail-facts { display: flex; gap: 2rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+.team-detail-fact { display: flex; flex-direction: column; gap: 0.25rem; }
+.team-detail-fact-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-dim); }
+.team-detail-fact-value { font-size: 0.95rem; font-weight: 700; display: flex; align-items: center; gap: 0.4rem; }
+.team-color-swatch { width: 14px; height: 14px; border-radius: 4px; display: inline-block; border: 1px solid var(--border-light); }
+
+.team-detail-roster-link { font-size: 0.85rem; color: var(--text-muted); }
+.team-detail-roster-link a { font-weight: 600; }
+
+/* ─── Status Chips ───────────────────────────────────────────────────────────── */
+.status-chip {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+}
+.status-setup         { background: #1a2035; color: #7a9ff5; }
+.status-draft         { background: #1a2a1a; color: #5ecf5e; }
+.status-team_assignment { background: #2a1a2a; color: #cf7ef0; }
+.status-regular_season { background: #2a2a1a; color: #f0d060; }
+.status-playoffs      { background: #2a1a1a; color: #f07070; }
+.status-complete      { background: #1a2a20; color: #40d090; }
+
+/* ─── Seasons List ───────────────────────────────────────────────────────────── */
+.seasons-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.season-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.65rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.season-row.active { border-color: var(--accent); }
+
+/* ─── Empty State ────────────────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4rem 2rem;
+  gap: 0.75rem;
+}
+.empty-icon { font-size: 3rem; }
+.empty-state h2 { font-size: 1.3rem; font-weight: 700; }
+.empty-state p { color: var(--text-muted); max-width: 400px; }
+.coming-soon {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+}
+
+/* ─── Utilities ──────────────────────────────────────────────────────────────── */
+.muted { color: var(--text-muted); }
+.hidden { display: none !important; }
+
+/* ─── Toast ──────────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%) translateY(1rem);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 0.7rem 1.4rem;
+  border-radius: var(--r-lg);
+  font-size: 0.875rem;
+  opacity: 0;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 1000;
+  white-space: nowrap;
+}
+.toast-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast-success { border-color: var(--green); color: var(--green); }
+.toast-error   { border-color: var(--red); color: var(--red); }
+.toast-info    { border-color: var(--border-light); }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Phase 10 — Team Identity (badges), Pool Tabs, Player/Matchup Cards, Bracket
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Team Identity / Badge ───────────────────────────────────────────────
+   Local placeholder marks (color + initials) — see shared-utils.js:teamBadge().
+   No real logo image assets exist yet; swap the badge markup there later. */
+.team-identity { display: inline-flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.team-identity-name { font-weight: 600; font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-identity-name-empty { color: var(--text-dim); font-weight: 500; }
+.team-identity-abbr { font-weight: 700; font-size: 0.78rem; color: var(--text-muted); letter-spacing: 0.03em; }
+
+.team-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r); font-weight: 800; letter-spacing: 0.02em;
+  flex-shrink: 0; line-height: 1;
+}
+.team-badge-sm { width: 22px; height: 22px; font-size: 0.55rem; border-radius: 5px; }
+.team-badge-md { width: 34px; height: 34px; font-size: 0.68rem; border-radius: 7px; }
+.team-badge-lg { width: 56px; height: 56px; font-size: 1rem; border-radius: 10px; }
+
+/* Logo <img> mirrors the same box sizes as the colored-initial badge it
+   can fall back to (see shared-utils.js:teamBadge), so swapping between
+   the two on image-load-error never shifts layout. */
+.team-logo-img { display: inline-block; object-fit: contain; flex-shrink: 0; vertical-align: middle; }
+.team-logo-img-sm { width: 22px; height: 22px; }
+.team-logo-img-md { width: 34px; height: 34px; }
+.team-logo-img-lg { width: 56px; height: 56px; }
+.team-badge-empty { background: var(--bg-hover); color: var(--text-dim); box-shadow: inset 0 0 0 1px var(--border-light); }
+
+/* ─── Pool Tabs (Green Pool / Blue Pool) ──────────────────────────────────
+   Used on Draft, Admin Players, and Public Players. First tab is always
+   Green, second is always Blue — no "Unassigned" tab is ever rendered. */
+/* ─── Pool Tabs — segmented pill style (shared by Draft, Admin Draft/Players,
+   and the Public/Admin Players database) ────────────────────────────────── */
+.pool-tabs { display: flex; gap: 0.6rem; margin-bottom: 1.25rem; border-bottom: none; flex-wrap: wrap; }
+.pool-tab {
+  display: flex; align-items: center; gap: 0.55rem;
+  padding: 0.7rem 1.3rem; font-size: 0.8rem; font-weight: 700;
+  letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted);
+  cursor: pointer; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  font-family: var(--font-ui); transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.pool-tab:hover { color: var(--text); border-color: var(--border-light); }
+.pool-tab .pool-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.pool-tab-green .pool-dot { background: var(--pool-green); }
+.pool-tab-blue .pool-dot { background: var(--pool-blue); }
+.pool-tab.active.pool-tab-green { color: var(--pool-green); border-color: var(--pool-green); background: var(--pool-green-dim); }
+.pool-tab.active.pool-tab-blue { color: var(--pool-blue); border-color: var(--pool-blue); background: var(--pool-blue-dim); }
+.pool-tab-count { font-size: 0.7rem; color: inherit; opacity: 0.75; font-weight: 600; }
+
+.pool-pane { display: none; }
+.pool-pane.active { display: block; }
+
+.pool-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 0.15rem 0.5rem; border-radius: 999px;
+}
+.pool-badge-green { background: var(--pool-green-dim); color: var(--pool-green); }
+.pool-badge-blue { background: var(--pool-blue-dim); color: var(--pool-blue); }
+
+/* ─── Player Database header + pool-info cards (Players pages) ──────────── */
+.player-db-header { margin-bottom: 1.5rem; }
+.player-db-title { font-size: 1.6rem; font-weight: 900; letter-spacing: -0.01em; margin-bottom: 0.35rem; }
+.player-db-subtitle { color: var(--text-muted); font-size: 0.88rem; max-width: 640px; line-height: 1.5; }
+
+.pool-info-row { display: flex; gap: 0.9rem; flex-wrap: wrap; margin: 1.25rem 0; }
+.pool-info-card {
+  flex: 1; min-width: 240px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.3rem;
+  border-left: 3px solid var(--border-light);
+}
+.pool-info-card.pool-info-green { border-left-color: var(--pool-green); }
+.pool-info-card.pool-info-blue { border-left-color: var(--pool-blue); }
+.pool-info-card-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 0.85rem; letter-spacing: 0.03em; }
+.pool-info-card.pool-info-green .pool-info-card-title { color: var(--pool-green); }
+.pool-info-card.pool-info-blue .pool-info-card-title { color: var(--pool-blue); }
+.pool-info-card-desc { font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
+
+.pool-legend-footer {
+  display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+  margin-top: 1.75rem; padding-top: 1rem; border-top: 1px solid var(--border);
+  font-size: 0.78rem; color: var(--text-muted);
+}
+.pool-legend-footer .legend-item { display: flex; align-items: center; gap: 0.4rem; }
+.pool-legend-footer .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
+.pool-legend-footer .legend-dot.green { background: var(--pool-green); }
+.pool-legend-footer .legend-dot.blue { background: var(--pool-blue); }
+.pool-legend-footer .legend-dot.live { background: var(--green); animation: pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+.drafted-note {
+  display: flex; align-items: center; gap: 0.6rem;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 0.75rem 1rem; margin-top: 1.5rem; font-size: 0.8rem; color: var(--text-muted);
+}
+.drafted-note .swatch { width: 16px; height: 16px; border-radius: 4px; background: var(--bg-hover); border: 1px solid var(--border-light); flex-shrink: 0; }
+
+/* ─── Position Pool Table (2K-Ratings-style columns) ─────────────────────
+   Shared by the public and admin Players pages. Each position column is
+   its own mini-table: colored head bar, a labeled header row, then ranked
+   rows (rank / name / OVR, + a delete "×" in admin mode). */
+.pos-table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.pos-table {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.pos-table-head {
+  font-size: 0.82rem; font-weight: 800; letter-spacing: 0.06em; text-align: center;
+  padding: 0.6rem 0.5rem; color: var(--text);
+}
+.pos-table-green .pos-table-head { background: var(--pool-green-dim); color: var(--pool-green); border-bottom: 1px solid rgba(52,209,124,0.25); }
+.pos-table-blue .pos-table-head { background: var(--pool-blue-dim); color: var(--pool-blue); border-bottom: 1px solid rgba(77,155,245,0.25); }
+
+.pos-table-columns-head {
+  display: grid; grid-template-columns: 1.6rem 1fr 2.4rem;
+  padding: 0.4rem 0.6rem; font-size: 0.6rem; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-dim); border-bottom: 1px solid var(--border);
+}
+.pos-table-columns-head span:last-child { text-align: right; }
+
+.pos-table-body { display: flex; flex-direction: column; }
+.pos-table-empty { padding: 0.9rem 0.6rem; font-size: 0.75rem; color: var(--text-dim); text-align: center; }
+
+.pos-table-row {
+  display: grid; grid-template-columns: 1.6rem 1fr 2.4rem; align-items: center;
+  padding: 0.4rem 0.6rem; font-size: 0.82rem; border-bottom: 1px solid var(--border);
+  transition: background 0.1s;
+}
+.pos-table-row:last-child { border-bottom: none; }
+.pos-table-row:hover { background: var(--bg-hover); }
+
+.pos-rank { color: var(--text-dim); font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.pos-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.pos-ovr { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.pos-ovr-elite { color: var(--pool-green); }
+.pos-ovr-good { color: var(--text); }
+.pos-ovr-role { color: var(--text-muted); }
+
+.pos-variant-tag {
+  font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--pool-blue); background: var(--pool-blue-dim); padding: 0.05rem 0.35rem; border-radius: 4px; flex-shrink: 0;
+}
+.pos-drafted-tag {
+  font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-dim); background: var(--bg-hover); padding: 0.05rem 0.35rem; border-radius: 4px; flex-shrink: 0;
+}
+.pos-locked-tag { color: var(--yellow); background: rgba(241,196,15,0.12); }
+
+.pos-table-row.drafted { opacity: 0.5; }
+.pos-table-row.drafted .pos-name,
+.pos-table-row.drafted .pos-ovr { text-decoration: line-through; color: var(--text-dim); }
+.pos-table-row.locked { opacity: 0.65; }
+
+.pos-table-columns-head { grid-template-columns: 1.6rem 1fr 2.4rem; }
+.pos-table-row { grid-template-columns: 1.6rem 1fr 2.4rem; }
+.pos-table-admin .pos-table-columns-head,
+.pos-table-admin .pos-table-row { grid-template-columns: 1.6rem 1fr 2.4rem 1.6rem; }
+
+.pos-row-delete {
+  background: none; border: none; color: var(--text-dim); font-size: 1rem; line-height: 1;
+  cursor: pointer; padding: 0.1rem 0.3rem; border-radius: 4px; transition: color 0.12s, background 0.12s;
+}
+.pos-row-delete:hover { color: var(--red); background: rgba(231,76,60,0.1); }
+
+
+/* ─── Position Board (draft/players grouping by PG/SG/SF/PF/C) ───────────── */
+.position-board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; }
+.position-column { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+.position-column-header {
+  font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); padding-bottom: 0.4rem; border-bottom: 1px solid var(--border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+/* ─── Player Card ──────────────────────────────────────────────────────────
+   Used in Draft pools, Admin Players, Public Players. */
+.player-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r);
+  padding: 0.65rem 0.75rem; display: flex; flex-direction: column; gap: 0.3rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+.player-card-name { font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-card-meta { display: flex; align-items: center; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); }
+.player-card-ovr { font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.player-card-variant { font-size: 0.65rem; color: var(--text-dim); }
+
+.player-card.selectable { cursor: pointer; }
+.player-card.selectable:hover { border-color: var(--accent); background: var(--bg-hover); }
+
+.player-card.drafted {
+  opacity: 0.42; cursor: not-allowed; filter: grayscale(65%);
+  background: var(--bg); border-style: dashed;
+}
+.player-card.drafted .player-card-ovr { color: var(--text-dim); }
+.player-card.locked { opacity: 0.55; cursor: not-allowed; border-style: dashed; }
+
+.player-card-status {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem; border-radius: 4px; align-self: flex-start;
+}
+.player-card-status.drafted-tag { background: var(--bg-hover); color: var(--text-dim); }
+.player-card-status.locked-tag { background: rgba(241,196,15,0.12); color: var(--yellow); }
+
+.player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.6rem; }
+
+/* ─── Matchup Card (Schedule/Game-center style) ───────────────────────────── */
+.matchup-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.6rem;
+  transition: border-color 0.15s;
+}
+.matchup-card.is-completed { border-color: var(--border-light); }
+.matchup-card.is-bye { opacity: 0.55; }
+.matchup-card-top { display: flex; justify-content: space-between; align-items: center; }
+.matchup-card-status { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.15rem 0.5rem; border-radius: 999px; }
+.matchup-card-streamer { font-size: 0.72rem; color: var(--text-muted); }
+
+.matchup-card-body { display: flex; align-items: center; gap: 0.75rem; }
+.matchup-side { display: flex; align-items: center; gap: 0.6rem; flex: 1; min-width: 0; }
+.matchup-side.reverse { flex-direction: row-reverse; text-align: right; }
+.matchup-side-name { font-weight: 700; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matchup-side.winner .matchup-side-name { color: var(--accent); }
+.matchup-side-score { font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: center; }
+.matchup-side.winner .matchup-side-score { color: var(--text); }
+.matchup-side:not(.winner) .matchup-side-score { color: var(--text-dim); }
+.matchup-vs-divider { color: var(--text-dim); font-size: 0.7rem; font-weight: 700; padding: 0 0.25rem; }
+
+.matchup-card.is-bye .matchup-card-body { justify-content: center; color: var(--text-dim); font-size: 0.85rem; }
+
+.schedule-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; }
+
+/* ─── Playoff Bracket (connected) ─────────────────────────────────────────── */
+.bracket-scroll { overflow-x: auto; padding-bottom: 0.5rem; }
+.bracket {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(190px, 1fr));
+  gap: 0;
+  min-width: 880px;
+}
+.bracket-col { display: flex; flex-direction: column; }
+.bracket-col-header {
+  font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-muted); text-align: center; padding: 0 0.5rem 0.75rem;
+}
+.bracket-col-sub { display: block; font-size: 0.6rem; color: var(--text-dim); font-weight: 600; margin-top: 0.15rem; text-transform: none; letter-spacing: 0; }
+
+.bracket-slot { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 0.35rem 0.6rem; position: relative; }
+
+.bracket-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r);
+  font-size: 0.78rem; overflow: hidden;
+}
+.bracket-card.active { border-color: var(--accent); }
+.bracket-card.decided { border-color: var(--border-light); }
+.bracket-card-row {
+  display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+.bracket-card-row:last-child { border-bottom: none; }
+.bracket-card-row.won { background: var(--accent-dim); }
+.bracket-seed { font-size: 0.65rem; color: var(--text-dim); font-weight: 700; width: 1.1rem; flex-shrink: 0; }
+.bracket-team-name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bracket-card-row.won .bracket-team-name { color: var(--accent); }
+.bracket-team-score { font-weight: 800; font-variant-numeric: tabular-nums; font-size: 0.75rem; }
+.bracket-card-tbd { padding: 0.55rem; text-align: center; color: var(--text-dim); font-size: 0.7rem; font-style: italic; }
+.bracket-format-tag {
+  font-size: 0.58rem; font-weight: 700; letter-spacing: 0.05em; color: var(--text-dim);
+  text-align: center; padding: 0.15rem 0; border-top: 1px dashed var(--border);
+}
+
+/* connector lines between rounds (desktop only — see responsive section) */
+.bracket-col:not(:last-child) .bracket-slot::after {
+  content: ''; position: absolute; right: -0.5rem; top: 50%; width: 1rem; height: 1px;
+  background: var(--border-light);
+}
+.bracket-col:not(:first-child) .bracket-slot::before {
+  content: ''; position: absolute; left: -0.5rem; top: 50%; width: 1rem; height: 1px;
+  background: var(--border-light);
+}
+
+.bracket-champion-banner {
+  background: linear-gradient(90deg, #caa23a, #e8cf7a);
+  color: #2a2200; font-weight: 800; font-size: 1.1rem; text-align: center;
+  padding: 1rem; border-radius: var(--r-lg); margin-bottom: 1.5rem;
+  display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+}
+
+/* ─── Standings — mobile card fallback (table stays default ≥701px) ──────── */
+.standings-cards { display: none; flex-direction: column; gap: 0.5rem; }
+.standings-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r);
+  padding: 0.7rem 0.85rem; display: flex; align-items: center; gap: 0.75rem;
+}
+.standings-card-rank { font-size: 1rem; font-weight: 800; color: var(--text-dim); width: 1.6rem; text-align: center; flex-shrink: 0; }
+.standings-card-rank.top4 { color: var(--accent); }
+.standings-card-main { flex: 1; min-width: 0; }
+.standings-card-owner { font-weight: 700; font-size: 0.88rem; }
+.standings-card-record { font-size: 0.72rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.standings-card-pd { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 0.85rem; }
+
+/* ─── Home Dashboard v2 ────────────────────────────────────────────────────── */
+.league-hero {
+  background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg) 100%);
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 2rem 2rem 1.75rem; margin-bottom: 2rem; position: relative; overflow: hidden;
+}
+.league-hero::before {
+  content: ''; position: absolute; top: -40%; right: -10%; width: 340px; height: 340px;
+  background: radial-gradient(circle, var(--accent-dim) 0%, transparent 70%); pointer-events: none;
+}
+.league-hero-eyebrow {
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 0.5rem;
+}
+.league-hero-title { font-size: 2.2rem; font-weight: 900; letter-spacing: -0.02em; margin-bottom: 0.5rem; }
+.league-hero-meta { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; color: var(--text-muted); font-size: 0.85rem; }
+
+.dashboard-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1.5rem; align-items: start; }
+.dashboard-col { display: flex; flex-direction: column; gap: 1.5rem; min-width: 0; }
+
+.mini-standings { display: flex; flex-direction: column; gap: 0.35rem; }
+.mini-standings-row {
+  display: flex; align-items: center; gap: 0.65rem; padding: 0.5rem 0.6rem;
+  border-radius: var(--r); font-size: 0.82rem;
+}
+.mini-standings-row:nth-child(odd) { background: var(--bg-card); }
+.mini-standings-rank { width: 1.3rem; font-weight: 800; color: var(--text-dim); font-size: 0.78rem; }
+.mini-standings-rank.top4 { color: var(--accent); }
+.mini-standings-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-standings-record { color: var(--text-muted); font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+
+.mini-schedule { display: flex; flex-direction: column; gap: 0.4rem; }
+.mini-schedule-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.55rem 0.7rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r);
+  font-size: 0.8rem;
+}
+.mini-schedule-teams { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.mini-schedule-teams span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.section-header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.section-header-row .section-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+.section-link { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+
+/* ─── Responsive ──────────────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  .teams-layout { grid-template-columns: 1fr; }
+  .teams-sidebar { border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 1rem; }
+  .season-name { font-size: 1.4rem; }
+  .header-inner { gap: 1rem; }
+
+  .roster-card-grid { grid-template-columns: 1fr; }
+  .roster-card-table { font-size: 0.72rem; }
+  .roster-card-table th, .roster-card-table td { padding: 0.3rem 0.35rem; }
+  .team-detail-hero { flex-wrap: wrap; }
+  .team-detail-facts { gap: 1.25rem; }
+
+  .dashboard-grid { grid-template-columns: 1fr; }
+  .league-hero-title { font-size: 1.5rem; }
+  .position-board { grid-template-columns: 1fr; }
+  .position-board .position-column { border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+
+  /* Standings: switch from table to stacked cards below 700px */
+  .standings-table-wrap { display: none; }
+  .standings-cards { display: flex; }
+}
+
+@media (max-width: 900px) {
+  .bracket-col:not(:last-child) .bracket-slot::after,
+  .bracket-col:not(:first-child) .bracket-slot::before { display: none; }
+}
+
+/* ─── Phase 4A: Public Roster View ────────────────────────────────────────────── */
+
+/* Sidebar mini cap bar */
+.list-owner-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-cap-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cap-bar-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  flex: 1;
+}
+
+.cap-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.cap-bar-fill--ok   { background: var(--green, #2ecc71); }
+.cap-bar-fill--warn { background: #f0a500; }
+.cap-bar-fill--over { background: var(--red, #e74c3c); }
+
+.sidebar-rating {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.cap-over-text { color: var(--red, #e74c3c); font-weight: 700; }
+
+/* Detail panel cap bar */
+.roster-cap-section {
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface, #fff);
+}
+
+.cap-bar-wrap {
+  /* shared with admin — defined here for public page */
+}
+
+.cap-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.cap-bar-current {
+  font-weight: 700;
+}
+
+.cap-bar-cap {
+  color: var(--text-muted);
+}
+
+.cap-bar-track--detail {
+  height: 6px;
+}
+
+/* ─── Phase 7: Regular Season Schedule (shared public/admin) ─────────────── */
+.schedule-view { max-width: 780px; margin: 0 auto; }
+
+.round-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 1rem 0 1.25rem;
+}
+.round-tab {
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.round-tab:hover { color: var(--text); border-color: var(--border-light); }
+.round-tab.active { color: var(--accent); background: var(--accent-dim); border-color: var(--accent); }
+
+.matchup-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.matchup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+.matchup-row.bye { opacity: 0.6; }
+.matchup-row.completed { border-color: var(--border-light); }
+
+.matchup-teams { display: flex; align-items: center; gap: 0.5rem; flex: 1; min-width: 220px; }
+.matchup-teams .winner { font-weight: 800; color: var(--text); }
+.matchup-vs { color: var(--text-dim); font-size: 0.72rem; }
+
+.matchup-result { display: flex; align-items: center; gap: 0.75rem; }
+.matchup-score { font-weight: 700; font-variant-numeric: tabular-nums; }
+.matchup-streamer { font-size: 0.75rem; color: var(--text-muted); }
+
+.status-scheduled { background: #1a2035; color: #7a9ff5; }
+.status-bye { background: #22262f; color: var(--text-dim); }
+.matchup-card-status.status-complete { background: #1a2a20; color: #40d090; }
+
+/* ─── Phase 8: Standings ──────────────────────────────────────────────────── */
+.standings-view { max-width: 900px; margin: 0 auto; }
+
+.table-scroll { overflow-x: auto; }
+
+.standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+.standings-table th {
+  text-align: left;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.standings-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.standings-table tbody tr:hover { background: var(--bg-hover); }
+.standings-abbr { font-weight: 800; color: var(--accent); }
+.pd-pos { color: var(--green); }
+.pd-neg { color: var(--red); }
+
+.streamer-table td:last-child { font-weight: 700; }
+
+/* ─── Phase 9: Playoffs (shared public/admin) ─────────────────────────────── */
+.playoffs-view, .playoffs-admin { max-width: 820px; margin: 0 auto; }
+
+.champion-banner {
+  background: linear-gradient(90deg, #caa23a, #e8cf7a);
+  color: #2a2200;
+  font-weight: 800;
+  font-size: 1.05rem;
+  text-align: center;
+  padding: 0.85rem 1rem;
+  border-radius: var(--r-lg, var(--r));
+  margin: 0.75rem 0 1.25rem;
+}
+
+.playoff-pool-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.playoff-pool-card h4 { font-size: 0.85rem; margin-bottom: 0.5rem; }
+
+.playoff-item-list { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.playoff-item-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+}
+.playoff-item-card.completed { border-color: var(--border-light); }
+.playoff-item-card h5 { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.playoff-game-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border);
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.selection-choices { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }

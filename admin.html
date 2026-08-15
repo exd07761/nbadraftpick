@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2K League — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+
+  <!-- ── Login Screen (shown until auth is cleared) ───────────────────────── -->
+  <div id="loginScreen" class="login-screen">
+    <div class="login-card">
+      <div class="login-title">Admin Login</div>
+      <div class="login-subtitle">NBA 2K League — Commissioner Access</div>
+
+      <div class="login-warning">
+        ⚠ Phase 1 prototype: authentication is a UI stub only.
+        No real credentials are enforced until a backend is connected.
+        Do not use this for sensitive data.
+      </div>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="loginUsername">Username</label>
+          <input type="text" id="loginUsername" class="input" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" class="input" autocomplete="current-password" required>
+        </div>
+        <p id="loginError" class="error-text"></p>
+        <button type="submit" class="btn btn-primary" style="width:100%;margin-top:0.5rem">Sign In</button>
+      </form>
+
+      <p style="margin-top:1.5rem;font-size:0.75rem;color:var(--text-muted);text-align:center">
+        <a href="index.html">← Back to public site</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Admin Shell (hidden until login) ────────────────────────────────── -->
+  <div id="adminShell" class="hidden">
+
+    <header class="admin-header">
+      <div class="admin-header-inner">
+        <div class="admin-logo">NBA <span>2K</span> <em>Admin</em></div>
+        <nav class="admin-nav">
+          <a class="admin-nav-link" data-view="seasons" href="#">Seasons</a>
+          <a class="admin-nav-link" data-view="participants" href="#">Participants</a>
+          <a class="admin-nav-link" data-view="players" href="#">Players</a>
+          <a class="admin-nav-link" data-view="draftOrder" href="#">Draft Orders</a>
+          <a class="admin-nav-link" data-view="draft" href="#">Draft</a>
+          <a class="admin-nav-link" data-view="teamAssignment" href="#">Team Assignment</a>
+          <a class="admin-nav-link" data-view="roster" href="#">Rosters</a>
+          <a class="admin-nav-link" data-view="schedule" href="#">Schedule</a>
+          <a class="admin-nav-link" data-view="playoffs" href="#">Playoffs</a>
+          <a class="admin-nav-link" data-view="trades" href="#">Trades</a>
+        </nav>
+        <div class="admin-user">
+          <span id="adminUsername"></span>
+          <button id="btnLogout" class="btn btn-sm btn-ghost">Sign Out</button>
+          <a href="index.html" class="btn btn-sm btn-ghost">Public Site ↗</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="admin-main">
+      <div id="adminViewContainer"></div>
+    </main>
+
+  </div>
+
+  <!-- Data layer -->
+  <script src="js/data.js"></script>
+
+  <!-- Auth boundary (must load before admin views) -->
+  <script src="js/admin/auth-boundary.js"></script>
+
+  <!-- Shared utilities (escapeHtml, showToast, formatStatus) — public-router.js
+       is intentionally NOT loaded here; it references HomeView/TeamsView/etc.
+       which only exist on the public page. -->
+  <script src="js/shared-utils.js"></script>
+
+  <!-- Admin views -->
+  <script src="js/admin/seasons.js"></script>
+  <script src="js/admin/participants.js"></script>
+  <script src="js/admin/players.js"></script>
+  <script src="js/admin/draft-order.js"></script>
+  <script src="js/admin/draft.js"></script>
+  <script src="js/admin/team-assignment.js"></script>
+  <script src="js/admin/roster.js"></script>
+  <script src="js/admin/schedule.js"></script>
+  <script src="js/admin/playoffs.js"></script>
+  <script src="js/admin/trades.js"></script>
+
+  <!-- Admin router (must load after views) -->
+  <script src="js/admin.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,373 @@
+/**
+ * admin/players.js — Player database management + CSV import
+ *
+ * Phase 10.1: visual layer restyled to match the public Players page's
+ * 2K-Ratings-style position-column table (shared positionPoolGrid() in
+ * shared-utils.js). Sorting/search/delete/Add Player/CSV import behavior
+ * is unchanged — this file only changes how the pool contents render.
+ */
+const AdminPlayersView = {
+  _filter: '',
+  _sortMode: 'ovr-desc',
+  _activePool: 'green',
+
+  render(container) {
+    const allPlayers = LeagueData.getAllPlayers();
+    const unassignedCount = allPlayers.filter(p => !p.pool).length;
+
+    container.innerHTML = `
+      <div class="admin-section">
+        <div class="admin-section-header">
+          <h2>Player Database</h2>
+          <div class="header-actions">
+            <button class="btn btn-ghost" id="btnShowAddPlayer">+ Add Player</button>
+            <button class="btn btn-primary" id="btnShowImport">↑ Import CSV</button>
+          </div>
+        </div>
+
+        <!-- Add Player Form -->
+        <div id="addPlayerForm" class="card-form hidden">
+          <h3>Add Player</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="pName" class="input" placeholder="M. JORDAN or LEBRON JAMES (PRIME)">
+            </div>
+            <div class="form-group">
+              <label>Position</label>
+              <select id="pPos" class="input">
+                <option value="">—</option>
+                <option>PG</option><option>SG</option><option>SF</option>
+                <option>PF</option><option>C</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Overall</label>
+              <input type="number" id="pOvr" class="input" min="40" max="99" placeholder="99">
+            </div>
+            <div class="form-group">
+              <label>Pool</label>
+              <select id="pPool" class="input">
+                <option value="">—</option>
+                <option value="green">Green</option>
+                <option value="blue">Blue</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Variant Group <span class="muted" style="font-weight:400">(optional)</span></label>
+              <input type="text" id="pVariantGroup" class="input" placeholder="e.g. lebron-james">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="btnSavePlayer">Save Player</button>
+            <button class="btn btn-ghost" id="btnCancelPlayer">Cancel</button>
+          </div>
+        </div>
+
+        <!-- CSV Import -->
+        <div id="importForm" class="card-form hidden">
+          <h3>Import Players from CSV</h3>
+          <p class="helper-text">
+            Export your Google Sheet as CSV. Expected columns:
+            <code>name, position, overall, pool, variantGroup</code>
+            (header row required; pool and variantGroup are optional).
+            Column names are matched case-insensitively with extra spaces
+            ignored — "Name", "NAME", and " Name " all work. A few common
+            variants are also recognized: "Player Name" or "Player" for
+            name; "Pos" for position; "OVR" or "Rating" for overall;
+            "Group" or "Identity" for variantGroup. Pool must be
+            <code>green</code> or <code>blue</code> — any other value (or
+            blank) is left unassigned, never guessed.
+          </p>
+          <div class="csv-drop-zone" id="csvDropZone">
+            <span>Drop CSV file here or</span>
+            <label class="btn btn-ghost file-label">
+              Browse
+              <input type="file" id="csvFileInput" accept=".csv" class="hidden-input">
+            </label>
+          </div>
+          <div id="csvPreview" class="hidden"></div>
+          <div class="form-actions">
+            <button class="btn btn-primary hidden" id="btnConfirmImport">Import Players</button>
+            <button class="btn btn-ghost" id="btnCancelImport">Cancel</button>
+          </div>
+        </div>
+
+        <div class="player-db-header" style="margin-top:1.75rem;">
+          <p class="player-db-subtitle">
+            Green Pool are active NBA 2K26 players. Blue Pool are legendary and other prime versions.
+            ${unassignedCount ? `${unassignedCount} player(s) have no pool set and are not shown in either tab below — set Pool when adding/importing to bring them into view.` : ''}
+          </p>
+        </div>
+
+        <!-- Search + sort + count -->
+        <div class="table-controls">
+          <input type="text" id="playerSearch" class="input search-input"
+            placeholder="Search by name, position, or variant group…" value="${escapeHtml(this._filter)}">
+          <select id="sortMode" class="input" style="max-width:200px;">
+            <option value="ovr-desc" ${this._sortMode === 'ovr-desc' ? 'selected' : ''}>Sort: OVR (High–Low)</option>
+            <option value="ovr-asc" ${this._sortMode === 'ovr-asc' ? 'selected' : ''}>Sort: OVR (Low–High)</option>
+            <option value="name-asc" ${this._sortMode === 'name-asc' ? 'selected' : ''}>Sort: Name (A–Z)</option>
+          </select>
+          <span class="player-count">${allPlayers.length} players in database</span>
+        </div>
+
+        ${this._renderPoolTabs(allPlayers)}
+      </div>`;
+
+    // Wire up search
+    container.querySelector('#playerSearch').oninput = e => {
+      this._filter = e.target.value;
+      this._refreshPane(container);
+    };
+    container.querySelector('#sortMode').onchange = e => {
+      this._sortMode = e.target.value;
+      this._refreshPane(container);
+    };
+
+    this._bindFormEvents(container);
+    this._bindPoolTabEvents(container);
+    this._bindTableEvents(container);
+    this._bindImportEvents(container);
+  },
+
+  // ── Phase 10: Green Pool / Blue Pool tabs — no Unassigned tab is ever
+  // rendered (players with no pool still exist in data.js, just excluded
+  // from both tabs here; see the counter note above).
+  _renderPoolTabs(allPlayers) {
+    const green = allPlayers.filter(p => p.pool === 'green');
+    const blue = allPlayers.filter(p => p.pool === 'blue');
+    const active = this._activePool;
+    return `
+      <div class="pool-tabs">
+        <button type="button" class="pool-tab pool-tab-green ${active === 'green' ? 'active' : ''}" data-pool="green">
+          <span class="pool-dot"></span> Green Pool <span class="pool-tab-count">${green.length}</span>
+        </button>
+        <button type="button" class="pool-tab pool-tab-blue ${active === 'blue' ? 'active' : ''}" data-pool="blue">
+          <span class="pool-dot"></span> Blue Pool <span class="pool-tab-count">${blue.length}</span>
+        </button>
+      </div>
+      <div id="poolPaneWrapper">
+        ${this._renderGrid(active === 'green' ? green : blue)}
+      </div>`;
+  },
+
+  _refreshPane(container) {
+    const allPlayers = LeagueData.getAllPlayers();
+    const pool = this._activePool;
+    const poolPlayers = allPlayers.filter(p => p.pool === pool);
+    container.querySelector('#poolPaneWrapper').innerHTML = this._renderGrid(poolPlayers);
+    this._bindTableEvents(container);
+  },
+
+  _bindPoolTabEvents(container) {
+    container.querySelectorAll('.pool-tab').forEach(tab => {
+      tab.onclick = () => {
+        this._activePool = tab.dataset.pool;
+        container.querySelectorAll('.pool-tab').forEach(t => t.classList.toggle('active', t === tab));
+        this._refreshPane(container);
+      };
+    });
+  },
+
+  _applyFilter(players) {
+    const q = this._filter.toLowerCase();
+    if (!q) return players;
+    return players.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.position || '').toLowerCase().includes(q) ||
+      (p.variantGroup || '').toLowerCase().includes(q)
+    );
+  },
+
+  _renderGrid(players) {
+    const filtered = this._applyFilter(players);
+    const entries = filtered.map(player => ({ player })); // admin view: no drafted-status overlay
+    return positionPoolGrid(entries, this._activePool, { admin: true, sortMode: this._sortMode });
+  },
+
+  _bindTableEvents(container) {
+    container.querySelectorAll('[data-action="deletePlayer"]').forEach(btn => {
+      btn.onclick = () => {
+        AuthBoundary.requireAuth();
+        const { id, name } = btn.dataset;
+        if (!confirm(`Delete player "${name}"?`)) return;
+        AdminActions.deletePlayer(id);
+        showToast(`${name} deleted.`, 'success');
+        AdminApp.renderView('players');
+      };
+    });
+  },
+
+  _bindFormEvents(container) {
+    container.querySelector('#btnShowAddPlayer').onclick = () => {
+      container.querySelector('#addPlayerForm').classList.remove('hidden');
+      container.querySelector('#importForm').classList.add('hidden');
+    };
+    container.querySelector('#btnCancelPlayer').onclick = () => {
+      container.querySelector('#addPlayerForm').classList.add('hidden');
+    };
+    container.querySelector('#btnSavePlayer').onclick = () => {
+      AuthBoundary.requireAuth();
+      const name = container.querySelector('#pName').value.trim();
+      const position = container.querySelector('#pPos').value;
+      const overall = parseInt(container.querySelector('#pOvr').value, 10);
+      const pool = container.querySelector('#pPool').value; // '', 'green', or 'blue'
+      const variantGroup = container.querySelector('#pVariantGroup').value.trim();
+      if (!name) { showToast('Player name required.', 'error'); return; }
+      if (isNaN(overall) || overall < 40 || overall > 99) { showToast('Overall must be 40–99.', 'error'); return; }
+      AdminActions.addPlayer({ name, position, overall, pool, variantGroup });
+      showToast(`${name} added.`, 'success');
+      AdminApp.renderView('players');
+    };
+  },
+
+  _bindImportEvents(container) {
+    let _parsedRows = [];
+
+    container.querySelector('#btnShowImport').onclick = () => {
+      container.querySelector('#importForm').classList.remove('hidden');
+      container.querySelector('#addPlayerForm').classList.add('hidden');
+    };
+    container.querySelector('#btnCancelImport').onclick = () => {
+      container.querySelector('#importForm').classList.add('hidden');
+      _parsedRows = [];
+    };
+
+    const handleFile = file => {
+      if (!file || !file.name.endsWith('.csv')) {
+        showToast('Please select a .csv file.', 'error'); return;
+      }
+      const reader = new FileReader();
+      reader.onload = e => {
+        _parsedRows = parseCSV(e.target.result);
+        const preview = container.querySelector('#csvPreview');
+        const importBtn = container.querySelector('#btnConfirmImport');
+
+        if (!_parsedRows.length) {
+          preview.innerHTML = `<p class="error-text">No valid rows found.</p>`;
+          preview.classList.remove('hidden');
+          importBtn.classList.add('hidden');
+          return;
+        }
+
+        const sample = _parsedRows.slice(0, 5);
+        preview.innerHTML = `
+          <p class="helper-text">${_parsedRows.length} row(s) found. Preview (first 5):</p>
+          <table class="admin-table">
+            <thead><tr><th>Name</th><th>Pos</th><th>OVR</th><th>Pool</th><th>Variant Group</th></tr></thead>
+            <tbody>
+              ${sample.map(r => {
+                // Same header normalization the importer uses, so the
+                // preview shown here matches what actually gets imported.
+                const p = previewFields(r);
+                return `
+                <tr>
+                  <td>${escapeHtml(p.name)}</td>
+                  <td>${escapeHtml(p.position)}</td>
+                  <td>${escapeHtml(p.overall)}</td>
+                  <td>${escapeHtml(p.pool || '—')}</td>
+                  <td>${escapeHtml(p.variantGroup || '—')}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`;
+        preview.classList.remove('hidden');
+        importBtn.classList.remove('hidden');
+      };
+      reader.readAsText(file);
+    };
+
+    container.querySelector('#csvFileInput').onchange = e => handleFile(e.target.files[0]);
+
+    const dropZone = container.querySelector('#csvDropZone');
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      handleFile(e.dataTransfer.files[0]);
+    });
+
+    container.querySelector('#btnConfirmImport').onclick = () => {
+      AuthBoundary.requireAuth();
+      if (!_parsedRows.length) return;
+      const result = AdminActions.importPlayersFromCSV(_parsedRows);
+      showToast(`Imported ${result.imported} players. Skipped ${result.skipped}.`, 'success');
+      if (result.errors.length) {
+        console.warn('Import errors:', result.errors);
+      }
+      AdminApp.renderView('players');
+    };
+  },
+};
+
+/**
+ * Preview-only header normalization, mirroring AdminActions.importPlayersFromCSV
+ * in data.js so the preview table matches what will actually be imported.
+ * Kept intentionally small and duplicated rather than shared across files —
+ * this project uses plain <script> tags with no module system.
+ */
+function previewFields(row) {
+  const normalized = {};
+  for (const key in row) {
+    normalized[key.toLowerCase().trim()] = row[key];
+  }
+  const pick = (...aliases) => {
+    for (const a of aliases) {
+      if (normalized[a] !== undefined) return normalized[a];
+    }
+    return '';
+  };
+  return {
+    name: String(pick('name', 'player name', 'player') || '').trim(),
+    position: String(pick('position', 'pos') || '').trim().toUpperCase(),
+    overall: String(pick('overall', 'ovr', 'rating') || '').trim(),
+    pool: String(pick('pool') || '').trim().toLowerCase(),
+    variantGroup: String(pick('variantgroup', 'variant group', 'group', 'identity') || '').trim(),
+  };
+}
+
+/**
+ * Minimal CSV parser.
+ * Handles quoted fields and standard comma-delimited files.
+ * For robust production use, replace with a library like PapaParse.
+ */
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/);
+  if (lines.length < 2) return [];
+
+  const headers = splitCSVRow(lines[0]).map(h => h.trim());
+  const rows = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const values = splitCSVRow(line);
+    const row = {};
+    headers.forEach((h, idx) => {
+      row[h] = (values[idx] || '').trim();
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+function splitCSVRow(line) {
+  const result = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
