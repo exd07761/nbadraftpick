@@ -6,11 +6,10 @@
  * Write functions are clearly marked and called only from admin context,
  * behind the auth boundary in auth-boundary.js.
  *
- * Storage: localStorage key "nba2k_league"
- * Future: replace loadData/saveData with API calls to backend.
+ * Storage: Firestore, collection "league" doc "main" — see the
+ * FirebaseSync module below. Requires js/firebase-config.js (Firebase SDK
+ * init) to have already run before this file loads.
  */
-
-const STORAGE_KEY = "nba2k_league";
 
 // ─── NBA Teams (static reference data) ───────────────────────────────────────
 
@@ -842,26 +841,134 @@ function getDefaultData() {
   };
 }
 
-// ─── Storage (localStorage — replace with API calls in backend phase) ─────────
+// ─── Storage (Firestore-backed, single-document sync) ─────────────────────
+//
+// This app has always stored its entire state as one JSON blob under a
+// single key (localStorage key "nba2k_league"). To keep every existing
+// LeagueData/AdminActions function — and every view file that calls them —
+// completely unchanged, this replaces ONLY what's inside loadData()/
+// saveData() with a Firestore-backed in-memory cache, kept current by a
+// real-time onSnapshot listener. The single-JSON-document shape is
+// preserved exactly (collection "league", doc "main") rather than
+// splitting into Firestore subcollections, which would require touching
+// every read/write function individually for no real benefit at this data
+// size — see FIREBASE_SETUP.md.
+//
+// Bootstrap: index.html / admin.html must call `FirebaseSync.init()` and
+// wait for `FirebaseSync.ready` before any view renders (see admin.js /
+// public-router.js) — loadData() has nothing to return before the first
+// snapshot arrives.
+//
+// Concurrency note: saveData() always writes the FULL current document
+// (matching the app's existing "load, mutate in memory, save whole thing
+// back" pattern throughout AdminActions). Two admins saving at the same
+// moment is last-write-wins, same risk profile as the original
+// localStorage version had across browser tabs — acceptable for this
+// app's single-commissioner-at-a-time usage; flagged here rather than
+// silently shipped.
+
+const FirebaseSync = (() => {
+  let _cache = null; // latest known full data blob (or null before the first snapshot)
+  let _unsubscribe = null;
+  let _readyResolve;
+  const ready = new Promise((resolve) => { _readyResolve = resolve; });
+  const remoteChangeListeners = [];
+
+  function docRef() {
+    return firebase.firestore().collection("league").doc("main");
+  }
+
+  function init() {
+    if (_unsubscribe) return ready; // already initialized — safe to call more than once
+
+    try {
+      // Offline persistence: lets the app keep working (read-only, from the
+      // last-known cache) on a dropped connection. Non-fatal if it can't be
+      // enabled (e.g. private browsing, or already enabled in another tab
+      // without synchronizeTabs).
+      firebase.firestore().enablePersistence({ synchronizeTabs: true }).catch((err) => {
+        console.warn("[FirebaseSync] Offline persistence not enabled:", err.code || err);
+      });
+    } catch (e) {
+      // enablePersistence() throws if called more than once across the app's
+      // lifetime (e.g. hot reload during dev) — safe to ignore.
+    }
+
+    _unsubscribe = docRef().onSnapshot(
+      (snap) => {
+        const isFirstLoad = _cache === null;
+        if (snap.exists) {
+          _cache = snap.data();
+        } else {
+          // First-ever run against a brand-new Firestore project: seed the
+          // document so subsequent writes have something to merge into.
+          _cache = getDefaultData();
+          docRef().set(_cache).catch((e) =>
+            console.error("[FirebaseSync] Failed to seed initial document:", e)
+          );
+        }
+        if (isFirstLoad) {
+          _readyResolve();
+        } else if (!snap.metadata.hasPendingWrites) {
+          // hasPendingWrites is true for this tab's own optimistic write
+          // echoing back — skip those (already reflected locally) and only
+          // notify on changes that genuinely came from elsewhere (another
+          // admin, another device/tab), so the UI can refresh to show them.
+          remoteChangeListeners.forEach((fn) => {
+            try { fn(_cache); } catch (e) { console.error("[FirebaseSync] remote-change listener error:", e); }
+          });
+        }
+      },
+      (err) => {
+        console.error("[FirebaseSync] Firestore listener error:", err);
+        if (_cache === null) {
+          // Never got a first snapshot (offline with nothing cached yet, or
+          // a rules/permission problem) — fall back to empty local data so
+          // the app is at least usable rather than stuck on a loading screen.
+          _cache = getDefaultData();
+          _readyResolve();
+        }
+      }
+    );
+    return ready;
+  }
+
+  return {
+    ready,
+    init,
+    getCache() {
+      return _cache;
+    },
+    save(data) {
+      _cache = data; // optimistic local update, synchronous — see saveData() below
+      docRef().set(data).catch((err) => {
+        console.error("[FirebaseSync] Cloud save failed:", err);
+        if (typeof showToast === "function") {
+          showToast("Saved locally, but the cloud sync failed — check your connection.", "error");
+        }
+      });
+    },
+    onRemoteChange(fn) {
+      remoteChangeListeners.push(fn);
+    },
+  };
+})();
 
 function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return getDefaultData();
-    return JSON.parse(raw);
-  } catch (e) {
-    console.error("Failed to load league data:", e);
-    return getDefaultData();
-  }
+  const cache = FirebaseSync.getCache();
+  if (!cache) return getDefaultData();
+  // Deep clone on every call — every caller must get an independent copy,
+  // exactly like the old JSON.parse(localStorage.getItem(...)) did. This is
+  // load-bearing: AdminActions functions do `const data = loadData(); ...
+  // mutate in place ...; if (invalid) throw;` and rely on an early throw
+  // never touching shared state. Returning a live reference to the cache
+  // here would let a function that mutates-then-throws permanently corrupt
+  // data nothing ever actually saved.
+  return JSON.parse(JSON.stringify(cache));
 }
 
 function saveData(data) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error("Failed to save league data:", e);
-    throw new Error("Storage write failed. Data not saved.");
-  }
+  FirebaseSync.save(data);
 }
 
 // ─── ID Generation ────────────────────────────────────────────────────────────
@@ -2760,9 +2867,10 @@ const AdminActions = {
     return { imported, skipped, errors };
   },
 
-  // Dev/debug only — wipe all data
+  // Dev/debug only — wipe all data (Firestore doc + local cache)
   _resetAllData() {
-    localStorage.removeItem(STORAGE_KEY);
+    const fresh = getDefaultData();
+    saveData(fresh);
   },
 };
 

@@ -10,25 +10,25 @@
 </head>
 <body>
 
+  <!-- ── Boot loading (shown until the first Firestore snapshot arrives) ──── -->
+  <div id="bootLoading" class="boot-loading">
+    <div class="boot-loading-spinner"></div>
+    <p>Loading…</p>
+  </div>
+
   <header class="site-header">
     <div class="header-inner">
       <div class="site-logo">NBA <span>2K</span> ASPAKAN</div>
-      <input type="checkbox" id="navToggle" class="nav-toggle-input">
-      <label for="navToggle" class="nav-toggle-btn" aria-label="Toggle navigation">
-        <span></span><span></span><span></span>
-      </label>
-      <div class="site-header-menu">
-        <nav class="site-nav">
-          <a class="nav-link" data-route="home" href="#home">Home</a>
-          <a class="nav-link" data-route="schedule" href="#schedule">Schedule</a>
-          <a class="nav-link" data-route="standings" href="#standings">Standings</a>
-          <a class="nav-link" data-route="players" href="#players">Players</a>
-          <a class="nav-link" data-route="playoffs" href="#playoffs">Playoffs</a>
-          <a class="nav-link" data-route="rosters" href="#rosters">Rosters</a>
-        </nav>
-        <div class="header-right">
-          <a class="admin-link" href="admin.html">Admin ↗</a>
-        </div>
+      <nav class="site-nav">
+        <a class="nav-link" data-route="home" href="#home">Home</a>
+        <a class="nav-link" data-route="schedule" href="#schedule">Schedule</a>
+        <a class="nav-link" data-route="standings" href="#standings">Standings</a>
+        <a class="nav-link" data-route="players" href="#players">Players</a>
+        <a class="nav-link" data-route="playoffs" href="#playoffs">Playoffs</a>
+        <a class="nav-link" data-route="rosters" href="#rosters">Rosters</a>
+      </nav>
+      <div class="header-right">
+        <a class="admin-link" href="admin.html">Admin ↗</a>
       </div>
     </div>
   </header>
@@ -36,6 +36,14 @@
   <main class="main-content">
     <div id="viewContainer"></div>
   </main>
+
+  <!-- Firebase SDK (compat build — see admin.html for why compat, not
+       modules). Must load first: data.js uses the `firebase` global
+       firebase-config.js sets up. Public site: read-only, no auth SDK
+       piece needed here, but the same config file is reused as-is. -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
 
   <!-- Data layer (read-only public access) -->
   <script src="js/data.js"></script>

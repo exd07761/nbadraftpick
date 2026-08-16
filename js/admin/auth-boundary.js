@@ -5,102 +5,85 @@
  * This module defines the authentication boundary between public read access
  * and authenticated admin write access.
  *
- * PHASE 1 STATUS: STUB — No real authentication exists yet.
+ * STATUS: Real authentication via Firebase Authentication (email/password).
+ * This replaces the Phase 1 in-memory stub — there is no more
+ * `devUnlock()`, and login no longer accepts arbitrary input.
  *
- * ─── SECURITY NOTICE ──────────────────────────────────────────────────────────
+ * Requires js/firebase-config.js to have already run (this file uses the
+ * `firebase` global it sets up) — load order: firebase-config.js →
+ * data.js → auth-boundary.js → everything else.
  *
- * There is NO secure authentication in this phase.
- * DO NOT store an admin password in this file.
- * DO NOT trust any localStorage value as proof of identity.
- * DO NOT implement if (password === "hardcodedValue").
+ * This app has exactly one admin role (the commissioner) and no
+ * per-user permission system — there is one Firebase Auth account (or a
+ * small handful, if more than one person needs commissioner access), and
+ * "signed in" IS "authenticated as admin". Real per-role authorization,
+ * if ever needed, would layer on top of this via Firestore's
+ * `request.auth.uid` in firestore.rules, not here.
  *
- * The admin UI is separated from the public UI at the page level (admin.html),
- * but this is a UX boundary, not a security boundary, until a real backend
- * is implemented.
+ * The actual enforcement boundary against bad writes is firestore.rules
+ * (`allow write: if request.auth != null`) — requireAuth() below is a
+ * fast client-side guard so the UI fails clearly before ever attempting a
+ * write that Firestore would reject anyway.
  *
- * All write operations in AdminActions (data.js) are protected by this guard.
- * In production, this guard checks a real server-issued session token.
- *
- * ─── WHAT THE BACKEND MUST PROVIDE ───────────────────────────────────────────
- *
- * 1. POST /api/auth/login
- *    Body: { username, password }
- *    Response: Set-Cookie with HttpOnly session cookie (or return a JWT)
- *    On success: { ok: true }
- *    On failure: { ok: false, error: "Invalid credentials" }
- *
- * 2. POST /api/auth/logout
- *    Clears the session cookie.
- *
- * 3. GET /api/auth/me
- *    Returns the current authenticated user or 401.
- *    Response: { id, username, role: "admin" } or 401
- *
- * 4. All admin API endpoints must require the session cookie / JWT header
- *    and return 401 if not authenticated.
- *
- * 5. Public read endpoints (GET /api/seasons, /api/players, etc.) require
- *    no authentication.
- *
- * ─── CURRENT PHASE 1 BEHAVIOR ────────────────────────────────────────────────
- *
- * The admin page shows a login form that simulates the future POST /api/auth/login
- * call. In Phase 1, it accepts a session flag stored ONLY in memory (not
- * localStorage) for the duration of the page session.
- *
- * This is explicitly NOT SECURE. It is a UI prototype scaffold.
- * Any user who opens admin.html and knows to call AuthBoundary.devUnlock()
- * in the console can access admin functions.
- *
- * This is acceptable ONLY because:
- * - No real data is at risk (localStorage prototype)
- * - The architecture is already designed for real auth replacement
- * - The public site (index.html) has no write access regardless
+ * Creating the commissioner's login: Firebase Console → Authentication →
+ * Sign-in method → enable "Email/Password" → Users tab → Add user. See
+ * FIREBASE_SETUP.md.
  */
 
 const AuthBoundary = (() => {
-  // In-memory only. Not persisted. Cleared on page reload.
-  // Replace with a check against a real session cookie/JWT in production.
-  let _sessionActive = false;
-  let _currentUser = null;
+  let _currentUser = null; // { uid, username } — username holds the account's email
+  let _authStateKnown = false;
+  const authStateListeners = [];
+
+  firebase.auth().onAuthStateChanged((user) => {
+    _currentUser = user ? { uid: user.uid, username: user.email, role: "admin" } : null;
+    _authStateKnown = true;
+    authStateListeners.forEach((fn) => {
+      try { fn(_currentUser); } catch (e) { console.error("[AuthBoundary] auth-state listener error:", e); }
+    });
+  });
+
+  function friendlyAuthError(err) {
+    switch (err.code) {
+      case "auth/invalid-email":
+        return "That doesn't look like a valid email address.";
+      case "auth/user-not-found":
+      case "auth/wrong-password":
+      case "auth/invalid-credential":
+        return "Incorrect email or password.";
+      case "auth/too-many-requests":
+        return "Too many attempts — please wait a moment and try again.";
+      case "auth/network-request-failed":
+        return "Network error — check your connection and try again.";
+      default:
+        return err.message || "Login failed.";
+    }
+  }
 
   return {
     /**
-     * Attempt login. In Phase 1: accepts any non-empty input and sets the
-     * in-memory session flag. This MUST be replaced with a real API call.
-     *
-     * Future implementation:
-     *   const res = await fetch('/api/auth/login', {
-     *     method: 'POST',
-     *     credentials: 'include',
-     *     headers: { 'Content-Type': 'application/json' },
-     *     body: JSON.stringify({ username, password })
-     *   });
-     *   return res.json();
+     * Sign in with a Firebase Auth email/password account (created in the
+     * Firebase Console — see FIREBASE_SETUP.md). The admin login form's
+     * "username" field is the account's email address.
      */
-    async login(username, password) {
-      // ⚠️ PHASE 1 STUB — Replace entirely with real API call
-      if (!username || !password) {
-        return { ok: false, error: "Username and password required." };
+    async login(email, password) {
+      if (!email || !password) {
+        return { ok: false, error: "Email and password required." };
       }
-      // TODO: remove this stub and call POST /api/auth/login
-      console.warn(
-        "[AuthBoundary] PHASE 1 STUB: No real authentication. " +
-        "Replace login() with a real API call before production."
-      );
-      _sessionActive = true;
-      _currentUser = { username, role: "admin" };
-      return { ok: true };
+      try {
+        await firebase.auth().signInWithEmailAndPassword(email, password);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: friendlyAuthError(err) };
+      }
     },
 
-    logout() {
-      _sessionActive = false;
-      _currentUser = null;
-      // Future: POST /api/auth/logout, clear cookie
+    async logout() {
+      await firebase.auth().signOut();
     },
 
     isAuthenticated() {
-      return _sessionActive;
+      return !!_currentUser;
     },
 
     getCurrentUser() {
@@ -108,25 +91,37 @@ const AuthBoundary = (() => {
     },
 
     /**
-     * Guard function. Wrap all AdminActions calls with this.
-     * In production this also verifies the server-side session.
+     * Resolves once Firebase has determined the REAL initial auth state on
+     * page load (signed in or not — Firebase persists sessions across
+     * reloads by default, unlike the old Phase 1 stub, which always forced
+     * a fresh login every reload). admin.js awaits this before deciding
+     * whether to show the login screen or go straight to the admin shell.
      */
-    requireAuth() {
-      if (!_sessionActive) {
-        throw new Error("UNAUTHORIZED: Admin authentication required.");
-      }
+    ready() {
+      return new Promise((resolve) => {
+        if (_authStateKnown) return resolve(this.isAuthenticated());
+        const unsub = firebase.auth().onAuthStateChanged((user) => {
+          unsub();
+          resolve(!!user);
+        });
+      });
+    },
+
+    /** Fires on every subsequent sign-in/sign-out (not the initial load — see ready()). */
+    onAuthStateChanged(fn) {
+      authStateListeners.push(fn);
     },
 
     /**
-     * Dev convenience only. Not for production.
-     * Allows testing admin UI without a backend.
+     * Guard function. Wrap all AdminActions calls with this. The real
+     * enforcement is firestore.rules — this is a fast client-side check so
+     * the UI fails with a clear message instead of a raw Firestore
+     * permission-denied error.
      */
-    devUnlock() {
-      console.warn(
-        "[AuthBoundary] devUnlock() called. This must not exist in production."
-      );
-      _sessionActive = true;
-      _currentUser = { username: "dev", role: "admin" };
+    requireAuth() {
+      if (!_currentUser) {
+        throw new Error("UNAUTHORIZED: Admin authentication required.");
+      }
     },
   };
 })();

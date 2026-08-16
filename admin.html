@@ -11,22 +11,22 @@
 </head>
 <body>
 
+  <!-- ── Boot loading (shown until Firestore + Firebase Auth resolve) ─────── -->
+  <div id="bootLoading" class="boot-loading">
+    <div class="boot-loading-spinner"></div>
+    <p>Connecting…</p>
+  </div>
+
   <!-- ── Login Screen (shown until auth is cleared) ───────────────────────── -->
-  <div id="loginScreen" class="login-screen">
+  <div id="loginScreen" class="login-screen hidden">
     <div class="login-card">
       <div class="login-title">Admin Login</div>
       <div class="login-subtitle">NBA 2K League — Commissioner Access</div>
 
-      <div class="login-warning">
-        ⚠ Phase 1 prototype: authentication is a UI stub only.
-        No real credentials are enforced until a backend is connected.
-        Do not use this for sensitive data.
-      </div>
-
       <form id="loginForm">
         <div class="form-group">
-          <label for="loginUsername">Username</label>
-          <input type="text" id="loginUsername" class="input" autocomplete="username" required>
+          <label for="loginUsername">Email</label>
+          <input type="email" id="loginUsername" class="input" autocomplete="username" required>
         </div>
         <div class="form-group">
           <label for="loginPassword">Password</label>
@@ -48,28 +48,22 @@
     <header class="admin-header">
       <div class="admin-header-inner">
         <div class="admin-logo">NBA <span>2K</span> <em>Admin</em></div>
-        <input type="checkbox" id="adminNavToggle" class="nav-toggle-input">
-        <label for="adminNavToggle" class="nav-toggle-btn" aria-label="Toggle navigation">
-          <span></span><span></span><span></span>
-        </label>
-        <div class="admin-header-menu">
-          <nav class="admin-nav">
-            <a class="admin-nav-link" data-view="seasons" href="#">Seasons</a>
-            <a class="admin-nav-link" data-view="participants" href="#">Participants</a>
-            <a class="admin-nav-link" data-view="players" href="#">Players</a>
-            <a class="admin-nav-link" data-view="draftOrder" href="#">Draft Orders</a>
-            <a class="admin-nav-link" data-view="draft" href="#">Draft</a>
-            <a class="admin-nav-link" data-view="teamAssignment" href="#">Team Assignment</a>
-            <a class="admin-nav-link" data-view="roster" href="#">Rosters</a>
-            <a class="admin-nav-link" data-view="schedule" href="#">Schedule</a>
-            <a class="admin-nav-link" data-view="playoffs" href="#">Playoffs</a>
-            <a class="admin-nav-link" data-view="trades" href="#">Trades</a>
-          </nav>
-          <div class="admin-user">
-            <span id="adminUsername"></span>
-            <button id="btnLogout" class="btn btn-sm btn-ghost">Sign Out</button>
-            <a href="index.html" class="btn btn-sm btn-ghost">Public Site ↗</a>
-          </div>
+        <nav class="admin-nav">
+          <a class="admin-nav-link" data-view="seasons" href="#">Seasons</a>
+          <a class="admin-nav-link" data-view="participants" href="#">Participants</a>
+          <a class="admin-nav-link" data-view="players" href="#">Players</a>
+          <a class="admin-nav-link" data-view="draftOrder" href="#">Draft Orders</a>
+          <a class="admin-nav-link" data-view="draft" href="#">Draft</a>
+          <a class="admin-nav-link" data-view="teamAssignment" href="#">Team Assignment</a>
+          <a class="admin-nav-link" data-view="roster" href="#">Rosters</a>
+          <a class="admin-nav-link" data-view="schedule" href="#">Schedule</a>
+          <a class="admin-nav-link" data-view="playoffs" href="#">Playoffs</a>
+          <a class="admin-nav-link" data-view="trades" href="#">Trades</a>
+        </nav>
+        <div class="admin-user">
+          <span id="adminUsername"></span>
+          <button id="btnLogout" class="btn btn-sm btn-ghost">Sign Out</button>
+          <a href="index.html" class="btn btn-sm btn-ghost">Public Site ↗</a>
         </div>
       </div>
     </header>
@@ -79,6 +73,16 @@
     </main>
 
   </div>
+
+  <!-- Firebase SDK (compat build — keeps the classic firebase.xxx() global
+       API, matching how the rest of this app uses plain script-tag globals
+       rather than ES modules). Must load first: data.js and
+       auth-boundary.js both use the `firebase` global firebase-config.js
+       sets up. -->
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
 
   <!-- Data layer -->
   <script src="js/data.js"></script>
