@@ -13,6 +13,12 @@
  * Depends on shared-utils.js being loaded first for escapeHtml/showToast/
  * formatStatus, but does not itself define any shared utilities — see
  * shared-utils.js for those.
+ *
+ * Bootstrap (Firebase integration): FirebaseSync (data.js) resolves
+ * asynchronously on first page load — loadData() has nothing to return
+ * before its first Firestore snapshot arrives, so the initial navigate()
+ * call is held until FirebaseSync.init() resolves. See #bootLoading in
+ * index.html.
  */
 
 const routes = {
@@ -46,7 +52,7 @@ function navigate(route) {
   view.render(container);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   // Nav click handlers
   document.querySelectorAll('.nav-link').forEach(el => {
     el.addEventListener('click', e => {
@@ -57,6 +63,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const navToggle = document.getElementById('navToggle');
       if (navToggle) navToggle.checked = false;
     });
+  });
+
+  const bootEl = document.getElementById('bootLoading');
+  await FirebaseSync.init();
+  if (bootEl) bootEl.classList.add('hidden');
+
+  // Live updates: when an admin saves a change (a trade, a score, a new
+  // draft pick...), Firestore pushes it here too — re-render whatever
+  // public page is currently open so visitors see it without refreshing.
+  FirebaseSync.onRemoteChange(() => {
+    if (currentRoute) navigate(currentRoute);
   });
 
   // Route from hash or default
