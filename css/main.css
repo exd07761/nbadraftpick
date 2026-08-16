@@ -611,13 +611,19 @@ a:hover { color: var(--accent-hover); }
 .pos-table-columns-head { grid-template-columns: 1.6rem 1fr 2.4rem; }
 .pos-table-row { grid-template-columns: 1.6rem 1fr 2.4rem; }
 .pos-table-admin .pos-table-columns-head,
-.pos-table-admin .pos-table-row { grid-template-columns: 1.6rem 1fr 2.4rem 1.6rem; }
+.pos-table-admin .pos-table-row { grid-template-columns: 1.6rem 1fr 2.4rem 1.6rem 1.6rem; }
 
 .pos-row-delete {
   background: none; border: none; color: var(--text-dim); font-size: 1rem; line-height: 1;
   cursor: pointer; padding: 0.1rem 0.3rem; border-radius: 4px; transition: color 0.12s, background 0.12s;
 }
 .pos-row-delete:hover { color: var(--red); background: rgba(231,76,60,0.1); }
+
+.pos-row-edit {
+  background: none; border: none; color: var(--text-dim); font-size: 0.85rem; line-height: 1;
+  cursor: pointer; padding: 0.1rem 0.3rem; border-radius: 4px; transition: color 0.12s, background 0.12s;
+}
+.pos-row-edit:hover { color: var(--accent); background: var(--accent-dim); }
 
 
 /* ─── Position Board (draft/players grouping by PG/SG/SF/PF/C) ───────────── */

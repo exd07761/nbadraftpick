@@ -824,6 +824,37 @@ function createPlayer(id, { name, position, overall, pool, variantGroup }) {
   };
 }
 
+/**
+ * Normalizes a player `name` into a comparison key used to detect
+ * duplicate players (CSV import — see importPlayersFromCSV).
+ *
+ * WHY `name` IS THE IDENTITY: the player schema (see createPlayer above)
+ * has no separate "real world person" identifier — `id` is a randomly
+ * generated storage key (see generateId), not an identity a CSV could
+ * ever supply, and `variantGroup` intentionally does the OPPOSITE of
+ * identifying a single player: it groups multiple *distinct* rows
+ * ("LEBRON JAMES (CLE)", "LEBRON JAMES (MIA)", "LEBRON JAMES (PRIME)")
+ * that are meant to coexist as separate entries. `name` — including any
+ * team/era qualifier baked into it — is therefore the only field stable
+ * enough to answer "is this the same player row as one we already have".
+ *
+ * Normalization only smooths over incidental text differences, never
+ * semantic ones:
+ *   - trims leading/trailing whitespace
+ *   - collapses internal whitespace runs ("Stephen   Curry") to one space
+ *   - lowercases
+ * "LEBRON JAMES (CLE)" and "LEBRON JAMES (MIA)" still normalize to two
+ * different keys (different text), so legitimate variants and two
+ * unrelated people who happen to share a plain name are never merged —
+ * only truly identical names (module whitespace/casing) collide.
+ * `position`/`overall`/`pool` are deliberately NOT part of this key: a
+ * re-imported row for an existing player with a corrected rating should
+ * still be recognized as the same player, not treated as a new one.
+ */
+function normalizePlayerName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
 // ─── Root Data Structure ──────────────────────────────────────────────────────
 
 function getDefaultData() {
@@ -2788,6 +2819,30 @@ const AdminActions = {
   },
 
   /**
+   * Deletes every player from the global player database ONLY.
+   * Reuses the existing load-mutate-save-whole-document pattern (see the
+   * Storage section above) — every other top-level key on `data`
+   * (seasons, settings, etc.) is loaded and re-saved completely
+   * untouched, so seasons/participants/draft history/rosters/standings/
+   * schedules are never affected by this call.
+   *
+   * Callers (see AdminPlayersView._confirmDeleteAllPlayers in
+   * admin/players.js) are responsible for the destructive-action
+   * confirmation flow — this function performs the deletion with no
+   * further checks beyond the caller having already passed
+   * AuthBoundary.requireAuth().
+   *
+   * Returns the number of players that were deleted.
+   */
+  deleteAllPlayers() {
+    const data = loadData();
+    const count = Object.keys(data.players).length;
+    data.players = {};
+    saveData(data);
+    return count;
+  },
+
+  /**
    * Import players from parsed CSV rows.
    *
    * Column headers are matched case-insensitively and with surrounding
@@ -2796,14 +2851,47 @@ const AdminActions = {
    * "Player Name" for the name column. See FIELD_ALIASES below for the
    * exact list of recognized header text per field.
    *
-   * Duplicate names are allowed — each import gets a unique ID.
-   * Returns { imported, skipped, errors }
+   * Duplicate validation (against normalizePlayerName — see that
+   * function for why `name` is the player identity):
+   *   - a row whose normalized name matches a player already in the
+   *     database is skipped and reported under skippedExistingNames
+   *   - a row whose normalized name matches an EARLIER row in this same
+   *     CSV (e.g. "Stephen Curry" listed twice) is skipped and reported
+   *     under skippedDuplicateInCsvNames — only the first occurrence is
+   *     imported
+   * Both checks run against the full in-memory data set loaded at the
+   * start of this call and are applied synchronously before saveData()
+   * writes the single Firestore document back, so there's no window for
+   * a second in-flight import in the same tab to race this one; see the
+   * Storage section above for the accepted last-write-wins risk across
+   * two admins saving at literally the same moment (unchanged/pre-existing).
+   *
+   * Returns { imported, skippedExisting, skippedDuplicateInCsv,
+   *   skippedInvalid, skipped, skippedExistingNames,
+   *   skippedDuplicateInCsvNames, errors, notes }
+   * `skipped` is the sum of the three skip counts, kept for callers that
+   * only care about a total.
    */
   importPlayersFromCSV(rows) {
     const data = loadData();
     let imported = 0;
-    let skipped = 0;
+    let skippedExisting = 0;
+    let skippedDuplicateInCsv = 0;
+    let skippedInvalid = 0;
     const errors = [];
+    const notes = [];
+    const skippedExistingNames = [];
+    const skippedDuplicateInCsvNames = [];
+
+    // Identities already in the database before this import started.
+    const existingNames = new Set(
+      Object.values(data.players).map((p) => normalizePlayerName(p.name))
+    );
+    // Identities accepted so far from THIS CSV — separate from
+    // existingNames so a name that's new-to-the-database but repeated
+    // within the file is correctly reported as "duplicate in CSV"
+    // rather than "already exists".
+    const seenInThisImport = new Set();
 
     // Recognized header text per field, already lowercase/trimmed —
     // matched against normalized (lowercased + trimmed) CSV headers.
@@ -2844,27 +2932,51 @@ const AdminActions = {
         if (rawPool === "green" || rawPool === "blue") {
           pool = rawPool;
         } else if (rawPool) {
-          errors.push(`Note on "${name || "row"}": pool value "${rawPool}" not recognized (expected green/blue) — left unassigned.`);
+          notes.push(`Note on "${name || "row"}": pool value "${rawPool}" not recognized (expected green/blue) — left unassigned.`);
         }
 
         // variantGroup: free-text identifier, used as-is (trimmed). Never
         // inferred from name/position/overall — blank stays undefined.
         const variantGroup = String(getField(normalizedRow, "variantGroup") || "").trim() || undefined;
 
-        if (!name) { skipped++; continue; }
-        if (isNaN(overall)) { errors.push(`Skipped "${name}": invalid overall`); skipped++; continue; }
+        if (!name) { skippedInvalid++; continue; }
+        if (isNaN(overall)) { errors.push(`Skipped "${name}": invalid overall`); skippedInvalid++; continue; }
+
+        const key = normalizePlayerName(name);
+
+        if (existingNames.has(key)) {
+          skippedExisting++;
+          skippedExistingNames.push(name);
+          continue;
+        }
+        if (seenInThisImport.has(key)) {
+          skippedDuplicateInCsv++;
+          skippedDuplicateInCsvNames.push(name);
+          continue;
+        }
 
         const id = generateId("pl");
         data.players[id] = createPlayer(id, { name, position, overall, pool, variantGroup });
+        seenInThisImport.add(key);
         imported++;
       } catch (e) {
         errors.push(`Row error: ${e.message}`);
-        skipped++;
+        skippedInvalid++;
       }
     }
 
     saveData(data);
-    return { imported, skipped, errors };
+    return {
+      imported,
+      skippedExisting,
+      skippedDuplicateInCsv,
+      skippedInvalid,
+      skipped: skippedExisting + skippedDuplicateInCsv + skippedInvalid,
+      skippedExistingNames,
+      skippedDuplicateInCsvNames,
+      errors,
+      notes,
+    };
   },
 
   // Dev/debug only — wipe all data (Firestore doc + local cache)

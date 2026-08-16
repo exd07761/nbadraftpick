@@ -6,6 +6,37 @@
  * shared-utils.js). Sorting/search/delete/Add Player/CSV import behavior
  * is unchanged — this file only changes how the pool contents render.
  */
+
+/**
+ * ⚠ SECURITY NOTE — read before changing this.
+ *
+ * This app's real write-access boundary is Firebase Authentication +
+ * firestore.rules (`allow write: if request.auth != null` — see
+ * js/admin/auth-boundary.js). There is no backend/server-side function
+ * in this project that could verify a secret on its own, so this PIN is
+ * a plain constant shipped in this frontend JS file. That means:
+ *   - it is trivially readable by anyone who opens dev tools or views
+ *     page source — it is NOT a secret from an authenticated admin, or
+ *     from anyone who can reach this file at all
+ *   - it does NOT add a real second authorization layer on top of
+ *     Firebase Auth; the actual gate remains "is this browser signed in
+ *     as the commissioner" (AuthBoundary.requireAuth(), already required
+ *     before this PIN step ever appears)
+ * What it DOES do: add a deliberate speed bump against an *accidental*
+ * click by someone already signed in as admin — the same role Add
+ * Player/Import/single-player-Delete already trust unconditionally.
+ * If real protection against a signed-in-but-malicious or compromised
+ * admin session is ever needed, that check has to move server-side —
+ * e.g. a Cloud Function that verifies a secret (via Firestore custom
+ * claims or a secret manager) before performing the delete, callable
+ * only through `firebase.functions()` — this constant is kept isolated
+ * to this one spot specifically so that swap is a one-function change
+ * later, not a rewrite of the confirm flow.
+ *
+ * Set your own PIN here.
+ */
+const _DELETE_ALL_PLAYERS_PIN = '7761';
+
 const AdminPlayersView = {
   _filter: '',
   _sortMode: 'ovr-desc',
@@ -22,6 +53,7 @@ const AdminPlayersView = {
           <div class="header-actions">
             <button class="btn btn-ghost" id="btnShowAddPlayer">+ Add Player</button>
             <button class="btn btn-primary" id="btnShowImport">↑ Import CSV</button>
+            <button class="btn btn-danger header-danger-action" id="btnDeleteAllPlayers">🗑 Delete All Players</button>
           </div>
         </div>
 
@@ -77,7 +109,10 @@ const AdminPlayersView = {
             name; "Pos" for position; "OVR" or "Rating" for overall;
             "Group" or "Identity" for variantGroup. Pool must be
             <code>green</code> or <code>blue</code> — any other value (or
-            blank) is left unassigned, never guessed.
+            blank) is left unassigned, never guessed. Players already in
+            the database (matched by name, ignoring case/spacing) and
+            repeated names within the same file are skipped automatically
+            and listed in the import summary — nothing is ever duplicated.
           </p>
           <div class="csv-drop-zone" id="csvDropZone">
             <span>Drop CSV file here or</span>
@@ -129,6 +164,7 @@ const AdminPlayersView = {
     this._bindPoolTabEvents(container);
     this._bindTableEvents(container);
     this._bindImportEvents(container);
+    this._bindDeleteAllEvents(container);
   },
 
   // ── Phase 10: Green Pool / Blue Pool tabs — no Unassigned tab is ever
@@ -197,6 +233,198 @@ const AdminPlayersView = {
         AdminApp.renderView('players');
       };
     });
+    container.querySelectorAll('[data-action="editPlayer"]').forEach(btn => {
+      btn.onclick = () => {
+        AuthBoundary.requireAuth();
+        const player = LeagueData.getPlayer(btn.dataset.id);
+        if (!player) return;
+        this._openEditPlayerModal(container, player);
+      };
+    });
+  },
+
+  /**
+   * Edit modal — Rating (overall) and Variant (variantGroup) ONLY.
+   * Reuses the shared .modal-overlay/.modal-card pattern (see
+   * js/admin/draft.js's _openDraftConfirm for the original), the same
+   * "overall must be 40–99" rule already enforced in _bindFormEvents'
+   * Add Player handler, and AdminActions.updatePlayer — which does
+   * Object.assign(existingPlayer, fields), so id/name/position/pool and
+   * any other field are left completely untouched and no new player
+   * record or ID is created.
+   */
+  _openEditPlayerModal(container, player) {
+    document.getElementById('editPlayerOverlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'editPlayerOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="editPlayerTitle">
+        <div class="modal-eyebrow">Edit Player</div>
+        <div class="modal-player-name" id="editPlayerTitle">${escapeHtml(player.name)}</div>
+        <div class="modal-player-meta">
+          <span>${player.position || '—'}</span>
+          <span class="pool-badge pool-badge-${player.pool === 'blue' ? 'blue' : 'green'}" style="margin-left:0.5rem;">${player.pool === 'blue' ? 'Blue Pool' : 'Green Pool'}</span>
+        </div>
+        <div class="form-group">
+          <label>Rating (OVR)</label>
+          <input type="number" id="editPlayerOvr" class="input" min="40" max="99" value="${player.overall ?? ''}">
+        </div>
+        <div class="form-group" style="margin-top:0.75rem;">
+          <label>Variant Group <span class="muted" style="font-weight:400">(optional)</span></label>
+          <input type="text" id="editPlayerVariantGroup" class="input" value="${escapeHtml(player.variantGroup || '')}" placeholder="e.g. lebron-james">
+        </div>
+        <p class="error-text" id="editPlayerError"></p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="editPlayerCancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="editPlayerSaveBtn">Save Changes</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('editPlayerCancelBtn').onclick = close;
+    const onKeydown = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKeydown); } };
+    document.addEventListener('keydown', onKeydown);
+
+    document.getElementById('editPlayerSaveBtn').onclick = () => {
+      AuthBoundary.requireAuth();
+      const errorEl = document.getElementById('editPlayerError');
+      const overall = parseInt(document.getElementById('editPlayerOvr').value, 10);
+      const variantGroup = document.getElementById('editPlayerVariantGroup').value.trim();
+
+      if (isNaN(overall) || overall < 40 || overall > 99) {
+        errorEl.textContent = 'Rating must be 40–99.';
+        return;
+      }
+
+      try {
+        AdminActions.updatePlayer(player.id, {
+          overall,
+          variantGroup: variantGroup || undefined, // '' normalizes to undefined, same as Add Player/CSV import
+        });
+        showToast(`${player.name} updated.`, 'success');
+        close();
+        this._refreshPane(container);
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+    };
+  },
+
+  // ── Delete All Players ───────────────────────────────────────────────────
+  // Three-stage destructive-action flow: confirm → PIN → final confirm.
+  // See _DELETE_ALL_PLAYERS_PIN below for an explanation of what this PIN
+  // does and, importantly, does NOT protect against in this app's current
+  // frontend-only architecture.
+  _bindDeleteAllEvents(container) {
+    container.querySelector('#btnDeleteAllPlayers').onclick = () => {
+      AuthBoundary.requireAuth();
+      this._openDeleteAllConfirm1();
+    };
+  },
+
+  _openDeleteAllConfirm1() {
+    document.getElementById('deleteAllOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteAllOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="deleteAllTitle1">
+        <div class="modal-eyebrow">⚠ Destructive Action</div>
+        <div class="modal-player-name" id="deleteAllTitle1">Delete All Players</div>
+        <p class="modal-prompt">This will permanently delete ALL players from the player database. This cannot be undone.</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="deleteAllCancelBtn1">Cancel</button>
+          <button class="btn btn-danger" id="deleteAllContinueBtn1">Continue</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('deleteAllCancelBtn1').onclick = close;
+    document.getElementById('deleteAllContinueBtn1').onclick = () => {
+      close();
+      this._openDeleteAllPinStep();
+    };
+  },
+
+  _openDeleteAllPinStep() {
+    document.getElementById('deleteAllOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteAllOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="deleteAllPinTitle">
+        <div class="modal-eyebrow">⚠ Destructive Action</div>
+        <div class="modal-player-name" id="deleteAllPinTitle">Enter Admin PIN</div>
+        <p class="modal-prompt">Enter the admin PIN to continue deleting all players.</p>
+        <div class="form-group">
+          <input type="password" id="deleteAllPinInput" class="input" autocomplete="off" placeholder="PIN">
+        </div>
+        <p class="error-text" id="deleteAllPinError"></p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="deleteAllPinCancelBtn">Cancel</button>
+          <button class="btn btn-danger" id="deleteAllPinSubmitBtn">Verify</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('deleteAllPinCancelBtn').onclick = close;
+
+    const pinInput = document.getElementById('deleteAllPinInput');
+    pinInput.focus();
+    const submit = () => {
+      const entered = pinInput.value;
+      pinInput.value = ''; // never leave the PIN sitting in the DOM after a check
+      if (entered !== _DELETE_ALL_PLAYERS_PIN) {
+        document.getElementById('deleteAllPinError').textContent = 'Incorrect PIN.';
+        return;
+      }
+      close();
+      this._openDeleteAllConfirm2();
+    };
+    document.getElementById('deleteAllPinSubmitBtn').onclick = submit;
+    pinInput.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  },
+
+  _openDeleteAllConfirm2() {
+    document.getElementById('deleteAllOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'deleteAllOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="deleteAllTitle2">
+        <div class="modal-eyebrow">⚠ Final Confirmation</div>
+        <div class="modal-player-name" id="deleteAllTitle2">Are you absolutely sure?</div>
+        <p class="modal-prompt">This will permanently delete all players. This cannot be undone.</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="deleteAllCancelBtn2">Cancel</button>
+          <button class="btn btn-danger" id="deleteAllConfirmBtn2">Delete All Players</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('deleteAllCancelBtn2').onclick = close;
+    document.getElementById('deleteAllConfirmBtn2').onclick = () => {
+      AuthBoundary.requireAuth();
+      try {
+        AdminActions.deleteAllPlayers();
+        close();
+        showToast('All players have been deleted.', 'success');
+        AdminApp.renderView('players');
+      } catch (e) {
+        // Leave the UI in a recoverable state — modal stays open with a
+        // clear error rather than a false success message.
+        document.querySelector('#deleteAllOverlay .modal-prompt').insertAdjacentHTML(
+          'afterend', `<p class="error-text">Delete failed: ${escapeHtml(e.message)}</p>`
+        );
+      }
+    };
   },
 
   _bindFormEvents(container) {
@@ -295,11 +523,36 @@ const AdminPlayersView = {
       AuthBoundary.requireAuth();
       if (!_parsedRows.length) return;
       const result = AdminActions.importPlayersFromCSV(_parsedRows);
-      showToast(`Imported ${result.imported} players. Skipped ${result.skipped}.`, 'success');
-      if (result.errors.length) {
-        console.warn('Import errors:', result.errors);
-      }
-      AdminApp.renderView('players');
+      _parsedRows = [];
+
+      if (result.errors.length) console.warn('Import errors:', result.errors);
+      if (result.notes.length) console.warn('Import notes:', result.notes);
+
+      // Show the full breakdown in the panel (rather than just a toast)
+      // so the admin can see exactly which players were skipped as
+      // duplicates before the form closes. The panel stays open —
+      // AdminApp.renderView('players') is NOT called here, since that
+      // would rebuild the whole view and immediately hide this summary.
+      const preview = container.querySelector('#csvPreview');
+      preview.innerHTML = renderImportSummary(result);
+      preview.classList.remove('hidden');
+      container.querySelector('#btnConfirmImport').classList.add('hidden');
+
+      showToast(
+        `Import completed. Added ${result.imported}, skipped ${result.skipped}.`,
+        result.imported > 0 ? 'success' : 'info'
+      );
+
+      // Refresh the counts + grid in place so they reflect the newly
+      // added players without collapsing the import panel above.
+      const allPlayers = LeagueData.getAllPlayers();
+      const countEl = container.querySelector('.player-count');
+      if (countEl) countEl.textContent = `${allPlayers.length} players in database`;
+      const greenCount = container.querySelector('.pool-tab-green .pool-tab-count');
+      const blueCount = container.querySelector('.pool-tab-blue .pool-tab-count');
+      if (greenCount) greenCount.textContent = allPlayers.filter(p => p.pool === 'green').length;
+      if (blueCount) blueCount.textContent = allPlayers.filter(p => p.pool === 'blue').length;
+      this._refreshPane(container);
     };
   },
 };
@@ -328,6 +581,55 @@ function previewFields(row) {
     pool: String(pick('pool') || '').trim().toLowerCase(),
     variantGroup: String(pick('variantgroup', 'variant group', 'group', 'identity') || '').trim(),
   };
+}
+
+/**
+ * Renders the post-import results panel: counts plus, when present, the
+ * actual names/messages so the admin can identify exactly which rows
+ * were skipped (required for duplicate review — a bare count isn't
+ * enough to act on).
+ */
+function renderImportSummary(result) {
+  const {
+    imported, skippedExisting, skippedDuplicateInCsv, skippedInvalid,
+    skippedExistingNames, skippedDuplicateInCsvNames, errors, notes,
+  } = result;
+
+  const nameList = names => {
+    const MAX_SHOWN = 30;
+    const shown = names.slice(0, MAX_SHOWN);
+    const remaining = names.length - shown.length;
+    return `<ul class="import-summary-list">
+      ${shown.map(n => `<li>${escapeHtml(n)}</li>`).join('')}
+      ${remaining > 0 ? `<li class="muted">…and ${remaining} more</li>` : ''}
+    </ul>`;
+  };
+
+  return `
+    <div class="import-summary">
+      <p class="helper-text"><strong>Import completed.</strong></p>
+      <table class="admin-table">
+        <tbody>
+          <tr><td>Added</td><td>${imported}</td></tr>
+          <tr><td>Skipped — Already Exists</td><td>${skippedExisting}</td></tr>
+          <tr><td>Skipped — Duplicate in CSV</td><td>${skippedDuplicateInCsv}</td></tr>
+          <tr><td>Skipped — Invalid Row</td><td>${skippedInvalid}</td></tr>
+          <tr><td>Errors</td><td>${errors.length}</td></tr>
+        </tbody>
+      </table>
+      ${skippedExistingNames.length ? `
+        <p class="helper-text">Skipped existing players:</p>
+        ${nameList(skippedExistingNames)}` : ''}
+      ${skippedDuplicateInCsvNames.length ? `
+        <p class="helper-text">Skipped duplicate rows within the CSV:</p>
+        ${nameList(skippedDuplicateInCsvNames)}` : ''}
+      ${errors.length ? `
+        <p class="error-text">Errors:</p>
+        <ul class="import-summary-list">${errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>` : ''}
+      ${notes.length ? `
+        <p class="helper-text">Notes:</p>
+        <ul class="import-summary-list">${notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : ''}
+    </div>`;
 }
 
 /**

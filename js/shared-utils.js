@@ -118,7 +118,8 @@ function badgeTextColor(hex) {
  * @param {object} options
  *   mode: 'view' (default) | 'manage' | 'draft'
  *     'view'   — read-only (public Players page)
- *     'manage' — adds a delete "×" per row (admin Players page; caller wires the click)
+ *     'manage' — adds an edit "✎" and a delete "×" per row (admin
+ *                Players page; caller wires both clicks)
  *     'draft'  — 'available' rows are clickable (data-action="selectPlayer"),
  *                and all four non-available statuses get a visible tag
  *                (Drafted / Variant Taken / Locked / No Position) — used by
@@ -162,7 +163,7 @@ function _positionPoolColumn(posLabel, rows, pool, mode) {
     <div class="pos-table pos-table-${pool} ${admin ? 'pos-table-admin' : ''}">
       <div class="pos-table-head">${escapeHtml(posLabel)}</div>
       <div class="pos-table-columns-head">
-        <span>#</span><span>PLAYER</span><span>OVR</span>${admin ? '<span></span>' : ''}
+        <span>#</span><span>PLAYER</span><span>OVR</span>${admin ? '<span></span><span></span>' : ''}
       </div>
       <div class="pos-table-body">
         ${rows.length === 0
@@ -207,6 +208,7 @@ function _positionPoolRow(entry, rank, mode) {
         ${statusTag}
       </span>
       <span class="pos-ovr ${isDrafted ? '' : tier}">${ovr}</span>
+      ${admin ? `<button type="button" class="pos-row-edit" data-action="editPlayer" data-id="${player.id}" data-name="${escapeHtml(player.name)}" title="Edit ${escapeHtml(player.name)}">✎</button>` : ''}
       ${admin ? `<button type="button" class="pos-row-delete" data-action="deletePlayer" data-id="${player.id}" data-name="${escapeHtml(player.name)}" title="Delete ${escapeHtml(player.name)}">×</button>` : ''}
     </div>`;
 }

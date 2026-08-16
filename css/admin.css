@@ -149,6 +149,7 @@
 }
 
 .header-actions { display: flex; gap: 0.5rem; }
+.header-danger-action { margin-left: 1rem; padding-left: 1rem; border-left: 1px solid var(--border); }
 
 /* ─── Forms ──────────────────────────────────────────────────────────────────── */
 .input {
@@ -348,6 +349,15 @@ select.input { cursor: pointer; }
 .hidden-input { position: absolute; opacity: 0; width: 0; height: 0; }
 
 #csvPreview { margin-bottom: 1rem; }
+
+.import-summary-list {
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 0.25rem 0 1rem;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+}
+.import-summary-list li { padding: 0.15rem 0; }
 
 /* ─── Draft Order / DuckRace ─────────────────────────────────────────────────── */
 .orders-grid {
