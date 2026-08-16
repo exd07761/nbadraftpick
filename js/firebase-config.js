@@ -8,42 +8,26 @@
  * keeps the classic `firebase.xxx()` global API this whole app already uses
  * everywhere else — no ES modules / bundler needed).
  *
- * ── SETUP ────────────────────────────────────────────────────────────────
- * Replace every value in FIREBASE_CONFIG below with your own project's
- * config: Firebase Console → Project settings (gear icon) → General →
- * "Your apps" → the web app (</>) → SDK setup and configuration → Config.
- *
- * These values are NOT secret — they identify your project, they don't
- * grant access to it. Access control is enforced entirely by Firestore
- * Security Rules (see firestore.rules) and Firebase Authentication, not by
- * hiding this file. It's safe to commit as-is once filled in.
- *
- * See FIREBASE_SETUP.md for the full one-time console setup (enabling
- * Firestore, enabling Email/Password sign-in, creating the commissioner
- * account, deploying firestore.rules).
+ * IMPORTANT: this file is loaded as a plain classic <script> tag (see
+ * admin.html / index.html), NOT <script type="module">. Do not paste in
+ * Firebase Console's default "Add Firebase to your app" snippet as-is —
+ * that snippet uses `import { initializeApp } from "firebase/app"`, which
+ * only works inside an ES module and throws
+ * "Cannot use import statement outside a module" here, which breaks
+ * everything that loads after it (this file loads first).
  */
 
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
+const FIREBASE_CONFIG = {
   apiKey: "AIzaSyAje3Y0MexcCT9kjjQtmmIa7a8U4yJkcSQ",
   authDomain: "nbadraftpick.firebaseapp.com",
   projectId: "nbadraftpick",
   storageBucket: "nbadraftpick.firebasestorage.app",
   messagingSenderId: "270292612223",
   appId: "1:270292612223:web:70deed385ab467b50afb4a",
-  measurementId: "G-PV33HLE24W"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+firebase.initializeApp(FIREBASE_CONFIG);
+
 // IMPORTANT — do not remove: this app's data layer (Phase 5's Joker
 // designation, specifically) writes an explicit `undefined` value for a
 // field on non-Joker roster entries, matching how JSON.stringify has
