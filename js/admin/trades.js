@@ -103,11 +103,19 @@ const AdminTradesView = {
       </div>`;
   },
 
-  _participantOptions(season, selectedId) {
+  /**
+   * @param excludeId — if set, that participant's <option> is rendered
+   *   disabled (with a note) instead of omitted, so a participant already
+   *   picked for the OTHER side of a trade can't also be picked for this
+   *   side (e.g. Team A = Maka ⇒ Maka is disabled in the Team B list).
+   *   Only passed by the Trade tab; Swap/Joker calls are unaffected.
+   */
+  _participantOptions(season, selectedId, excludeId) {
     const participants = LeagueData.getParticipants(season.id);
-    return participants.map(
-      (p) => `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`
-    ).join('');
+    return participants.map((p) => {
+      const isExcluded = !!excludeId && p.id === excludeId;
+      return `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''} ${isExcluded ? 'disabled' : ''}>${escapeHtml(p.name)}${isExcluded ? ' (already selected)' : ''}</option>`;
+    }).join('');
   },
 
   _playerLabel(entry) {
@@ -132,14 +140,14 @@ const AdminTradesView = {
             <label>Team A</label>
             <select class="input" id="tradeTeamASelect">
               <option value="">Select team…</option>
-              ${this._participantOptions(season, this._tradeTeamA)}
+              ${this._participantOptions(season, this._tradeTeamA, this._tradeTeamB)}
             </select>
           </div>
           <div class="form-group">
             <label>Team B</label>
             <select class="input" id="tradeTeamBSelect">
               <option value="">Select team…</option>
-              ${this._participantOptions(season, this._tradeTeamB)}
+              ${this._participantOptions(season, this._tradeTeamB, this._tradeTeamA)}
             </select>
           </div>
         </div>
@@ -190,6 +198,15 @@ const AdminTradesView = {
     body.querySelector('#btnPreviewTrade').onclick = () => {
       if (!this._tradeTeamA || !this._tradeTeamB || !this._tradeOutA.length || !this._tradeOutB.length) {
         showToast('Select both teams and at least one player from each.', 'error');
+        return;
+      }
+      if (this._tradeTeamA === this._tradeTeamB) {
+        // Belt-and-suspenders: the dropdowns already disable picking the
+        // same participant on both sides (see _participantOptions), and
+        // evaluateTrade/commitTrade re-check this too — but catch it here
+        // as well for immediate feedback instead of a generic invalid
+        // preview.
+        showToast('Team A and Team B must be different participants — a participant cannot trade with themselves.', 'error');
         return;
       }
       this._tradePreview = AdminActions.evaluateTrade(season.id, {

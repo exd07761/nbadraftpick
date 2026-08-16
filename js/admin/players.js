@@ -35,7 +35,7 @@
  *
  * Set your own PIN here.
  */
-const _DELETE_ALL_PLAYERS_PIN = '7761';
+const _DELETE_ALL_PLAYERS_PIN = 'CHANGE-ME-PIN';
 
 const AdminPlayersView = {
   _filter: '',

@@ -2433,8 +2433,17 @@ const AdminActions = {
       fail("Rosters", "Rosters must be initialized (post-draft) before trading.");
       return { valid: false, checks, fee: 0, feeDoubled: false };
     }
-    if (!teamA || !teamB || teamA === teamB) {
+    if (!teamA || !teamB) {
       fail("Teams", "Select two different teams.");
+      return { valid: false, checks, fee: 0, feeDoubled: false };
+    }
+    if (teamA === teamB) {
+      // Same participant selected on both sides (e.g. Team A = Maka, Team
+      // B = Maka) — a participant can never trade with themselves. Named
+      // explicitly here (rather than a generic "select two different
+      // teams") so the preview/commit failure is unambiguous about why.
+      const name = season.participants?.[teamA]?.name || "This participant";
+      fail("Teams", `${name} cannot trade with themselves — Team A and Team B must be different participants.`);
       return { valid: false, checks, fee: 0, feeDoubled: false };
     }
     if (!playersOutA?.length || !playersOutB?.length) {
