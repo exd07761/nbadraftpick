@@ -2,7 +2,7 @@
 :root {
   /* Court-inspired palette: deep charcoal floor, hardwood amber, orange accent */
   --bg:          #111318;
-  --bg-card:     #1a1d24;
+  --bg-card:     rgba(26, 29, 36, 0.94);   /* was solid #1a1d24 — slightly translucent so the global background image (see body, below) stays visible behind cards/panels instead of being fully hidden */
   --bg-hover:    #22262f;
   --border:      #2a2e38;
   --border-light:#363b48;
@@ -43,12 +43,33 @@ html { font-size: 15px; }
 
 body {
   font-family: var(--font-ui);
-  background: var(--bg);
   color: var(--text);
   min-height: 100vh;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden; /* Phase 10: guard against accidental page-level horizontal overflow on mobile — components that legitimately need horizontal scroll (bracket, tables) get their own scoped scroll containers instead. */
+
+  /* Global background image (index.html + admin.html both load this
+     stylesheet, so this applies everywhere with a single implementation —
+     see :root's --bg-card above for how content stays readable on top of
+     it). --bg is kept as background-color: it's the fallback shown before
+     the image loads and behind any transparent part of it, and it already
+     closely matches the image's own near-black base tone.
+     - A dark overlay is layered on top of the image itself (first
+       background-image, painted above the actual bg.jpg beneath it) so
+       the presentation is guaranteed low-contrast/subtle regardless of a
+       given screen's brightness — the image file itself is untouched.
+     - cover + center + no-repeat + fixed: fills the viewport, keeps the
+       image's own aspect ratio (no stretching), never tiles, and stays in
+       place while the page scrolls. */
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(9, 10, 13, 0.72), rgba(9, 10, 13, 0.72)),
+    url('../assets/bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 a { color: var(--accent); text-decoration: none; }
