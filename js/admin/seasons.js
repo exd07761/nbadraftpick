@@ -15,6 +15,9 @@ const AdminSeasonsView = {
 
         <div id="newSeasonForm" class="inline-form hidden">
           <input type="text" id="newSeasonName" class="input" placeholder="Season name (e.g. Season 4)" maxlength="60">
+          <input type="number" id="newSeasonEntryFee" class="input input-sm" placeholder="Entry Fee" min="0" step="1" value="300" title="Entry Fee (₱)">
+          <input type="number" id="newSeasonFreeTrades" class="input input-sm" placeholder="Free Trades" min="0" step="1" value="2" title="Free Trades">
+          <input type="number" id="newSeasonFreeSwaps" class="input input-sm" placeholder="Free Swaps" min="0" step="1" value="2" title="Free Swaps">
           <button class="btn btn-primary" id="btnCreateSeason">Create</button>
           <button class="btn btn-ghost" id="btnCancelSeason">Cancel</button>
         </div>
@@ -64,9 +67,26 @@ const AdminSeasonsView = {
       AuthBoundary.requireAuth();
       const name = container.querySelector('#newSeasonName').value.trim();
       if (!name) { showToast('Enter a season name.', 'error'); return; }
-      AdminActions.createSeason(name);
-      showToast(`"${name}" created.`, 'success');
-      AdminApp.renderView('seasons');
+
+      // Entry Fee / Free Trades / Free Swaps — F1 schema fields only, no
+      // financial behavior wired to these values yet. Blank inputs fall
+      // back to createSeason()'s own defaults (300/2/2) rather than being
+      // sent as overrides.
+      const entryFeeVal = container.querySelector('#newSeasonEntryFee').value.trim();
+      const freeTradesVal = container.querySelector('#newSeasonFreeTrades').value.trim();
+      const freeSwapsVal = container.querySelector('#newSeasonFreeSwaps').value.trim();
+      const financialSettings = {};
+      if (entryFeeVal !== '') financialSettings.entryFee = entryFeeVal;
+      if (freeTradesVal !== '') financialSettings.freeTrades = freeTradesVal;
+      if (freeSwapsVal !== '') financialSettings.freeSwaps = freeSwapsVal;
+
+      try {
+        AdminActions.createSeason(name, financialSettings);
+        showToast(`"${name}" created.`, 'success');
+        AdminApp.renderView('seasons');
+      } catch (e) {
+        showToast(e.message, 'error');
+      }
     };
 
     // Table actions

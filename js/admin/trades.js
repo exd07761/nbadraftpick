@@ -493,7 +493,7 @@ const AdminTradesView = {
                 <td>${escapeHtml(nameOf(t.teamA))}${t.teamB ? ' ↔ ' + escapeHtml(nameOf(t.teamB)) : ''}</td>
                 <td>${t.playersOut.map((p) => escapeHtml(p.name || '')).join(', ') || '—'}</td>
                 <td>${t.playersIn.map((p) => escapeHtml(p.name || '')).join(', ') || '—'}</td>
-                <td>₱${t.fee}${t.feeDoubled ? ' (2x)' : ''}</td>
+                <td>₱${t.fee ?? t.amount ?? 0}${t.feeDoubled ? ' (2x)' : ''}</td>
                 <td>${new Date(t.timestamp).toLocaleString()}</td>
               </tr>`).join('')}
           </tbody>

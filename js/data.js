@@ -124,6 +124,21 @@ function createSeason(id, name) {
     currentSeasonDay: 1,
     transactions: [],
 
+    // ── Financial Management (F1 — schema only) ──────────────────────────────
+    // Season-specific financial configuration. Entirely separate from `pot`/
+    // `transactions` above (Phase 5's existing trade/swap fee system, left
+    // untouched by F1) — this is the foundation for the new Financial
+    // Management system being built in later phases (F2+). Nothing yet reads
+    // this field; AdminActions.createSeason accepts optional overrides at
+    // creation time (see below), and old seasons safely lack this field
+    // until ensureFinancialFields() backfills it, matching the
+    // ensureTransactionFields() pattern above.
+    financialSettings: {
+      entryFee: 300,
+      freeTrades: 2,
+      freeSwaps: 2,
+    },
+
     // ── Phase 7: Regular Season Schedule ──────────────────────────────────────
     // schedule[i] = { round: Number, matchups: [Matchup] }
     // Matchup = {
@@ -485,6 +500,36 @@ function ensureTransactionFields(season) {
   if (!Array.isArray(season.transactions)) season.transactions = [];
   if (typeof season.pot !== "number") season.pot = 0;
   if (typeof season.currentSeasonDay !== "number") season.currentSeasonDay = 1;
+}
+
+/**
+ * Backfills `financialSettings` on a season object that predates the F1
+ * schema addition, following the exact same lazy/backfill pattern as
+ * ensureTransactionFields() above — never a bulk migration, only applied
+ * in place when a write path that legitimately needs the field calls this
+ * first. Also repairs a present-but-malformed financialSettings (e.g. a
+ * non-numeric value from a corrupted write) back to the same defaults,
+ * rather than leaving a bad value in place.
+ *
+ * F1 does not yet wire this into any commit function — none of the
+ * existing Phase 5 writes (commitTrade/commitSwap/designateJoker/
+ * makeDraftPick) read or need financialSettings, and F1 intentionally adds
+ * no new write path that does either. This is the foundation later phases
+ * (F2+) will call before recording an entry fee, splitting a trade fee,
+ * etc. — added now so those phases have a ready, already-reviewed helper
+ * rather than each inventing its own backfill.
+ */
+function ensureFinancialFields(season) {
+  const defaults = { entryFee: 300, freeTrades: 2, freeSwaps: 2 };
+  if (!season.financialSettings || typeof season.financialSettings !== "object") {
+    season.financialSettings = { ...defaults };
+    return;
+  }
+  for (const key of Object.keys(defaults)) {
+    if (typeof season.financialSettings[key] !== "number" || !Number.isFinite(season.financialSettings[key])) {
+      season.financialSettings[key] = defaults[key];
+    }
+  }
 }
 
 /**
@@ -1544,6 +1589,225 @@ const LeagueData = {
     return [...(season.transactions || [])].reverse();
   },
 
+  // ── Financial Management (F4 — Financial Calculations, read-only) ───────
+  // Everything below derives entirely from season.transactions[] (the same
+  // ledger written by recordEntryFeePayment/commitTrade/commitSwap) plus
+  // season.financialSettings — never a stored participant balance, never a
+  // new collection. Nothing here calls saveData() or mutates `season`; a
+  // missing season.financialSettings is handled the same inline-fallback
+  // way getTransactionState() already handles a missing season.pot above
+  // (`season.pot ?? 0`) — read-only methods don't call ensureFinancialFields
+  // (that's a write-path backfill helper, per F1/F2/F3), they just fall
+  // back to the F1 defaults for display purposes without persisting them.
+
+  /**
+   * One participant's derived financial account for a season.
+   * Returns null if the season or participant doesn't exist (same
+   * not-found convention as getParticipant()).
+   *
+   * Trade-fee attribution rule (see F3): tradeFeesPaid sums `tradeFeeSplit`
+   * transactions only — never the original `trade` transaction's `fee`,
+   * which represents the trade EVENT's total, not this participant's
+   * share, and would double the real amount if added on top of the splits.
+   *
+   * Swap-fee rule: sums the `fee` field of this participant's own `swap`/
+   * `jokerSwap` transactions (both single-participant, teamA-only, per
+   * commitSwap — no split needed). `jokerDesignation` (fee is always 0)
+   * and `tenthPickBlueFee` (a draft-time charge, not a swap) are
+   * intentionally excluded — see getFinancialSummary's doc comment for
+   * why tenthPickBlueFee sits outside all three F4 categories.
+   *
+   * outstandingBalance: under the current system every entryFee/
+   * tradeFeeSplit/swap transaction is written already `status: "paid"` at
+   * the moment it's created — there is no "charged but unpaid" state
+   * anywhere in the existing ledger. The only real outstanding obligation
+   * this data can represent is therefore an entry fee that hasn't been
+   * recorded yet (see F4 spec section 6) — not a manufactured debt system.
+   *
+   * freeTradesRemaining/freeSwapsRemaining: delegated to
+   * getFreeAllowanceRemaining() below — see that method's doc comment for
+   * why these come back null rather than a fabricated number.
+   */
+  getParticipantFinancialAccount(seasonId, participantId) {
+    const season = this.getSeason(seasonId);
+    if (!season) return null;
+    const participant = season.participants[participantId];
+    if (!participant) return null;
+
+    const entryFee = Number.isFinite(season.financialSettings?.entryFee)
+      ? season.financialSettings.entryFee
+      : 300;
+    const transactions = season.transactions || [];
+
+    const entryFeeTransaction = transactions.find(
+      (t) => t.type === "entryFee" && t.teamA === participantId
+    ) || null;
+    const entryFeePaid = !!entryFeeTransaction;
+
+    const tradeFeeTransactions = transactions.filter(
+      (t) => t.type === "tradeFeeSplit" && t.teamA === participantId
+    );
+    const tradeFeesPaid = tradeFeeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+
+    const swapFeeTransactions = transactions.filter(
+      (t) => (t.type === "swap" || t.type === "jokerSwap") && t.teamA === participantId
+    );
+    const swapFeesPaid = swapFeeTransactions.reduce((sum, t) => sum + (t.fee || 0), 0);
+
+    // totalPaid uses the AMOUNT ACTUALLY RECORDED on the entry-fee
+    // transaction, not the season's current financialSettings.entryFee —
+    // those two normally match (F2 always writes amount:
+    // financialSettings.entryFee at the moment it's recorded), but the
+    // transaction record is the real ledger source of truth for what was
+    // actually paid, so this stays correct even if that ever diverges.
+    // outstandingBalance is intentionally different: it's a forward-
+    // looking "what would they owe right now", which correctly uses
+    // today's configured entryFee.
+    const totalPaid = (entryFeeTransaction?.amount || 0) + tradeFeesPaid + swapFeesPaid;
+    const outstandingBalance = entryFeePaid ? 0 : entryFee;
+
+    const allowance = this.getFreeAllowanceRemaining(seasonId, participantId);
+
+    return {
+      participantId,
+      entryFee,
+      entryFeePaid,
+      tradeFeesPaid,
+      swapFeesPaid,
+      totalPaid,
+      outstandingBalance,
+      freeTradesRemaining: allowance?.freeTradesRemaining ?? null,
+      freeSwapsRemaining: allowance?.freeSwapsRemaining ?? null,
+      tradeCount: tradeFeeTransactions.length,
+      swapCount: swapFeeTransactions.length,
+      entryFeeTransaction,
+      tradeFeeTransactions,
+      swapFeeTransactions,
+    };
+  },
+
+  /**
+   * League-wide derived financial summary for a season.
+   * Returns null if the season doesn't exist.
+   *
+   * Avoiding double-counting (F4 spec section 9-11): tradeFeesCollected
+   * sums `tradeFeeSplit` records only — the original `trade` transaction's
+   * `fee` is NOT added again; a ₱200 trade contributes ₱200 once (as
+   * ₱100+₱100 across its two splits), never ₱400. entryFeesCollected and
+   * swapFeesCollected each read only their own transaction type, so no
+   * transaction is ever counted toward more than one category.
+   *
+   * tenthPickBlueFee is real pot revenue but fits none of the three named
+   * categories (entry/trade/swap) — it's a draft-time charge, not
+   * requested as a category by F4. It's deliberately left out of
+   * totalCollected/ledgerCalculatedTotal rather than silently folded into
+   * one of the three, which is why potDifference below will legitimately
+   * be non-zero whenever any 10th-pick-Blue fees exist this season — that
+   * is expected, not a bug, and nothing here "fixes" it.
+   *
+   * pot/ledgerCalculatedTotal/potDifference are diagnostic only
+   * (F4 spec section 13) — season.pot itself is never read from here for
+   * any of the three main categories, and is never written to.
+   */
+  getFinancialSummary(seasonId) {
+    const season = this.getSeason(seasonId);
+    if (!season) return null;
+
+    const participants = Object.values(season.participants || {});
+    const transactions = season.transactions || [];
+    const entryFee = Number.isFinite(season.financialSettings?.entryFee)
+      ? season.financialSettings.entryFee
+      : 300;
+
+    const entryFeeTxns = transactions.filter((t) => t.type === "entryFee");
+    const entryFeesCollected = entryFeeTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const entryFeesPaidCount = entryFeeTxns.length;
+    const entryFeesUnpaidCount = Math.max(0, participants.length - entryFeesPaidCount);
+
+    const tradeFeeSplitTxns = transactions.filter((t) => t.type === "tradeFeeSplit");
+    const tradeFeesCollected = tradeFeeSplitTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const tradeFeeTransactionCount = transactions.filter((t) => t.type === "trade").length;
+
+    const swapTxns = transactions.filter((t) => t.type === "swap" || t.type === "jokerSwap");
+    const swapFeesCollected = swapTxns.reduce((sum, t) => sum + (t.fee || 0), 0);
+    const swapTransactionCount = swapTxns.length;
+
+    const totalCollected = entryFeesCollected + tradeFeesCollected + swapFeesCollected;
+    const outstandingBalance = entryFeesUnpaidCount * entryFee;
+
+    const pot = season.pot ?? 0;
+    const ledgerCalculatedTotal = totalCollected;
+    const potDifference = pot - ledgerCalculatedTotal;
+
+    return {
+      seasonId,
+      entryFeesCollected,
+      tradeFeesCollected,
+      swapFeesCollected,
+      totalCollected,
+      outstandingBalance,
+      participants: participants.length,
+      entryFeesPaidCount,
+      entryFeesUnpaidCount,
+      tradeFeeTransactionCount,
+      swapTransactionCount,
+      // Diagnostic cross-check only — see doc comment above. Never
+      // written back to season.pot.
+      pot,
+      ledgerCalculatedTotal,
+      potDifference,
+    };
+  },
+
+  /**
+   * Configured free-trade/free-swap allowance for a participant.
+   * Returns null if the season or participant doesn't exist.
+   *
+   * IMPORTANT LIMITATION (F4 spec sections 15-16): commitTrade()/
+   * commitSwap() charge every trade/swap its full computed fee
+   * unconditionally — there is no branch anywhere in either function that
+   * charges ₱0 for a "free" use, and no field on any trade/swap
+   * transaction that records whether it consumed a free allowance. Every
+   * `trade`/`swap`/`jokerSwap` transaction in the ledger is therefore
+   * indistinguishable from any other on this question — there is nothing
+   * in season.transactions[] that reliably answers "was this particular
+   * trade free or paid?", so freeTradesRemaining/freeSwapsRemaining
+   * cannot be derived here without inventing a rule the actual charging
+   * system never applied (e.g. "assume the first N trades were free" —
+   * which would be fiction, since those trades were, in fact, fully
+   * charged in the ledger).
+   *
+   * Per that instruction, this returns the configured limits plus null
+   * for the "remaining" fields rather than a fabricated number. Making
+   * this derivable for real would need a future phase to change
+   * commitTrade()/commitSwap() to record whether each specific use was
+   * free (e.g. a `wasFree: true` field, or genuinely charging ₱0) — not
+   * something F4 does, since that would mean modifying those two write
+   * functions, which F4 is explicitly scoped not to touch.
+   */
+  getFreeAllowanceRemaining(seasonId, participantId) {
+    const season = this.getSeason(seasonId);
+    if (!season) return null;
+    if (!season.participants[participantId]) return null;
+
+    const freeTrades = Number.isFinite(season.financialSettings?.freeTrades)
+      ? season.financialSettings.freeTrades
+      : 2;
+    const freeSwaps = Number.isFinite(season.financialSettings?.freeSwaps)
+      ? season.financialSettings.freeSwaps
+      : 2;
+
+    return {
+      participantId,
+      freeTrades,
+      freeSwaps,
+      freeTradesRemaining: null,
+      freeSwapsRemaining: null,
+      limitation:
+        "The existing trade/swap system charges every trade/swap its full fee unconditionally — season.transactions[] has no record of which uses (if any) were meant to be free, so remaining free-trade/free-swap counts cannot be reliably derived from the current ledger. This is not a bug in this read method; it reflects what commitTrade()/commitSwap() actually record today.",
+    };
+  },
+
   /**
    * Classification info for one player: { classification, ownPickNumber,
    * originalOwnerId, currentOwnerId, isJoker }. See
@@ -1641,10 +1905,31 @@ const LeagueData = {
 
 const AdminActions = {
   // Seasons
-  createSeason(name) {
+  /**
+   * @param financialSettings — optional { entryFee, freeTrades, freeSwaps }
+   *   overrides for the F1 defaults baked into createSeason() (300/2/2).
+   *   Only used at creation time (per F1 scope — no separate "edit an
+   *   existing season's settings" action exists yet). Any field omitted
+   *   keeps the factory default; any field provided must be a finite
+   *   number >= 0, or this throws — same validation style as
+   *   setRatingCap/setSeasonDay below.
+   */
+  createSeason(name, financialSettings) {
     const data = loadData();
     const id = generateId("s");
     const season = createSeason(id, name);
+
+    if (financialSettings && typeof financialSettings === "object") {
+      for (const key of ["entryFee", "freeTrades", "freeSwaps"]) {
+        if (financialSettings[key] === undefined) continue;
+        const n = Number(financialSettings[key]);
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`${key} must be a non-negative number.`);
+        }
+        season.financialSettings[key] = n;
+      }
+    }
+
     data.seasons[id] = season;
     if (!data.settings.currentSeasonId) {
       data.settings.currentSeasonId = id;
@@ -2413,6 +2698,82 @@ const AdminActions = {
     return { currentSeasonDay: dayN };
   },
 
+  // ── Financial Management (F2 — Entry Fee Recording) ─────────────────────
+  // Uses the existing season.transactions[] ledger as the sole source of
+  // truth (same array Phase 5 trade/swap/Joker/10th-pick-Blue entries live
+  // in) — no separate financial collection, and no stored
+  // participant.entryFeePaid flag; "paid" is always derived by checking
+  // for an existing type:"entryFee" transaction for that participant (see
+  // the duplicate check below, which doubles as the paid-status read).
+
+  /**
+   * Records a participant's season entry-fee payment as a new ledger
+   * transaction and adds the amount to season.pot — the same one
+   * load→mutate→push→saveData atomic pattern already used by
+   * commitTrade/commitSwap (single read, single write; nothing is
+   * persisted if a validation check throws first).
+   *
+   * The amount always comes from season.financialSettings.entryFee
+   * (never hard-coded) — ensureFinancialFields(season) is called first so
+   * a season created before F1 safely receives the 300/2/2 defaults at
+   * the moment this is actually used, without touching any other season.
+   *
+   * Throws if:
+   * - Season not found
+   * - Participant not found in this season
+   * - financialSettings.entryFee is somehow not a valid non-negative
+   *   number even after ensureFinancialFields (defensive — shouldn't
+   *   happen, since ensureFinancialFields guarantees this)
+   * - An entryFee transaction already exists for this participant this
+   *   season (duplicate-payment guard)
+   */
+  recordEntryFeePayment(seasonId, participantId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    if (!season.participants[participantId]) throw new Error("Participant not found in this season");
+
+    ensureFinancialFields(season); // backfill for seasons created before F1
+
+    const entryFee = season.financialSettings.entryFee;
+    if (!Number.isFinite(entryFee) || entryFee < 0) {
+      throw new Error("This season's entry fee is not configured correctly.");
+    }
+
+    const alreadyPaid = season.transactions.some(
+      (t) => t.type === "entryFee" && t.teamA === participantId
+    );
+    if (alreadyPaid) {
+      throw new Error("Entry fee has already been recorded for this participant.");
+    }
+
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "entryFee",
+      teamA: participantId,
+      teamB: null,
+      // playersOut/playersIn: no players move for an entry fee — kept as
+      // empty arrays (not omitted) because the existing shared History
+      // tab (admin/trades.js) calls .map() on both for every transaction
+      // type; the same convention jokerDesignation/tenthPickBlueFee
+      // already follow above for their own no-player-moved side.
+      playersOut: [],
+      playersIn: [],
+      amount: entryFee,
+      status: "paid",
+      relatedTransactionId: null,
+      description: "Entry fee",
+      approvedBy: "commissioner",
+    });
+    season.pot = (season.pot || 0) + entryFee;
+
+    saveData(data);
+    return { amount: entryFee, pot: season.pot };
+  },
+
   /**
    * Runs every Trade validation check (rule set §16 / trade workflow) and
    * returns an itemized result WITHOUT mutating anything. Used both for the
@@ -2572,8 +2933,9 @@ const AdminActions = {
         isJoker: info.isJoker,
       };
     };
+    const tradeTransactionId = generateId("txn");
     season.transactions.push({
-      id: generateId("txn"),
+      id: tradeTransactionId,
       seasonId,
       seasonDay: season.currentSeasonDay,
       timestamp: new Date().toISOString(),
@@ -2586,6 +2948,43 @@ const AdminActions = {
       feeDoubled: evaluation.feeDoubled,
       approvedBy: "commissioner",
     });
+
+    // ── Financial Management (F3 — Trade Fee Splitting) ─────────────────────
+    // Attribution only — season.pot was already increased by the FULL
+    // evaluation.fee above, exactly as before F3; the two records below
+    // never touch season.pot themselves, so a ₱200 trade still adds
+    // exactly ₱200 to the pot, not ₱400. They exist so a later phase can
+    // derive each participant's trade-fee total from the ledger without
+    // re-splitting the shared `trade` transaction's fee itself.
+    // evaluation.fee is always a sum of POOL_TRADE_FEE (100/200) across at
+    // least one player per side, optionally doubled — always an even
+    // number under every existing fee rule, so `/ 2` is always a whole
+    // peso amount; no rounding policy is needed or invented here. Skipped
+    // entirely if fee is ever 0 (not currently reachable — a valid trade
+    // always has fee >= 200 — but guarded per the no-unnecessary-₱0-
+    // records rule rather than assumed away).
+    if (evaluation.fee > 0) {
+      ensureFinancialFields(season); // backfill for seasons created before F1
+      const half = evaluation.fee / 2;
+      const makeSplit = (participantId, label) => ({
+        id: generateId("txn"),
+        seasonId,
+        seasonDay: season.currentSeasonDay,
+        timestamp: new Date().toISOString(),
+        type: "tradeFeeSplit",
+        teamA: participantId,
+        teamB: null,
+        playersOut: [],
+        playersIn: [],
+        amount: half,
+        status: "paid",
+        relatedTransactionId: tradeTransactionId,
+        description: `Trade fee — ${label} share`,
+        approvedBy: "commissioner",
+      });
+      season.transactions.push(makeSplit(teamA, "Team A"));
+      season.transactions.push(makeSplit(teamB, "Team B"));
+    }
 
     saveData(data);
     return evaluation;
