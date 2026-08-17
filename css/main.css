@@ -422,6 +422,17 @@ a:hover { color: var(--accent-hover); }
 
 /* ─── Utilities ──────────────────────────────────────────────────────────────── */
 .muted { color: var(--text-muted); }
+
+/* Global site credit — shared by index.html and admin.html (see each
+   file's <footer class="site-footer">). Deliberately minimal: no new
+   colors/sizing system, just the existing muted-text token and the app's
+   small-print sizing scale. */
+.site-footer {
+  text-align: center;
+  padding: 1.5rem 1rem 2rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
 .hidden { display: none !important; }
 
 /* ─── Toast ──────────────────────────────────────────────────────────────────── */

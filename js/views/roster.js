@@ -66,6 +66,9 @@ const PublicRosterView = {
           <span class="roster-card-name">${escapeHtml(participant.name)}</span>
           <span class="roster-card-count">${rosterEntries.length} player${rosterEntries.length !== 1 ? 's' : ''}</span>
         </div>
+        <div class="roster-card-team">
+          ${teamBadge(abbr, { size: 'lg', showName: true })}
+        </div>
 
         <div class="roster-card-cap">
           <div class="roster-card-cap-labels">

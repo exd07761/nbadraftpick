@@ -532,6 +532,46 @@ function ensureFinancialFields(season) {
   }
 }
 
+// ── Financial Management (F6 — Adjustments, Refunds, Corrections) ──────────
+// Audit-first: F6 never deletes or silently rewrites an existing
+// transaction. Every correction is a NEW transaction that references the
+// original via relatedTransactionId. See AdminActions.recordFinancialRefund/
+// recordFinancialCredit/recordFinancialDebit/voidFinancialTransaction/
+// payStreamerSalaries below, and the getParticipantFinancialAccount/
+// getFinancialSummary/getStreamerSalaryPlan read-side updates.
+
+// Transaction types whose `amount`/`fee` represents real money a specific
+// participant (teamA) paid INTO the pot — the only types a refund or a void
+// may target. Deliberately excludes `trade` (its fee is attributed via its
+// two `tradeFeeSplit` children, which ARE in this list — refunding/voiding
+// the trade itself would double-count against those splits, per the F6
+// spec's explicit "a refund against a tradeFeeSplit must not also refund
+// the original trade transaction" instruction) and excludes every F6 type
+// itself (a correction cannot be refunded/voided — void it via a fresh void
+// referencing it, or leave it be).
+const F6_REFUNDABLE_TYPES = ["entryFee", "tradeFeeSplit", "swap", "jokerSwap", "tenthPickBlueFee"];
+const F6_VOIDABLE_TYPES = ["entryFee", "tradeFeeSplit", "swap", "jokerSwap", "tenthPickBlueFee", "credit", "debit", "streamerSalary"];
+
+const STREAMER_SALARY_MIN_GAMES = 14;
+const STREAMER_SALARY_POOL_PCT = 0.30;
+
+/** Amount actually represented by a ledger transaction, regardless of which of the two existing field-naming conventions it uses. */
+function f6TransactionAmount(t) {
+  return t.amount ?? t.fee ?? 0;
+}
+
+/** True if `transactions` contains a `void` record whose relatedTransactionId points at transactionId. */
+function isF6Voided(transactions, transactionId) {
+  return transactions.some((t) => t.type === "void" && t.relatedTransactionId === transactionId);
+}
+
+/** Sum of all `refund` amounts already recorded against one original transaction id. */
+function f6TotalRefundedAgainst(transactions, originalTransactionId) {
+  return transactions
+    .filter((t) => t.type === "refund" && t.relatedTransactionId === originalTransactionId)
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+}
+
 /**
  * Phase 7: Generates a single round-robin schedule (standard circle method)
  * for an arbitrary list of participantIds — never a hardcoded team count.
@@ -1250,7 +1290,16 @@ const LeagueData = {
 
   /**
    * Returns a summary of all participants' current rosters for the season,
-   * sorted by participant addition order.
+   * ordered by season.playerDraftOrder — the authoritative, admin-entered
+   * (DuckRace #1) draft/team order (see createSeason's doc comment on that
+   * field). This is deliberately NOT participant addition/object order:
+   * that order is not guaranteed to survive a Firestore round-trip (map
+   * field key order isn't preserved), which is exactly why callers need a
+   * real stored order to sort by instead. Any participant not yet present
+   * in playerDraftOrder (e.g. added before an order was ever entered)
+   * is appended afterward, sorted by participant ID — a deterministic,
+   * non-name, non-insertion-order fallback — never left to whatever order
+   * Object.values() happened to return.
    *
    * Each entry: {
    *   participant,           // { id, name }
@@ -1267,8 +1316,16 @@ const LeagueData = {
   getRosterSummary(seasonId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const participants = this.getParticipants(seasonId);
     const cap = season.ratingCap ?? 875;
+
+    const orderedIds = [...(season.playerDraftOrder || [])];
+    const orderedSet = new Set(orderedIds);
+    const fallbackIds = Object.keys(season.participants)
+      .filter((id) => !orderedSet.has(id))
+      .sort();
+    const participants = [...orderedIds, ...fallbackIds]
+      .map((id) => season.participants[id])
+      .filter(Boolean); // guards against a stale ID (e.g. a removed participant) lingering in playerDraftOrder
 
     return participants.map(participant => {
       const entries = this.getCurrentRoster(seasonId, participant.id);
@@ -1547,6 +1604,54 @@ const LeagueData = {
       .sort((a, b) => b.gamesStreamed - a.gamesStreamed);
   },
 
+  /**
+   * F6 — live preview of a streamer-salary payout, computed fresh from
+   * the CURRENT season.pot and CURRENT getStreamerStatistics() every time
+   * this is called; nothing here is stored. Eligibility/counting is
+   * exactly getStreamerStatistics() as it already exists (regular-season
+   * games only — playoff streamer counting is out of scope for F6, see
+   * the F6 architecture review). If AdminActions.payStreamerSalaries()
+   * is actually called, it independently snapshots pot/pool/individual
+   * salary at that moment — this preview does not guarantee the numbers
+   * a later payout run will use if the pot or eligibility changes first.
+   *
+   * alreadyPaid lists any `streamerSalary` transactions recorded in past
+   * runs (informational only — F6 does not block paying a streamer/
+   * participant again in a later run).
+   */
+  getStreamerSalaryPlan(seasonId) {
+    const season = this.getSeason(seasonId);
+    if (!season) return null;
+
+    const pot = season.pot ?? 0;
+    const salaryPool = pot * STREAMER_SALARY_POOL_PCT;
+    const eligibleStreamers = this.getStreamerStatistics(seasonId)
+      .filter((s) => s.gamesStreamed >= STREAMER_SALARY_MIN_GAMES);
+    const individualSalary = eligibleStreamers.length
+      ? Math.round(salaryPool / eligibleStreamers.length)
+      : null;
+
+    const transactions = season.transactions || [];
+    const alreadyPaid = transactions
+      .filter((t) => t.type === "streamerSalary")
+      .map((t) => ({
+        participantId: t.teamA,
+        participantName: season.participants[t.teamA]?.name || "—",
+        amount: t.amount,
+        description: t.description,
+        seasonDay: t.seasonDay,
+        timestamp: t.timestamp,
+      }));
+
+    return {
+      pot,
+      salaryPool,
+      eligibleStreamers,
+      individualSalary,
+      alreadyPaid,
+    };
+  },
+
   // ── Phase 9: Playoffs ────────────────────────────────────────────────────
 
   /** Returns the full playoffs object, or null if not yet generated. */
@@ -1627,6 +1732,22 @@ const LeagueData = {
    * freeTradesRemaining/freeSwapsRemaining: delegated to
    * getFreeAllowanceRemaining() below — see that method's doc comment for
    * why these come back null rather than a fabricated number.
+   *
+   * F6 additions (read-only, additive — nothing above this point changed):
+   * a voided entryFee/tradeFeeSplit/swap/jokerSwap transaction is excluded
+   * from entryFeeTransaction/tradeFeeTransactions/swapFeeTransactions (a
+   * voided entry fee means entryFeePaid goes back to false, per F6 spec
+   * section 5 — "prevent the original transaction from continuing to count
+   * toward financial totals"). totalRefunded is subtracted from totalPaid
+   * (a refund reduces the participant's effective amount paid, per F6
+   * spec section 2). outstandingBalance now also nets this participant's
+   * credit/debit transactions — credits/debits are ledger-only, no
+   * season.pot effect (see AdminActions.recordFinancialCredit/Debit) — and
+   * is intentionally NOT clamped at 0: negative means a credit balance
+   * owed TO the participant. streamerSalaryReceived is informational only
+   * (money received FROM the pot, not money paid IN) and is never folded
+   * into totalPaid/outstandingBalance. With no F6 transactions present,
+   * every field below computes identically to pre-F6 behavior.
    */
   getParticipantFinancialAccount(seasonId, participantId) {
     const season = this.getSeason(seasonId);
@@ -1638,21 +1759,35 @@ const LeagueData = {
       ? season.financialSettings.entryFee
       : 300;
     const transactions = season.transactions || [];
+    const notVoided = (t) => !isF6Voided(transactions, t.id);
 
     const entryFeeTransaction = transactions.find(
-      (t) => t.type === "entryFee" && t.teamA === participantId
+      (t) => t.type === "entryFee" && t.teamA === participantId && notVoided(t)
     ) || null;
     const entryFeePaid = !!entryFeeTransaction;
 
     const tradeFeeTransactions = transactions.filter(
-      (t) => t.type === "tradeFeeSplit" && t.teamA === participantId
+      (t) => t.type === "tradeFeeSplit" && t.teamA === participantId && notVoided(t)
     );
     const tradeFeesPaid = tradeFeeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
 
     const swapFeeTransactions = transactions.filter(
-      (t) => (t.type === "swap" || t.type === "jokerSwap") && t.teamA === participantId
+      (t) => (t.type === "swap" || t.type === "jokerSwap") && t.teamA === participantId && notVoided(t)
     );
     const swapFeesPaid = swapFeeTransactions.reduce((sum, t) => sum + (t.fee || 0), 0);
+
+    const totalRefunded = transactions
+      .filter((t) => t.type === "refund" && t.teamA === participantId)
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalCredits = transactions
+      .filter((t) => t.type === "credit" && t.teamA === participantId)
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalDebits = transactions
+      .filter((t) => t.type === "debit" && t.teamA === participantId)
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const streamerSalaryReceived = transactions
+      .filter((t) => t.type === "streamerSalary" && t.teamA === participantId)
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
 
     // totalPaid uses the AMOUNT ACTUALLY RECORDED on the entry-fee
     // transaction, not the season's current financialSettings.entryFee —
@@ -1663,8 +1798,8 @@ const LeagueData = {
     // outstandingBalance is intentionally different: it's a forward-
     // looking "what would they owe right now", which correctly uses
     // today's configured entryFee.
-    const totalPaid = (entryFeeTransaction?.amount || 0) + tradeFeesPaid + swapFeesPaid;
-    const outstandingBalance = entryFeePaid ? 0 : entryFee;
+    const totalPaid = (entryFeeTransaction?.amount || 0) + tradeFeesPaid + swapFeesPaid - totalRefunded;
+    const outstandingBalance = (entryFeePaid ? 0 : entryFee) - totalCredits + totalDebits;
 
     const allowance = this.getFreeAllowanceRemaining(seasonId, participantId);
 
@@ -1683,6 +1818,11 @@ const LeagueData = {
       entryFeeTransaction,
       tradeFeeTransactions,
       swapFeeTransactions,
+      // F6 additions:
+      totalRefunded,
+      totalCredits,
+      totalDebits,
+      streamerSalaryReceived,
     };
   },
 
@@ -1739,6 +1879,35 @@ const LeagueData = {
     const ledgerCalculatedTotal = totalCollected;
     const potDifference = pot - ledgerCalculatedTotal;
 
+    // ── F6 additions (read-only, additive) ─────────────────────────────
+    // totalCollected/ledgerCalculatedTotal/potDifference above are left
+    // completely untouched, per F6 instruction — they keep meaning exactly
+    // what they meant before F6 existed. These new fields answer the
+    // F6-aware question instead: given every known pot-affecting event
+    // (entry/trade/swap/10th-pick-Blue fees in, refunds and streamer
+    // salary payouts out — credits/debits are ledger-only and never
+    // touch pot), does season.pot reconcile? expectedPot should equal
+    // season.pot barring a bug; potDifferenceV2 is that cross-check.
+    const tenthPickBlueFeesCollected = transactions
+      .filter((t) => t.type === "tenthPickBlueFee")
+      .reduce((sum, t) => sum + (t.fee || 0), 0);
+    const totalRefunded = transactions
+      .filter((t) => t.type === "refund")
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalCredits = transactions
+      .filter((t) => t.type === "credit")
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalDebits = transactions
+      .filter((t) => t.type === "debit")
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const totalStreamerSalaryPaid = transactions
+      .filter((t) => t.type === "streamerSalary")
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
+    const voidedCount = transactions.filter((t) => t.type === "void").length;
+
+    const expectedPot = totalCollected + tenthPickBlueFeesCollected - totalRefunded - totalStreamerSalaryPaid;
+    const potDifferenceV2 = pot - expectedPot;
+
     return {
       seasonId,
       entryFeesCollected,
@@ -1756,6 +1925,15 @@ const LeagueData = {
       pot,
       ledgerCalculatedTotal,
       potDifference,
+      // F6 additions:
+      tenthPickBlueFeesCollected,
+      totalRefunded,
+      totalCredits,
+      totalDebits,
+      totalStreamerSalaryPaid,
+      voidedCount,
+      expectedPot,
+      potDifferenceV2,
     };
   },
 
@@ -2772,6 +2950,299 @@ const AdminActions = {
 
     saveData(data);
     return { amount: entryFee, pot: season.pot };
+  },
+
+  // ── Financial Management (F6 — Adjustments, Refunds, and Corrections) ───
+  // Never deletes or modifies an existing transaction — every action here
+  // only ever pushes a brand-new transaction onto season.transactions[],
+  // referencing the original (where applicable) via relatedTransactionId.
+  // Each function follows the same load → validate → mutate → save-once
+  // pattern as every other AdminActions write; if any validation throws,
+  // nothing has been pushed and season.pot is untouched.
+
+  /**
+   * Refunds part or all of one existing fee-collecting transaction back to
+   * the participant who paid it. Creates a new `refund` transaction; never
+   * touches the original. Rejects zero/negative amounts and rejects any
+   * amount exceeding what's still refundable on that transaction (original
+   * amount minus refunds already recorded against it) — the same
+   * transaction can never be refunded twice beyond its original amount.
+   * Decreases season.pot by the refunded amount (real cash leaving).
+   */
+  recordFinancialRefund(seasonId, { relatedTransactionId, amount, reason }) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureFinancialFields(season);
+    ensureTransactionFields(season);
+
+    const amountN = Number(amount);
+    if (!Number.isFinite(amountN) || amountN <= 0) {
+      throw new Error("Refund amount must be a positive number.");
+    }
+    if (!reason || !String(reason).trim()) {
+      throw new Error("A reason is required for a refund.");
+    }
+
+    const original = season.transactions.find((t) => t.id === relatedTransactionId);
+    if (!original) throw new Error("Original transaction not found.");
+    if (!F6_REFUNDABLE_TYPES.includes(original.type)) {
+      throw new Error(`A "${original.type}" transaction cannot be refunded directly.`);
+    }
+    if (!season.participants[original.teamA]) {
+      throw new Error("The participant on the original transaction no longer exists.");
+    }
+
+    const originalAmount = f6TransactionAmount(original);
+    const alreadyRefunded = f6TotalRefundedAgainst(season.transactions, original.id);
+    const remainingRefundable = originalAmount - alreadyRefunded;
+    if (amountN > remainingRefundable) {
+      throw new Error(
+        `Refund amount ₱${amountN} exceeds the remaining refundable amount of ₱${remainingRefundable} on this transaction.`
+      );
+    }
+
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "refund",
+      teamA: original.teamA,
+      teamB: null,
+      playersOut: [],
+      playersIn: [],
+      amount: amountN,
+      status: "completed",
+      relatedTransactionId: original.id,
+      description: String(reason).trim(),
+      approvedBy: "commissioner",
+    });
+    season.pot = (season.pot || 0) - amountN;
+
+    saveData(data);
+    return { amount: amountN, pot: season.pot, remainingRefundable: remainingRefundable - amountN };
+  },
+
+  /**
+   * Applies a credit to a participant's account — a ledger adjustment
+   * reducing what they owe, NOT a cash movement. season.pot is
+   * intentionally never touched here (see F6 architecture review: credits
+   * represent an owed-amount adjustment, not money physically entering or
+   * leaving the pot).
+   */
+  recordFinancialCredit(seasonId, { participantId, amount, reason }) {
+    return this._recordFinancialLedgerAdjustment(seasonId, { participantId, amount, reason, type: "credit" });
+  },
+
+  /**
+   * Applies a debit to a participant's account — a ledger adjustment
+   * increasing what they owe. season.pot is intentionally never touched
+   * here (same reasoning as recordFinancialCredit).
+   */
+  recordFinancialDebit(seasonId, { participantId, amount, reason }) {
+    return this._recordFinancialLedgerAdjustment(seasonId, { participantId, amount, reason, type: "debit" });
+  },
+
+  /** Shared implementation for recordFinancialCredit/recordFinancialDebit — identical validation/shape, only `type` differs. */
+  _recordFinancialLedgerAdjustment(seasonId, { participantId, amount, reason, type }) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureFinancialFields(season);
+    ensureTransactionFields(season);
+
+    if (!season.participants[participantId]) throw new Error("Participant not found in this season");
+
+    const amountN = Number(amount);
+    if (!Number.isFinite(amountN) || amountN <= 0) {
+      throw new Error(`${type === "credit" ? "Credit" : "Debit"} amount must be a positive number.`);
+    }
+    if (!reason || !String(reason).trim()) {
+      throw new Error(`A reason is required for a ${type}.`);
+    }
+
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type,
+      teamA: participantId,
+      teamB: null,
+      playersOut: [],
+      playersIn: [],
+      amount: amountN,
+      status: "applied",
+      relatedTransactionId: null,
+      description: String(reason).trim(),
+      approvedBy: "commissioner",
+    });
+    // Intentionally no season.pot change — see doc comment above.
+
+    saveData(data);
+    return { amount: amountN, pot: season.pot };
+  },
+
+  /**
+   * Voids an existing transaction: preserves it in place, and pushes a new
+   * `void` transaction referencing it via relatedTransactionId. From that
+   * point on, getParticipantFinancialAccount/getFinancialSummary exclude
+   * the original from their totals (see isF6Voided). Rejects voiding the
+   * same transaction twice. Does NOT change season.pot — a void is an
+   * accounting/status correction, not a new cash movement (if the original
+   * transaction did add real money to the pot and that money needs to
+   * physically leave, use a refund instead/in addition).
+   */
+  voidFinancialTransaction(seasonId, { transactionId, reason }) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureFinancialFields(season);
+    ensureTransactionFields(season);
+
+    if (!reason || !String(reason).trim()) {
+      throw new Error("A reason is required to void a transaction.");
+    }
+
+    const original = season.transactions.find((t) => t.id === transactionId);
+    if (!original) throw new Error("Transaction not found.");
+    if (!F6_VOIDABLE_TYPES.includes(original.type)) {
+      throw new Error(`A "${original.type}" transaction cannot be voided.`);
+    }
+    if (isF6Voided(season.transactions, original.id)) {
+      throw new Error("This transaction has already been voided.");
+    }
+
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "void",
+      teamA: original.teamA ?? null,
+      teamB: null,
+      playersOut: [],
+      playersIn: [],
+      amount: f6TransactionAmount(original),
+      status: "voided",
+      relatedTransactionId: original.id,
+      description: String(reason).trim(),
+      approvedBy: "commissioner",
+    });
+    // Intentionally no season.pot change — see doc comment above.
+
+    saveData(data);
+    return { voidedTransactionId: original.id, pot: season.pot };
+  },
+
+  /**
+   * Pays the current season's streamer salary pool: 30% of season.pot,
+   * split equally among every streamer with >=14 completed regular-season
+   * games (per the existing, unmodified LeagueData.getStreamerStatistics).
+   * The pool is snapshotted ONCE against season.pot at the moment this
+   * runs — every eligible streamer's individualSalary is computed from
+   * that single snapshot, not recalculated after each payout, so paying
+   * streamer #1 never changes what streamer #2 or #3 receive in the same
+   * run.
+   *
+   * streamerParticipantMap maps each eligible streamer's free-text name to
+   * the participantId who should actually receive that payout (the
+   * streamer name recorded on a game is free text, not a participantId —
+   * see F6 architecture review). Every eligible streamer must have an
+   * entry; every mapped participantId must exist in this season; the same
+   * participant cannot be mapped twice in one run.
+   *
+   * Writes one parent `streamerSalaryRun` record (snapshot only, no
+   * participant, no pot effect) plus one `streamerSalary` child record per
+   * eligible streamer (each decreases season.pot by individualSalary),
+   * all in a single load → validate → mutate → save — the whole run
+   * succeeds or fails together. If there are no eligible streamers, throws
+   * and nothing is written (no salary is ever paid automatically).
+   */
+  payStreamerSalaries(seasonId, { streamerParticipantMap, reason }) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureFinancialFields(season);
+    ensureTransactionFields(season);
+
+    if (!reason || !String(reason).trim()) {
+      throw new Error("A reason is required to pay streamer salaries.");
+    }
+
+    const eligible = LeagueData.getStreamerStatistics(seasonId)
+      .filter((s) => s.gamesStreamed >= STREAMER_SALARY_MIN_GAMES);
+    if (!eligible.length) {
+      throw new Error(`No eligible streamers (must have streamed at least ${STREAMER_SALARY_MIN_GAMES} games).`);
+    }
+
+    const map = streamerParticipantMap || {};
+    const seenParticipants = new Set();
+    for (const { streamer } of eligible) {
+      const participantId = map[streamer];
+      if (!participantId) {
+        throw new Error(`No participant selected for eligible streamer "${streamer}".`);
+      }
+      if (!season.participants[participantId]) {
+        throw new Error(`Selected participant for "${streamer}" was not found in this season.`);
+      }
+      if (seenParticipants.has(participantId)) {
+        throw new Error("The same participant is mapped to more than one eligible streamer in this run.");
+      }
+      seenParticipants.add(participantId);
+    }
+
+    // Snapshot — computed once, used for every child payout in this run.
+    const totalPotAtPayout = season.pot || 0;
+    const salaryPool = totalPotAtPayout * STREAMER_SALARY_POOL_PCT;
+    const individualSalary = Math.round(salaryPool / eligible.length);
+
+    const runId = generateId("txn");
+    season.transactions.push({
+      id: runId,
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "streamerSalaryRun",
+      teamA: null,
+      teamB: null,
+      playersOut: [],
+      playersIn: [],
+      amount: individualSalary * eligible.length,
+      status: "completed",
+      relatedTransactionId: null,
+      description: String(reason).trim(),
+      approvedBy: "commissioner",
+      totalPotAtPayout,
+      salaryPool,
+      eligibleStreamerCount: eligible.length,
+      individualSalary,
+    });
+
+    for (const { streamer, gamesStreamed } of eligible) {
+      const participantId = map[streamer];
+      season.transactions.push({
+        id: generateId("txn"),
+        seasonId,
+        seasonDay: season.currentSeasonDay,
+        timestamp: new Date().toISOString(),
+        type: "streamerSalary",
+        teamA: participantId,
+        teamB: null,
+        playersOut: [],
+        playersIn: [],
+        amount: individualSalary,
+        status: "paid",
+        relatedTransactionId: runId,
+        description: `Streamer salary — ${streamer} (${gamesStreamed} games)`,
+        approvedBy: "commissioner",
+      });
+      season.pot = (season.pot || 0) - individualSalary;
+    }
+
+    saveData(data);
+    return { runId, totalPotAtPayout, salaryPool, individualSalary, eligibleCount: eligible.length, pot: season.pot };
   },
 
   /**

@@ -27,6 +27,7 @@ const AdminRosterView = {
 
     const summary = LeagueData.getRosterSummary(season.id);
     const cap = season.ratingCap ?? 875;
+    const assignments = LeagueData.getNBATeamAssignments(season.id);
     const rostersInitialized = season.rostersInitialized ?? false;
     const draftComplete = season.draftComplete ?? false;
     const totalParticipants = summary.length;
@@ -93,7 +94,7 @@ const AdminRosterView = {
           </h3>
           ${summary.length === 0
             ? `<div class="empty-state"><p>No participants yet.</p></div>`
-            : `<div class="roster-cards">${summary.map(s => this._renderRosterCard(s, cap)).join('')}</div>`
+            : `<div class="roster-cards">${summary.map(s => this._renderRosterCard(s, cap, assignments[s.participant.id])).join('')}</div>`
           }
         </div>
 
@@ -119,7 +120,7 @@ const AdminRosterView = {
     </div>`;
   },
 
-  _renderRosterCard(summary, cap) {
+  _renderRosterCard(summary, cap, abbr) {
     const { participant, rosterEntries, totalRating, remaining, isOverCap } = summary;
     const pct = cap > 0 ? Math.min(100, (totalRating / cap) * 100) : 0;
     const barClass = isOverCap ? 'cap-bar-fill--over'
@@ -146,6 +147,9 @@ const AdminRosterView = {
         <div class="roster-card-header">
           <span class="roster-card-name">${escapeHtml(participant.name)}</span>
           <span class="roster-card-count">${rosterEntries.length} player${rosterEntries.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="roster-card-team">
+          ${teamBadge(abbr, { size: 'lg', showName: true })}
         </div>
 
         <!-- Rating bar -->
