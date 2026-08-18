@@ -172,7 +172,7 @@ const AdminFinancialView = {
       <div class="table-scroll">
         <table class="admin-table">
           <thead>
-            <tr><th>Participant</th><th>Entry</th><th>Trade</th><th>Swap</th><th>Total Paid</th><th>Outstanding</th><th>Status</th><th></th></tr>
+            <tr><th>Participant</th><th>Entry</th><th>Trade</th><th>Swap</th><th>Total Paid</th><th>Outstanding</th><th>Entry Fee Status</th><th></th></tr>
           </thead>
           <tbody>
             ${visible.map(({ participant, account }) => {
@@ -187,7 +187,7 @@ const AdminFinancialView = {
                   <td>₱${account.swapFeesPaid}</td>
                   <td>₱${account.totalPaid}</td>
                   <td>₱${account.outstandingBalance}</td>
-                  <td><span class="status-chip ${account.entryFeePaid ? 'status-paid' : 'status-unpaid'}">${account.entryFeePaid ? 'Paid' : 'Unpaid'}</span></td>
+                  <td><span class="status-chip ${account.entryFeePaid ? 'status-paid' : 'status-unpaid'}">${account.entryFeePaid ? 'Entry Paid' : 'Entry Unpaid'}</span></td>
                   <td>
                     <button class="btn btn-sm btn-ghost" data-action="viewDetails" data-id="${participant.id}">View Details</button>
                     <button class="btn btn-sm btn-ghost" data-action="adjustParticipant" data-id="${participant.id}">Adjust</button>
