@@ -22,7 +22,28 @@ const AdminPlayoffsView = {
 
     if (!playoffs) {
       const stats = LeagueData.getTeamStatistics(season.id);
-      const enough = stats.length >= 12;
+      const enoughTeams = stats.length >= 12;
+      const scheduleState = LeagueData.getScheduleState(season.id);
+      const seasonComplete = scheduleState.generated
+        && scheduleState.realMatchupCount > 0
+        && scheduleState.completedCount >= scheduleState.realMatchupCount;
+      const enough = enoughTeams && seasonComplete;
+
+      let blockedReason = '';
+      if (!seasonComplete) {
+        if (!scheduleState.generated) {
+          blockedReason = 'No regular-season schedule has been created yet.';
+        } else if (scheduleState.realMatchupCount === 0) {
+          blockedReason = 'The regular-season schedule contains no games.';
+        } else {
+          blockedReason = `The regular season is not yet complete
+            (${scheduleState.completedCount} of ${scheduleState.realMatchupCount} games played).`;
+        }
+      } else if (!enoughTeams) {
+        blockedReason = `At least 12 ranked teams are required to generate the playoff bracket
+          (currently ${stats.length}).`;
+      }
+
       container.innerHTML = `
         <div class="admin-section">
           <div class="admin-section-header"><h2>Playoffs — ${escapeHtml(season.name)}</h2></div>
@@ -30,8 +51,7 @@ const AdminPlayoffsView = {
             ${enough
               ? `<p>Generate the 12-team playoff bracket from the current standings.</p>
                  <button class="btn btn-primary" data-action="generate">Generate Playoffs</button>`
-              : `<p>At least 12 ranked teams are required to generate the playoff bracket
-                 (currently ${stats.length}).</p>`}
+              : `<p>${blockedReason}</p>`}
           </div>
         </div>`;
       if (enough) {

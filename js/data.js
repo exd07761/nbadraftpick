@@ -2867,6 +2867,17 @@ const AdminActions = {
       );
     }
 
+    const scheduleState = LeagueData.getScheduleState(seasonId);
+    if (!scheduleState.generated) {
+      throw new Error("Cannot generate playoffs: no regular-season schedule has been created.");
+    }
+    if (scheduleState.realMatchupCount === 0) {
+      throw new Error("Cannot generate playoffs: the regular-season schedule contains no games.");
+    }
+    if (scheduleState.completedCount < scheduleState.realMatchupCount) {
+      throw new Error("Cannot generate playoffs: the regular season is not yet complete.");
+    }
+
     const stats = LeagueData.getTeamStatistics(seasonId);
     if (stats.length < 12) {
       throw new Error(
