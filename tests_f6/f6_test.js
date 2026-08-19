@@ -271,12 +271,13 @@ console.log('F6 tests');
     assertThrows(() => AdminActions.voidFinancialTransaction(seasonId, { transactionId: 'txn_fake_split', reason: '' }));
   });
 
-  check('voiding entryFee flips entryFeePaid back to false', () => {
+  check('voiding the entryFee charge zeroes its charged amount (F6 Revision 2: charge and payment are separate — see f6_revision2_test.js)', () => {
     const account = LeagueData.getParticipantFinancialAccount(seasonId, pA.id);
     const entryFeeTxnId = account.entryFeeTransaction.id;
     AdminActions.voidFinancialTransaction(seasonId, { transactionId: entryFeeTxnId, reason: 'Duplicate payment recorded' });
     const after = LeagueData.getParticipantFinancialAccount(seasonId, pA.id);
-    assertEqual(after.entryFeePaid, false, 'entry fee no longer counted as paid after void');
+    assertEqual(after.entryFeeCharged, 0, 'voided charge no longer counts as an obligation');
+    assertEqual(after.entryFeeTransaction, null, 'voided charge excluded from entryFeeTransaction');
   });
 })();
 

@@ -1,21 +1,33 @@
 /**
- * admin/financial.js — Financial Management (F5 + F6)
+ * admin/financial.js — Financial Management (F5 + F6 + F6 Revision 2)
  *
- * Presentation layer over the F4 derived financial APIs
+ * Presentation layer over the F4/F6-Revision-2 derived financial APIs
  * (LeagueData.getFinancialSummary / getParticipantFinancialAccount /
  * getFreeAllowanceRemaining / getStreamerSalaryPlan), which themselves
  * derive everything from season.transactions[] — the same ledger Phase 5
- * (trades/swaps/Joker/10th-pick-Blue) and F2/F3 (entryFee/tradeFeeSplit)
- * already write to.
+ * (trades/swaps/Joker/10th-pick-Blue), F2/F3 (entryFee/tradeFeeSplit), and
+ * F6 Revision 2 (payment) already write to.
  *
- * F5 was originally read-only. F6 adds exactly two write paths, both
- * gated behind AuthBoundary.requireAuth() and a confirmation modal, same
- * convention as every other admin write in this app:
+ * F6 Revision 2's core model: a CHARGE (entryFee/tradeFeeSplit/swap/
+ * jokerSwap) increases season.pot immediately when it's created — pot
+ * represents total money charged to the league, not only what's
+ * physically been collected. A PAYMENT records actual money received
+ * against a charge and never touches pot again (the charge already did).
+ * This page therefore always shows three separate figures — Charged,
+ * Paid, Unpaid — never conflating "a charge exists" with "it's been
+ * paid". See data.js's f6ParticipantBreakdown for the full model.
+ *
+ * Write paths, all gated behind AuthBoundary.requireAuth() and a
+ * confirmation modal, same convention as every other admin write in this
+ * app:
  *   - "Adjust Account" → AdminActions.recordFinancialRefund /
  *     recordFinancialCredit / recordFinancialDebit / voidFinancialTransaction
+ *   - "Record Payment" → AdminActions.recordFinancialPayment
  *   - "Pay Streamer Salaries" → AdminActions.payStreamerSalaries
- * No other write path exists here — Mark Paid (recordEntryFeePayment)
- * still lives on the Participants page exactly where F2 put it.
+ * Mark Paid (recordEntryFeePayment) still lives on the Participants page
+ * exactly where F2 put it — under F6 Revision 2 it now records a payment
+ * for whatever entry fee remains outstanding (see data.js), rather than
+ * always charging the full amount again.
  *
  * One addition intentionally lives here rather than in F4: "Draft / Other
  * Fees" (the existing tenthPickBlueFee transactions). F4's
@@ -85,6 +97,7 @@ const AdminFinancialView = {
             <button class="btn btn-sm ${this._statusFilter === 'all' ? 'btn-primary' : 'btn-ghost'}" data-filter="all">All</button>
             <button class="btn btn-sm ${this._statusFilter === 'paid' ? 'btn-primary' : 'btn-ghost'}" data-filter="paid">Paid</button>
             <button class="btn btn-sm ${this._statusFilter === 'unpaid' ? 'btn-primary' : 'btn-ghost'}" data-filter="unpaid">Unpaid</button>
+            <button class="btn btn-sm btn-primary" data-action="recordPayment">Record Payment</button>
             <button class="btn btn-sm btn-primary" data-action="adjustAccount">Adjust Account</button>
           </div>
         </div>
@@ -120,8 +133,17 @@ const AdminFinancialView = {
       adjustBtn.onclick = () => this._openAdjustModal(season, participants, container);
     }
 
+    const recordPaymentBtn = container.querySelector('[data-action="recordPayment"]');
+    if (recordPaymentBtn) {
+      recordPaymentBtn.onclick = () => this._openRecordPaymentModal(season, participants, container);
+    }
+
     container.querySelectorAll('[data-action="adjustParticipant"]').forEach((btn) => {
       btn.onclick = () => this._openAdjustModal(season, participants, container, btn.dataset.id);
+    });
+
+    container.querySelectorAll('[data-action="payParticipant"]').forEach((btn) => {
+      btn.onclick = () => this._openRecordPaymentModal(season, participants, container, btn.dataset.id);
     });
 
     const streamerMapSelects = container.querySelectorAll('[data-streamer-select]');
@@ -140,18 +162,25 @@ const AdminFinancialView = {
     const diffLabel = potDifference === 0 ? '₱0' : (potDifference > 0 ? `+₱${potDifference}` : `-₱${Math.abs(potDifference)}`);
     return `
       <div class="financial-summary-strip">
-        <div><span class="pot-summary-label">Current Pot</span><span class="pot-summary-value">₱${pot}</span></div>
-        <div><span class="pot-summary-label">Entry Fees</span><span class="pot-summary-value">₱${summary.entryFeesCollected}</span></div>
-        <div><span class="pot-summary-label">Trade Fees</span><span class="pot-summary-value">₱${summary.tradeFeesCollected}</span></div>
-        <div><span class="pot-summary-label">Swap Fees</span><span class="pot-summary-value">₱${summary.swapFeesCollected}</span></div>
+        <div><span class="pot-summary-label">Total Pot</span><span class="pot-summary-value">₱${pot}</span></div>
+        <div><span class="pot-summary-label">Total Paid</span><span class="pot-summary-value">₱${summary.totalPaidAll}</span></div>
+        <div><span class="pot-summary-label">Total Unpaid</span><span class="pot-summary-value">₱${summary.totalUnpaidAll}</span></div>
+      </div>
+      <p class="helper-text" style="margin-top:0.25rem;">
+        The pot reflects everything charged to the league so far (entry fees, trade fees, swap fees — increased the
+        moment each charge is created). Total Unpaid is how much of that hasn't actually been paid in yet.
+      </p>
+      <div class="financial-summary-strip" style="margin-top:0.5rem;">
+        <div><span class="pot-summary-label">Entry Fees</span><span class="pot-summary-value">₱${summary.entryFeeChargedTotal} charged · ₱${summary.entryFeeUnpaidTotal} unpaid</span></div>
+        <div><span class="pot-summary-label">Trade Fees</span><span class="pot-summary-value">₱${summary.tradeFeeChargedTotal} charged · ₱${summary.tradeFeeUnpaidTotal} unpaid</span></div>
+        <div><span class="pot-summary-label">Swap Fees</span><span class="pot-summary-value">₱${summary.swapFeeChargedTotal} charged · ₱${summary.swapFeeUnpaidTotal} unpaid</span></div>
         <div><span class="pot-summary-label">Draft / Other Fees</span><span class="pot-summary-value">₱${draftOtherFeesCollected}</span></div>
-        <div><span class="pot-summary-label">Total Collected</span><span class="pot-summary-value">₱${totalCollected}</span></div>
       </div>
       <div class="recon-strip">
-        <span>Total Collected <strong>₱${totalCollected}</strong></span>
+        <span>Total Collected (legacy diagnostic) <strong>₱${totalCollected}</strong></span>
         <span>Current Pot <strong>₱${pot}</strong></span>
         <span class="${potDifference === 0 ? 'recon-ok' : 'recon-off'}">Difference <strong>${diffLabel}</strong></span>
-        <span>${unpaidCount} of ${participantCount} participant${participantCount !== 1 ? 's' : ''} unpaid</span>
+        <span>${unpaidCount} of ${participantCount} participant${participantCount !== 1 ? 's' : ''} with an unpaid entry fee</span>
       </div>`;
   },
 
@@ -168,28 +197,31 @@ const AdminFinancialView = {
     if (!visible.length) {
       return `<div class="empty-state"><p>No participants match this filter.</p></div>`;
     }
+    const cell = (charged, paid, unpaid) => `₱${charged}<br><span class="helper-text">₱${paid} paid · ₱${unpaid} unpaid</span>`;
     return `
       <div class="table-scroll">
         <table class="admin-table">
           <thead>
-            <tr><th>Participant</th><th>Entry</th><th>Trade</th><th>Swap</th><th>Total Paid</th><th>Outstanding</th><th>Entry Fee Status</th><th></th></tr>
+            <tr><th>Participant</th><th>Entry Fee</th><th>Trade Fees</th><th>Swap Fees</th><th>Total Charges</th><th>Total Paid</th><th>Total Unpaid</th><th>Entry Fee Status</th><th></th></tr>
           </thead>
           <tbody>
             ${visible.map(({ participant, account }) => {
               if (!account) {
-                return `<tr><td>${escapeHtml(participant.name)}</td><td colspan="6">Unable to load account.</td></tr>`;
+                return `<tr><td>${escapeHtml(participant.name)}</td><td colspan="8">Unable to load account.</td></tr>`;
               }
               return `
                 <tr>
                   <td>${escapeHtml(participant.name)}</td>
-                  <td>₱${account.entryFee}</td>
-                  <td>₱${account.tradeFeesPaid}</td>
-                  <td>₱${account.swapFeesPaid}</td>
+                  <td>${cell(account.entryFeeCharged, account.entryFeeCharged - account.entryFeeUnpaid, account.entryFeeUnpaid)}</td>
+                  <td>${cell(account.tradeFeesCharged, account.tradeFeesPaid, account.tradeFeesUnpaid)}</td>
+                  <td>${cell(account.swapFeesCharged, account.swapFeesPaid, account.swapFeesUnpaid)}</td>
+                  <td>₱${account.totalCharges}</td>
                   <td>₱${account.totalPaid}</td>
-                  <td>₱${account.outstandingBalance}</td>
+                  <td>₱${account.totalUnpaid}</td>
                   <td><span class="status-chip ${account.entryFeePaid ? 'status-paid' : 'status-unpaid'}">${account.entryFeePaid ? 'Entry Paid' : 'Entry Unpaid'}</span></td>
                   <td>
                     <button class="btn btn-sm btn-ghost" data-action="viewDetails" data-id="${participant.id}">View Details</button>
+                    <button class="btn btn-sm btn-ghost" data-action="payParticipant" data-id="${participant.id}">Record Payment</button>
                     <button class="btn btn-sm btn-ghost" data-action="adjustParticipant" data-id="${participant.id}">Adjust</button>
                   </td>
                 </tr>`;
@@ -212,11 +244,11 @@ const AdminFinancialView = {
         <div class="modal-player-name" id="financialDetailTitle">${escapeHtml(participant.name)}</div>
 
         <div class="financial-detail-grid">
-          <div><span class="pot-summary-label">Entry Fee</span><span class="pot-summary-value">₱${account.entryFee} — ${account.entryFeePaid ? 'Paid' : 'Unpaid'}</span></div>
-          <div><span class="pot-summary-label">Trade Fees</span><span class="pot-summary-value">₱${account.tradeFeesPaid}</span></div>
-          <div><span class="pot-summary-label">Swap Fees</span><span class="pot-summary-value">₱${account.swapFeesPaid}</span></div>
-          <div><span class="pot-summary-label">Total Paid</span><span class="pot-summary-value">₱${account.totalPaid}</span></div>
-          <div><span class="pot-summary-label">Outstanding</span><span class="pot-summary-value">₱${account.outstandingBalance}${account.outstandingBalance < 0 ? ' (credit balance)' : ''}</span></div>
+          <div><span class="pot-summary-label">Entry Fee</span><span class="pot-summary-value">₱${account.entryFeeCharged} charged · ₱${account.entryFeeCharged - account.entryFeeUnpaid} paid · ₱${account.entryFeeUnpaid} unpaid</span></div>
+          <div><span class="pot-summary-label">Trade Fees</span><span class="pot-summary-value">₱${account.tradeFeesCharged} charged · ₱${account.tradeFeesPaid} paid · ₱${account.tradeFeesUnpaid} unpaid</span></div>
+          <div><span class="pot-summary-label">Swap Fees</span><span class="pot-summary-value">₱${account.swapFeesCharged} charged · ₱${account.swapFeesPaid} paid · ₱${account.swapFeesUnpaid} unpaid</span></div>
+          <div><span class="pot-summary-label">Total</span><span class="pot-summary-value">₱${account.totalCharges} charged · ₱${account.totalPaid} paid · ₱${account.totalUnpaid} unpaid</span></div>
+          <div><span class="pot-summary-label">Outstanding (net of credits/debits)</span><span class="pot-summary-value">₱${account.outstandingBalance}${account.outstandingBalance < 0 ? ' (credit balance)' : ''}</span></div>
         </div>
 
         ${(account.totalRefunded || account.totalCredits || account.totalDebits || account.streamerSalaryReceived) ? `
@@ -241,6 +273,7 @@ const AdminFinancialView = {
 
         <div class="modal-actions">
           <button class="btn btn-ghost" id="financialDetailCloseBtn">Close</button>
+          <button class="btn btn-primary" id="financialDetailPayBtn">Record Payment</button>
           <button class="btn btn-primary" id="financialDetailAdjustBtn">Adjust Account</button>
         </div>
       </div>`;
@@ -249,6 +282,10 @@ const AdminFinancialView = {
     const close = () => overlay.remove();
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     document.getElementById('financialDetailCloseBtn').onclick = close;
+    document.getElementById('financialDetailPayBtn').onclick = () => {
+      close();
+      this._openRecordPaymentModal(season, participants, container, participant.id);
+    };
     document.getElementById('financialDetailAdjustBtn').onclick = () => {
       close();
       this._openAdjustModal(season, participants, container, participant.id);
@@ -258,19 +295,36 @@ const AdminFinancialView = {
   /**
    * Displays entryFee / tradeFeeSplit / swap / jokerSwap / tenthPickBlueFee
    * (F5 spec section 12) plus, since F6, refund / credit / debit / void /
-   * streamerSalary. The plain "trade" transaction is intentionally NOT
-   * listed on its own here (it would duplicate the same ₱ figure already
-   * shown via its two tradeFeeSplit children — see the file header and F5
-   * spec section 13); likewise "streamerSalaryRun" is never listed on its
-   * own, only via its grouped streamerSalary children (same reasoning).
-   * Each trade's two tradeFeeSplit records, and each payout run's
-   * streamerSalary records, are grouped by relatedTransactionId into one
-   * row so no total is ever implied to be collected/paid twice over.
+   * streamerSalary, and since F6 Revision 2, payment. The plain "trade"
+   * transaction is intentionally NOT listed on its own here (it would
+   * duplicate the same ₱ figure already shown via its two tradeFeeSplit
+   * children — see the file header and F5 spec section 13); likewise
+   * "streamerSalaryRun" is never listed on its own, only via its grouped
+   * streamerSalary children (same reasoning). Each trade's two
+   * tradeFeeSplit records, and each payout run's streamerSalary records,
+   * are grouped by relatedTransactionId into one row so no total is ever
+   * implied to be collected/paid twice over.
+   *
+   * F6 Revision 2: every CHARGE row (entryFee/tradeFeeSplit/swap/
+   * jokerSwap/tenthPickBlueFee) now carries an explicit Pending/Unpaid or
+   * Paid status column, driven by the same f6IsCollected logic data.js
+   * uses — never displayed as collected just because the row exists (F6
+   * Revision 2 spec section 18: "Do not make a pending charge appear as
+   * though it has already been collected").
    */
   _renderTransactionHistory(season, participants) {
     const nameOf = (id) => participants.find((p) => p.id === id)?.name || '—';
     const TYPE_LABELS = { entryFee: 'Entry Fee', swap: 'Swap', jokerSwap: 'Joker Swap', tenthPickBlueFee: '10th Pick Blue Fee' };
-    const relevant = new Set(['entryFee', 'tradeFeeSplit', 'swap', 'jokerSwap', 'tenthPickBlueFee', 'refund', 'credit', 'debit', 'void', 'streamerSalary']);
+    const PAYMENT_CATEGORY_LABELS = { entryFee: 'Entry Fee', tradeFee: 'Trade Fees', swapFee: 'Swap Fees' };
+    // Mirrors data.js's f6IsCollected exactly — see that function's doc
+    // comment for why a missing status on exactly these two types means
+    // "collected" (pre-revision legacy records) rather than "unknown".
+    const isCollected = (t) => {
+      if (t.status === 'paid') return true;
+      if (t.status === 'pending') return false;
+      return t.type === 'swap' || t.type === 'jokerSwap' || t.type === 'tenthPickBlueFee';
+    };
+    const relevant = new Set(['entryFee', 'tradeFeeSplit', 'swap', 'jokerSwap', 'tenthPickBlueFee', 'refund', 'credit', 'debit', 'void', 'streamerSalary', 'payment']);
     const history = LeagueData.getTransactionHistory(season.id).filter((t) => relevant.has(t.type));
 
     if (!history.length) {
@@ -281,8 +335,12 @@ const AdminFinancialView = {
     const describeOriginal = (id) => {
       const t = allHistory.find((x) => x.id === id);
       if (!t) return 'an unknown transaction';
-      return `${TYPE_LABELS[t.type] || t.type} — ₱${t.amount ?? t.fee ?? 0} (${escapeHtml(nameOf(t.teamA))})`;
+      const label = t.type === 'payment' ? `Payment (${PAYMENT_CATEGORY_LABELS[t.paymentCategory] || t.paymentCategory})` : (TYPE_LABELS[t.type] || t.type);
+      return `${label} — ₱${t.amount ?? t.fee ?? 0} (${escapeHtml(nameOf(t.teamA))})`;
     };
+    const statusBadge = (t) => isCollected(t)
+      ? '<span class="status-chip status-paid">Paid</span>'
+      : '<span class="status-chip status-unpaid">Pending / Unpaid</span>';
 
     const seenGroups = new Set();
     const rows = [];
@@ -296,7 +354,8 @@ const AdminFinancialView = {
           day: t.seasonDay,
           timestamp: t.timestamp,
           label: `Trade fee — ${group.map((g) => escapeHtml(nameOf(g.teamA))).join(' ↔ ')}`,
-          detail: `Total ₱${total} (${group.map((g) => `${escapeHtml(nameOf(g.teamA))} ₱${g.amount}`).join(', ')})`,
+          detail: `Total ₱${total} charged (${group.map((g) => `${escapeHtml(nameOf(g.teamA))} ₱${g.amount} ${isCollected(g) ? 'paid' : 'pending'}`).join(', ')})`,
+          status: group.every(isCollected) ? statusBadge(group[0]) : '<span class="status-chip status-unpaid">Mixed</span>',
         });
       } else if (t.type === 'streamerSalary') {
         if (seenGroups.has(t.relatedTransactionId)) continue;
@@ -309,6 +368,15 @@ const AdminFinancialView = {
           timestamp: t.timestamp,
           label: 'Streamer Salary Payout',
           detail: `Pool ₱${runTxn ? runTxn.salaryPool : total} from pot ₱${runTxn ? runTxn.totalPotAtPayout : '—'} — ${group.map((g) => `${escapeHtml(nameOf(g.teamA))} ₱${g.amount}`).join(', ')}`,
+          status: '<span class="status-chip status-paid">Paid</span>',
+        });
+      } else if (t.type === 'payment') {
+        rows.push({
+          day: t.seasonDay,
+          timestamp: t.timestamp,
+          label: `Payment — ${PAYMENT_CATEGORY_LABELS[t.paymentCategory] || t.paymentCategory}`,
+          detail: `${escapeHtml(nameOf(t.teamA))} — ₱${t.amount} — "${escapeHtml(t.description || '')}"`,
+          status: '<span class="status-chip status-paid">Paid</span>',
         });
       } else if (t.type === 'refund') {
         rows.push({
@@ -316,6 +384,7 @@ const AdminFinancialView = {
           timestamp: t.timestamp,
           label: 'Refund',
           detail: `${escapeHtml(nameOf(t.teamA))} — ₱${t.amount} (refunding ${describeOriginal(t.relatedTransactionId)}) — "${escapeHtml(t.description || '')}"`,
+          status: '',
         });
       } else if (t.type === 'credit') {
         rows.push({
@@ -323,6 +392,7 @@ const AdminFinancialView = {
           timestamp: t.timestamp,
           label: 'Credit',
           detail: `${escapeHtml(nameOf(t.teamA))} — ₱${t.amount} — "${escapeHtml(t.description || '')}"`,
+          status: '',
         });
       } else if (t.type === 'debit') {
         rows.push({
@@ -330,6 +400,7 @@ const AdminFinancialView = {
           timestamp: t.timestamp,
           label: 'Debit',
           detail: `${escapeHtml(nameOf(t.teamA))} — ₱${t.amount} — "${escapeHtml(t.description || '')}"`,
+          status: '',
         });
       } else if (t.type === 'void') {
         rows.push({
@@ -337,6 +408,7 @@ const AdminFinancialView = {
           timestamp: t.timestamp,
           label: 'Void',
           detail: `Voided ${describeOriginal(t.relatedTransactionId)} — "${escapeHtml(t.description || '')}"`,
+          status: '',
         });
       } else {
         rows.push({
@@ -344,6 +416,7 @@ const AdminFinancialView = {
           timestamp: t.timestamp,
           label: TYPE_LABELS[t.type] || escapeHtml(t.type),
           detail: `${escapeHtml(nameOf(t.teamA))} — ₱${t.fee ?? t.amount ?? 0}`,
+          status: statusBadge(t),
         });
       }
     }
@@ -351,13 +424,14 @@ const AdminFinancialView = {
     return `
       <div class="table-scroll">
         <table class="admin-table">
-          <thead><tr><th>Day</th><th>Type</th><th>Detail</th><th>Timestamp</th></tr></thead>
+          <thead><tr><th>Day</th><th>Type</th><th>Detail</th><th>Status</th><th>Timestamp</th></tr></thead>
           <tbody>
             ${rows.map((r) => `
               <tr>
                 <td>${r.day}</td>
                 <td>${r.label}</td>
                 <td>${r.detail}</td>
+                <td>${r.status}</td>
                 <td>${new Date(r.timestamp).toLocaleString()}</td>
               </tr>`).join('')}
           </tbody>
@@ -379,9 +453,19 @@ const AdminFinancialView = {
   _openAdjustModal(season, participants, container, presetParticipantId) {
     document.getElementById('financialAdjustOverlay')?.remove();
 
-    const REFUNDABLE_TYPES = new Set(['entryFee', 'tradeFeeSplit', 'swap', 'jokerSwap', 'tenthPickBlueFee']);
+    const REFUNDABLE_TYPES = new Set(['entryFee', 'tradeFeeSplit', 'swap', 'jokerSwap', 'tenthPickBlueFee', 'payment']);
     const VOIDABLE_TYPES = new Set(['entryFee', 'tradeFeeSplit', 'swap', 'jokerSwap', 'tenthPickBlueFee', 'credit', 'debit', 'streamerSalary']);
-    const TYPE_LABELS = { entryFee: 'Entry Fee', tradeFeeSplit: 'Trade Fee Share', swap: 'Swap', jokerSwap: 'Joker Swap', tenthPickBlueFee: '10th Pick Blue Fee', credit: 'Credit', debit: 'Debit', streamerSalary: 'Streamer Salary' };
+    const TYPE_LABELS = { entryFee: 'Entry Fee', tradeFeeSplit: 'Trade Fee Share', swap: 'Swap', jokerSwap: 'Joker Swap', tenthPickBlueFee: '10th Pick Blue Fee', credit: 'Credit', debit: 'Debit', streamerSalary: 'Streamer Salary', payment: 'Payment' };
+    // Mirrors data.js's f6IsCollected — a "pending" charge (F6 Revision 2)
+    // was never actually collected, so it isn't refund-eligible; only
+    // something that represents real money already in hand is (a legacy
+    // pre-revision "paid" charge, a `payment` transaction, or a legacy
+    // swap/jokerSwap/tenthPickBlueFee with no status field at all).
+    const isCollected = (t) => {
+      if (t.status === 'paid') return true;
+      if (t.status === 'pending') return false;
+      return t.type === 'swap' || t.type === 'jokerSwap' || t.type === 'tenthPickBlueFee';
+    };
 
     let state = { participantId: presetParticipantId || '', adjustType: 'refund', relatedTransactionId: '', amount: '', reason: '' };
 
@@ -397,12 +481,14 @@ const AdminFinancialView = {
       const eligibleTypes = state.adjustType === 'refund' ? REFUNDABLE_TYPES : state.adjustType === 'void' ? VOIDABLE_TYPES : null;
       if (!eligibleTypes) return [];
       return allTxns.filter((t) => eligibleTypes.has(t.type) && t.teamA === state.participantId && !voidedIds.has(t.id))
+        .filter((t) => state.adjustType !== 'refund' || isCollected(t))
         .filter((t) => state.adjustType !== 'refund' || ((t.amount ?? t.fee ?? 0) - (refundedTotals.get(t.id) || 0)) > 0);
     };
 
     const overlay = document.createElement('div');
     overlay.id = 'financialAdjustOverlay';
     overlay.className = 'modal-overlay';
+    const close = () => overlay.remove();
 
     const renderBody = () => {
       const account = state.participantId ? LeagueData.getParticipantFinancialAccount(season.id, state.participantId) : null;
@@ -499,7 +585,109 @@ const AdminFinancialView = {
 
     renderBody();
     document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  },
+
+  // ── F6 Revision 2 — Record Payment ───────────────────────────────────────
+
+  /**
+   * Records ACTUAL money received from a participant against Entry Fee /
+   * Trade Fees / Swap Fees / General (Entry → Trade → Swap waterfall).
+   * Never touches season.pot — the underlying charge already did, when it
+   * was created (see the file header and AdminActions.recordFinancialPayment
+   * in data.js). Shows the participant's current outstanding balance for
+   * whichever category is selected so the commissioner always sees the cap
+   * before typing an amount; for General, shows the full Entry → Trade →
+   * Swap breakdown so they understand how the payment will be allocated
+   * (F6 Revision 2 spec section 17).
+   */
+  _openRecordPaymentModal(season, participants, container, presetParticipantId) {
+    document.getElementById('recordPaymentOverlay')?.remove();
+
+    const CATEGORY_LABELS = { entryFee: 'Entry Fee', tradeFee: 'Trade Fees', swapFee: 'Swap Fees', general: 'General / All Outstanding' };
+    let state = { participantId: presetParticipantId || '', category: 'general', amount: '', reason: '' };
+
+    const overlay = document.createElement('div');
+    overlay.id = 'recordPaymentOverlay';
+    overlay.className = 'modal-overlay';
     const close = () => overlay.remove();
+
+    const renderBody = () => {
+      const account = state.participantId ? LeagueData.getParticipantFinancialAccount(season.id, state.participantId) : null;
+      const categoryUnpaid = account
+        ? (state.category === 'general'
+            ? account.entryFeeUnpaid + account.tradeFeesUnpaid + account.swapFeesUnpaid
+            : account[`${state.category}Unpaid`])
+        : null;
+
+      overlay.innerHTML = `
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="recordPaymentTitle">
+          <div class="modal-eyebrow">Record Payment</div>
+          <div class="modal-player-name" id="recordPaymentTitle">Actual Money Received</div>
+
+          <label class="helper-text" style="display:block;margin-top:0.75rem;">Participant</label>
+          <select class="input" id="payParticipant">
+            <option value="">Select participant…</option>
+            ${participants.map((p) => `<option value="${p.id}" ${p.id === state.participantId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`).join('')}
+          </select>
+
+          ${account ? `
+          <p class="helper-text" style="margin-top:0.5rem;">
+            Total Charges: ₱${account.totalCharges} — Total Paid: ₱${account.totalPaid} — Total Unpaid: ₱${account.totalUnpaid}
+          </p>` : ''}
+
+          <label class="helper-text" style="display:block;margin-top:0.75rem;">Payment For</label>
+          <select class="input" id="payCategory">
+            ${Object.entries(CATEGORY_LABELS).map(([val, label]) => `<option value="${val}" ${state.category === val ? 'selected' : ''}>${label}</option>`).join('')}
+          </select>
+
+          ${account ? (state.category === 'general' ? `
+          <p class="helper-text" style="margin-top:0.5rem;">
+            Allocated in order: Entry Fee (₱${account.entryFeeUnpaid} unpaid) → Trade Fees (₱${account.tradeFeesUnpaid} unpaid) → Swap Fees (₱${account.swapFeesUnpaid} unpaid).
+            Total outstanding: ₱${categoryUnpaid}.
+          </p>` : `
+          <p class="helper-text" style="margin-top:0.5rem;">${CATEGORY_LABELS[state.category]} Outstanding: ₱${categoryUnpaid}</p>
+          `) : ''}
+
+          <label class="helper-text" style="display:block;margin-top:0.75rem;">Amount (₱)</label>
+          <input type="number" class="input" id="payAmount" min="1" step="1" value="${escapeHtml(state.amount)}">
+
+          <label class="helper-text" style="display:block;margin-top:0.75rem;">Reason (required)</label>
+          <textarea class="input" id="payReason" rows="2">${escapeHtml(state.reason)}</textarea>
+
+          <div class="modal-actions">
+            <button class="btn btn-ghost" id="payCancelBtn">Cancel</button>
+            <button class="btn btn-primary" id="payConfirmBtn">Record Payment</button>
+          </div>
+        </div>`;
+
+      overlay.querySelector('#payParticipant').onchange = (e) => { state.participantId = e.target.value; renderBody(); };
+      overlay.querySelector('#payCategory').onchange = (e) => { state.category = e.target.value; renderBody(); };
+      overlay.querySelector('#payAmount').oninput = (e) => { state.amount = e.target.value; };
+      overlay.querySelector('#payReason').oninput = (e) => { state.reason = e.target.value; };
+
+      overlay.querySelector('#payCancelBtn').onclick = close;
+      overlay.querySelector('#payConfirmBtn').onclick = () => {
+        AuthBoundary.requireAuth();
+        try {
+          if (!state.participantId) throw new Error('Select a participant.');
+          AdminActions.recordFinancialPayment(season.id, {
+            participantId: state.participantId,
+            amount: Number(state.amount),
+            category: state.category,
+            reason: state.reason,
+          });
+          showToast('Payment recorded.', 'success');
+          close();
+          this.render(container);
+        } catch (e) {
+          showToast(e.message, 'error');
+        }
+      };
+    };
+
+    renderBody();
+    document.body.appendChild(overlay);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   },
 

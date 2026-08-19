@@ -549,7 +549,7 @@ function ensureFinancialFields(season) {
 // the original trade transaction" instruction) and excludes every F6 type
 // itself (a correction cannot be refunded/voided — void it via a fresh void
 // referencing it, or leave it be).
-const F6_REFUNDABLE_TYPES = ["entryFee", "tradeFeeSplit", "swap", "jokerSwap", "tenthPickBlueFee"];
+const F6_REFUNDABLE_TYPES = ["entryFee", "tradeFeeSplit", "swap", "jokerSwap", "tenthPickBlueFee", "payment"];
 const F6_VOIDABLE_TYPES = ["entryFee", "tradeFeeSplit", "swap", "jokerSwap", "tenthPickBlueFee", "credit", "debit", "streamerSalary"];
 
 const STREAMER_SALARY_MIN_GAMES = 14;
@@ -570,6 +570,163 @@ function f6TotalRefundedAgainst(transactions, originalTransactionId) {
   return transactions
     .filter((t) => t.type === "refund" && t.relatedTransactionId === originalTransactionId)
     .reduce((sum, t) => sum + (t.amount || 0), 0);
+}
+
+/**
+ * True if a charge transaction (entryFee/tradeFeeSplit/swap/jokerSwap)
+ * should still count toward the "collected" diagnostics
+ * (getFinancialSummary's entryFeesCollected/tradeFeesCollected/
+ * swapFeesCollected, and therefore totalCollected/potDifference/
+ * expectedPot/potDifferenceV2) — i.e. whether season.pot still reflects
+ * it. voidFinancialTransaction() only reverses pot for a charge that was
+ * still `"pending"` (never collected) at the moment it was voided; a
+ * charge that was already collected (paid) when voided keeps its pot
+ * contribution untouched, exactly as void behaved before that fix. This
+ * mirrors that same distinction here, so these diagnostics never drift
+ * out of sync with what pot actually contains after a void.
+ */
+function f6StillCountsAsCollected(transactions, t) {
+  if (!isF6Voided(transactions, t.id)) return true;
+  return f6IsCollected(t);
+}
+
+// ── F6 Revision 2 — Charge vs. Payment ──────────────────────────────────
+// The league's pot represents total money CHARGED to the league (not only
+// physically collected) — see f6ParticipantBreakdown below and
+// commitTrade/commitSwap/addParticipant/recordFinancialPayment for the
+// full model. A transaction's own `status` field says whether IT
+// specifically represents money already collected:
+//   - status: "paid"    → collected at creation (legacy entryFee/
+//                          tradeFeeSplit records, and every `payment`
+//                          transaction, which is always paid by
+//                          construction)
+//   - status: "pending" → charged, not yet collected (new-model
+//                          entryFee/tradeFeeSplit/swap/jokerSwap charges)
+//   - status: undefined → legacy swap/jokerSwap/tenthPickBlueFee records
+//                          that predate this revision, when commitSwap()/
+//                          makeDraftPick() unconditionally collected the
+//                          fee at creation with no status field at all —
+//                          missing status on exactly these two types means
+//                          "collected", not "unknown". (entryFee and
+//                          tradeFeeSplit always explicitly wrote "paid",
+//                          even before this revision, so there's no
+//                          missing-status ambiguity for those two types.)
+function f6IsCollected(t) {
+  if (t.status === "paid") return true;
+  if (t.status === "pending") return false;
+  return t.type === "swap" || t.type === "jokerSwap" || t.type === "tenthPickBlueFee";
+}
+
+/**
+ * Pure — computes one participant's Charged/Paid/Unpaid breakdown across
+ * the three F6 Revision 2 categories (entryFee/tradeFee/swapFee), plus
+ * totals. Reads only from the given `season` object (no storage access),
+ * so the exact same function is used both by the read-only
+ * getParticipantFinancialAccount (against a freshly loaded season) and by
+ * AdminActions.recordFinancialPayment/recordEntryFeePayment (against the
+ * in-memory season object mid-write, before validating/saving) — the two
+ * can never disagree about what's currently outstanding.
+ *
+ * Charged: entryFeeCharged is either this participant's real `entryFee`
+ * transaction amount (set the moment they joined — see addParticipant())
+ * or, for a participant who predates this revision and has never
+ * interacted with entry fee at all, the season's currently configured
+ * entryFee (the same virtual fallback used before this revision — never
+ * written anywhere, purely for display, until an actual action creates a
+ * real transaction for them). tradeFeeCharged/swapFeeCharged sum every
+ * tradeFeeSplit/swap/jokerSwap transaction regardless of status — a
+ * charge is a charge whether it's since been paid or not.
+ *
+ * Paid: for each category, sums (a) any of that category's charge
+ * transactions that are f6IsCollected() — i.e. legacy pre-revision
+ * records, already-collected at creation — plus (b) every `payment`
+ * transaction in that category, minus (c) refunds attributed back to
+ * whichever category their original transaction belonged to (a `refund`
+ * against a Trade Fee payment increases Trade Fee Unpaid specifically,
+ * not just the participant's season-wide total — existing, tested F6
+ * refund semantics, preserved exactly: a refund reduces effective paid).
+ *
+ * Unpaid: max(0, charged − paid) per category — never negative.
+ */
+function f6ParticipantBreakdown(season, participantId) {
+  const transactions = season.transactions || [];
+  const notVoided = (t) => !isF6Voided(transactions, t.id);
+  const mine = (t) => t.teamA === participantId && notVoided(t);
+
+  const defaultEntryFee = Number.isFinite(season.financialSettings?.entryFee)
+    ? season.financialSettings.entryFee
+    : 300;
+
+  // entryFee is handled separately from the trade/swap loops below: unlike
+  // those (which simply drop a voided charge from the sum), a voided
+  // entryFee charge specifically must show as ZERO charged — not silently
+  // fall back to the virtual "no transaction at all" default, which would
+  // incorrectly re-manufacture an obligation the commissioner just voided.
+  // The virtual fallback is reserved for the genuinely different case of a
+  // participant who predates this revision and has no entryFee
+  // transaction of any kind, voided or otherwise.
+  const entryFeeTxnRaw = transactions.find((t) => t.type === "entryFee" && t.teamA === participantId) || null;
+  const entryFeeVoided = !!(entryFeeTxnRaw && isF6Voided(transactions, entryFeeTxnRaw.id));
+  const entryFeeTxn = entryFeeVoided ? null : entryFeeTxnRaw;
+  const entryFeeCharged = entryFeeTxnRaw ? (entryFeeVoided ? 0 : f6TransactionAmount(entryFeeTxnRaw)) : defaultEntryFee;
+  const entryFeeCollectedDirectly = (entryFeeTxnRaw && !entryFeeVoided && f6IsCollected(entryFeeTxnRaw))
+    ? f6TransactionAmount(entryFeeTxnRaw)
+    : 0;
+
+  const tradeFeeTxns = transactions.filter((t) => t.type === "tradeFeeSplit" && mine(t));
+  const tradeFeeCharged = tradeFeeTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+  const tradeFeeCollectedDirectly = tradeFeeTxns
+    .filter((t) => f6IsCollected(t))
+    .reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const swapFeeTxns = transactions.filter((t) => (t.type === "swap" || t.type === "jokerSwap") && mine(t));
+  const swapFeeCharged = swapFeeTxns.reduce((sum, t) => sum + (t.fee || 0), 0);
+  const swapFeeCollectedDirectly = swapFeeTxns
+    .filter((t) => f6IsCollected(t))
+    .reduce((sum, t) => sum + (t.fee || 0), 0);
+
+  const paymentTxns = transactions.filter((t) => t.type === "payment" && mine(t));
+  const paidByCategory = { entryFee: 0, tradeFee: 0, swapFee: 0 };
+  for (const p of paymentTxns) {
+    if (paidByCategory[p.paymentCategory] !== undefined) paidByCategory[p.paymentCategory] += p.amount || 0;
+  }
+
+  const refundTxns = transactions.filter((t) => t.type === "refund" && mine(t));
+  const refundedByCategory = { entryFee: 0, tradeFee: 0, swapFee: 0 };
+  let totalRefunded = 0;
+  for (const r of refundTxns) {
+    totalRefunded += r.amount || 0;
+    const original = transactions.find((t) => t.id === r.relatedTransactionId);
+    if (!original) continue;
+    let cat = null;
+    if (original.type === "entryFee") cat = "entryFee";
+    else if (original.type === "tradeFeeSplit") cat = "tradeFee";
+    else if (original.type === "swap" || original.type === "jokerSwap") cat = "swapFee";
+    else if (original.type === "payment") cat = original.paymentCategory;
+    if (cat && refundedByCategory[cat] !== undefined) refundedByCategory[cat] += r.amount || 0;
+  }
+
+  const entryFeePaid = Math.max(0, entryFeeCollectedDirectly + paidByCategory.entryFee - refundedByCategory.entryFee);
+  const tradeFeePaid = Math.max(0, tradeFeeCollectedDirectly + paidByCategory.tradeFee - refundedByCategory.tradeFee);
+  const swapFeePaid = Math.max(0, swapFeeCollectedDirectly + paidByCategory.swapFee - refundedByCategory.swapFee);
+
+  const entryFeeUnpaid = Math.max(0, entryFeeCharged - entryFeePaid);
+  const tradeFeeUnpaid = Math.max(0, tradeFeeCharged - tradeFeePaid);
+  const swapFeeUnpaid = Math.max(0, swapFeeCharged - swapFeePaid);
+
+  return {
+    entryFee: { charged: entryFeeCharged, paid: entryFeePaid, unpaid: entryFeeUnpaid },
+    tradeFee: { charged: tradeFeeCharged, paid: tradeFeePaid, unpaid: tradeFeeUnpaid },
+    swapFee: { charged: swapFeeCharged, paid: swapFeePaid, unpaid: swapFeeUnpaid },
+    totalCharged: entryFeeCharged + tradeFeeCharged + swapFeeCharged,
+    totalPaid: entryFeePaid + tradeFeePaid + swapFeePaid,
+    totalUnpaid: entryFeeUnpaid + tradeFeeUnpaid + swapFeeUnpaid,
+    totalRefunded,
+    entryFeeTransaction: entryFeeTxn,
+    tradeFeeTransactions: tradeFeeTxns,
+    swapFeeTransactions: swapFeeTxns,
+    paymentTransactions: paymentTxns,
+  };
 }
 
 /**
@@ -1733,21 +1890,21 @@ const LeagueData = {
    * getFreeAllowanceRemaining() below — see that method's doc comment for
    * why these come back null rather than a fabricated number.
    *
-   * F6 additions (read-only, additive — nothing above this point changed):
-   * a voided entryFee/tradeFeeSplit/swap/jokerSwap transaction is excluded
-   * from entryFeeTransaction/tradeFeeTransactions/swapFeeTransactions (a
-   * voided entry fee means entryFeePaid goes back to false, per F6 spec
-   * section 5 — "prevent the original transaction from continuing to count
-   * toward financial totals"). totalRefunded is subtracted from totalPaid
-   * (a refund reduces the participant's effective amount paid, per F6
-   * spec section 2). outstandingBalance now also nets this participant's
-   * credit/debit transactions — credits/debits are ledger-only, no
-   * season.pot effect (see AdminActions.recordFinancialCredit/Debit) — and
-   * is intentionally NOT clamped at 0: negative means a credit balance
-   * owed TO the participant. streamerSalaryReceived is informational only
-   * (money received FROM the pot, not money paid IN) and is never folded
-   * into totalPaid/outstandingBalance. With no F6 transactions present,
-   * every field below computes identically to pre-F6 behavior.
+   * F6 Revision 2 (charge vs. payment — see f6ParticipantBreakdown's doc
+   * comment for the full model): entryFeePaid/tradeFeesPaid/swapFeesPaid/
+   * totalPaid/outstandingBalance below are now driven by that breakdown
+   * instead of assuming a charge transaction's mere existence means it
+   * was paid. New fields entryFeeCharged/entryFeeUnpaid,
+   * tradeFeesCharged/tradeFeesUnpaid, swapFeesCharged/swapFeesUnpaid,
+   * totalCharges/totalUnpaid are added for the Charged|Paid|Unpaid
+   * dashboard (F6 Revision 2 spec section 16). Existing field NAMES are
+   * all kept for backward compatibility — tradeFeesPaid/swapFeesPaid/
+   * totalPaid now mean actual money paid (not charged), which is what
+   * their names always implied; outstandingBalance is generalized from
+   * "unpaid entry fee only" to "total unpaid across all three
+   * categories, net of credit/debit" (credits/debits remain a season-
+   * wide ledger adjustment only, unchanged from before — see
+   * AdminActions.recordFinancialCredit/Debit).
    */
   getParticipantFinancialAccount(seasonId, participantId) {
     const season = this.getSeason(seasonId);
@@ -1755,30 +1912,9 @@ const LeagueData = {
     const participant = season.participants[participantId];
     if (!participant) return null;
 
-    const entryFee = Number.isFinite(season.financialSettings?.entryFee)
-      ? season.financialSettings.entryFee
-      : 300;
     const transactions = season.transactions || [];
-    const notVoided = (t) => !isF6Voided(transactions, t.id);
+    const breakdown = f6ParticipantBreakdown(season, participantId);
 
-    const entryFeeTransaction = transactions.find(
-      (t) => t.type === "entryFee" && t.teamA === participantId && notVoided(t)
-    ) || null;
-    const entryFeePaid = !!entryFeeTransaction;
-
-    const tradeFeeTransactions = transactions.filter(
-      (t) => t.type === "tradeFeeSplit" && t.teamA === participantId && notVoided(t)
-    );
-    const tradeFeesPaid = tradeFeeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
-
-    const swapFeeTransactions = transactions.filter(
-      (t) => (t.type === "swap" || t.type === "jokerSwap") && t.teamA === participantId && notVoided(t)
-    );
-    const swapFeesPaid = swapFeeTransactions.reduce((sum, t) => sum + (t.fee || 0), 0);
-
-    const totalRefunded = transactions
-      .filter((t) => t.type === "refund" && t.teamA === participantId)
-      .reduce((sum, t) => sum + (t.amount || 0), 0);
     const totalCredits = transactions
       .filter((t) => t.type === "credit" && t.teamA === participantId)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
@@ -1789,37 +1925,37 @@ const LeagueData = {
       .filter((t) => t.type === "streamerSalary" && t.teamA === participantId)
       .reduce((sum, t) => sum + (t.amount || 0), 0);
 
-    // totalPaid uses the AMOUNT ACTUALLY RECORDED on the entry-fee
-    // transaction, not the season's current financialSettings.entryFee —
-    // those two normally match (F2 always writes amount:
-    // financialSettings.entryFee at the moment it's recorded), but the
-    // transaction record is the real ledger source of truth for what was
-    // actually paid, so this stays correct even if that ever diverges.
-    // outstandingBalance is intentionally different: it's a forward-
-    // looking "what would they owe right now", which correctly uses
-    // today's configured entryFee.
-    const totalPaid = (entryFeeTransaction?.amount || 0) + tradeFeesPaid + swapFeesPaid - totalRefunded;
-    const outstandingBalance = (entryFeePaid ? 0 : entryFee) - totalCredits + totalDebits;
+    const entryFeePaid = breakdown.entryFee.unpaid <= 0;
+    const outstandingBalance = breakdown.totalUnpaid - totalCredits + totalDebits;
 
     const allowance = this.getFreeAllowanceRemaining(seasonId, participantId);
 
     return {
       participantId,
-      entryFee,
+      entryFee: breakdown.entryFee.charged,
       entryFeePaid,
-      tradeFeesPaid,
-      swapFeesPaid,
-      totalPaid,
+      entryFeeCharged: breakdown.entryFee.charged,
+      entryFeeUnpaid: breakdown.entryFee.unpaid,
+      tradeFeesPaid: breakdown.tradeFee.paid,
+      tradeFeesCharged: breakdown.tradeFee.charged,
+      tradeFeesUnpaid: breakdown.tradeFee.unpaid,
+      swapFeesPaid: breakdown.swapFee.paid,
+      swapFeesCharged: breakdown.swapFee.charged,
+      swapFeesUnpaid: breakdown.swapFee.unpaid,
+      totalCharges: breakdown.totalCharged,
+      totalPaid: breakdown.totalPaid,
+      totalUnpaid: breakdown.totalUnpaid,
       outstandingBalance,
       freeTradesRemaining: allowance?.freeTradesRemaining ?? null,
       freeSwapsRemaining: allowance?.freeSwapsRemaining ?? null,
-      tradeCount: tradeFeeTransactions.length,
-      swapCount: swapFeeTransactions.length,
-      entryFeeTransaction,
-      tradeFeeTransactions,
-      swapFeeTransactions,
+      tradeCount: breakdown.tradeFeeTransactions.length,
+      swapCount: breakdown.swapFeeTransactions.length,
+      entryFeeTransaction: breakdown.entryFeeTransaction,
+      tradeFeeTransactions: breakdown.tradeFeeTransactions,
+      swapFeeTransactions: breakdown.swapFeeTransactions,
+      paymentTransactions: breakdown.paymentTransactions,
       // F6 additions:
-      totalRefunded,
+      totalRefunded: breakdown.totalRefunded,
       totalCredits,
       totalDebits,
       streamerSalaryReceived,
@@ -1843,7 +1979,39 @@ const LeagueData = {
    * totalCollected/ledgerCalculatedTotal rather than silently folded into
    * one of the three, which is why potDifference below will legitimately
    * be non-zero whenever any 10th-pick-Blue fees exist this season — that
-   * is expected, not a bug, and nothing here "fixes" it.
+   * is expected, not a bug, and nothing here "fixes" it. Refunds and
+   * streamer-salary payouts are the other pre-existing, documented source
+   * of legitimate potDifference drift — see expectedPot/potDifferenceV2
+   * below, which account for those; potDifference itself intentionally
+   * does not.
+   *
+   * F6 Revision 2 naming note: despite the name, entryFeesCollected/
+   * tradeFeesCollected/swapFeesCollected/totalCollected now include
+   * `"pending"` (charged-but-unpaid) transactions too, not only ones
+   * that have actually been paid — because season.pot itself is
+   * increased at CHARGE time now, not payment time (see
+   * addParticipant()/commitTrade()/commitSwap()), and these three sums
+   * exist specifically to let potDifference cross-check pot, so they
+   * have to track the same "charged" event pot does, not "paid". The
+   * name predates that change and reads as though it means "actually
+   * collected"; renaming it would touch every call site across F4/F5/F6
+   * for a purely cosmetic reason, which is out of scope here — the
+   * accurate "was this actually paid" figures are getParticipantFinancialAccount's
+   * entryFeeCharged/Paid/Unpaid (per participant) and this same method's
+   * own entryFeeChargedTotal/entryFeePaidTotal/entryFeeUnpaidTotal (and
+   * the tradeFee/swapFee equivalents) below — those are what the F6
+   * Revision 2 dashboard actually displays as Charged/Paid/Unpaid; this
+   * field is kept only for the pot reconciliation diagnostic and any
+   * existing code/tests already reading it.
+   *
+   * A voided charge is excluded from these three sums if — and only if —
+   * it was still `"pending"` (never collected) at the moment it was
+   * voided, via f6StillCountsAsCollected: voidFinancialTransaction() only
+   * reverses season.pot for that exact case (see its doc comment), so
+   * excluding it here too is what keeps potDifference/expectedPot
+   * meaningful after a pending-charge void instead of drifting stale. A
+   * voided charge that was already collected (paid) when voided still
+   * counts here, matching pot, which void never touched for that case.
    *
    * pot/ledgerCalculatedTotal/potDifference are diagnostic only
    * (F4 spec section 13) — season.pot itself is never read from here for
@@ -1860,16 +2028,26 @@ const LeagueData = {
       : 300;
 
     const entryFeeTxns = transactions.filter((t) => t.type === "entryFee");
-    const entryFeesCollected = entryFeeTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+    // entryFeesPaidCount/entryFeesUnpaidCount are a separate, pre-existing
+    // legacy diagnostic (transaction-exists count, not a money total) —
+    // left exactly as before; only the money sum below needs the voided-
+    // while-pending exclusion (see f6StillCountsAsCollected's doc comment).
+    const entryFeesCollected = entryFeeTxns
+      .filter((t) => f6StillCountsAsCollected(transactions, t))
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     const entryFeesPaidCount = entryFeeTxns.length;
     const entryFeesUnpaidCount = Math.max(0, participants.length - entryFeesPaidCount);
 
     const tradeFeeSplitTxns = transactions.filter((t) => t.type === "tradeFeeSplit");
-    const tradeFeesCollected = tradeFeeSplitTxns.reduce((sum, t) => sum + (t.amount || 0), 0);
+    const tradeFeesCollected = tradeFeeSplitTxns
+      .filter((t) => f6StillCountsAsCollected(transactions, t))
+      .reduce((sum, t) => sum + (t.amount || 0), 0);
     const tradeFeeTransactionCount = transactions.filter((t) => t.type === "trade").length;
 
     const swapTxns = transactions.filter((t) => t.type === "swap" || t.type === "jokerSwap");
-    const swapFeesCollected = swapTxns.reduce((sum, t) => sum + (t.fee || 0), 0);
+    const swapFeesCollected = swapTxns
+      .filter((t) => f6StillCountsAsCollected(transactions, t))
+      .reduce((sum, t) => sum + (t.fee || 0), 0);
     const swapTransactionCount = swapTxns.length;
 
     const totalCollected = entryFeesCollected + tradeFeesCollected + swapFeesCollected;
@@ -1908,6 +2086,21 @@ const LeagueData = {
     const expectedPot = totalCollected + tenthPickBlueFeesCollected - totalRefunded - totalStreamerSalaryPaid;
     const potDifferenceV2 = pot - expectedPot;
 
+    // ── F6 Revision 2 — Charged / Paid / Unpaid (season-wide) ───────────
+    // This is the primary new dashboard requirement: "how much is in the
+    // pot" (pot, above) answered separately from "how much of that has
+    // not been paid yet" (totalUnpaidAll, below). Computed by summing
+    // every participant's f6ParticipantBreakdown — the exact same
+    // per-participant function the Financial Management participant table
+    // and getParticipantFinancialAccount both use, so the season-wide
+    // totals always agree with what each participant's row shows.
+    const participantIds = Object.keys(season.participants || {});
+    const breakdowns = participantIds.map((pid) => f6ParticipantBreakdown(season, pid));
+    const sumField = (cat, key) => breakdowns.reduce((sum, b) => sum + b[cat][key], 0);
+    const totalChargesAll = breakdowns.reduce((sum, b) => sum + b.totalCharged, 0);
+    const totalPaidAll = breakdowns.reduce((sum, b) => sum + b.totalPaid, 0);
+    const totalUnpaidAll = breakdowns.reduce((sum, b) => sum + b.totalUnpaid, 0);
+
     return {
       seasonId,
       entryFeesCollected,
@@ -1925,6 +2118,19 @@ const LeagueData = {
       pot,
       ledgerCalculatedTotal,
       potDifference,
+      // F6 Revision 2 — Charged/Paid/Unpaid, season-wide:
+      totalChargesAll,
+      totalPaidAll,
+      totalUnpaidAll,
+      entryFeeChargedTotal: sumField("entryFee", "charged"),
+      entryFeePaidTotal: sumField("entryFee", "paid"),
+      entryFeeUnpaidTotal: sumField("entryFee", "unpaid"),
+      tradeFeeChargedTotal: sumField("tradeFee", "charged"),
+      tradeFeePaidTotal: sumField("tradeFee", "paid"),
+      tradeFeeUnpaidTotal: sumField("tradeFee", "unpaid"),
+      swapFeeChargedTotal: sumField("swapFee", "charged"),
+      swapFeePaidTotal: sumField("swapFee", "paid"),
+      swapFeeUnpaidTotal: sumField("swapFee", "unpaid"),
       // F6 additions:
       tenthPickBlueFeesCollected,
       totalRefunded,
@@ -2147,12 +2353,55 @@ const AdminActions = {
   },
 
   // Participants
+  /**
+   * F6 Revision 2: a participant becomes liable for this season's entry
+   * fee the moment they join — the charge is recorded immediately as a
+   * `status: "pending"` entryFee transaction, and season.pot is increased
+   * by the full configured amount right now (the "pot = total charged"
+   * model — see f6ParticipantBreakdown's doc comment). Whether/when they
+   * actually pay it is tracked completely separately via `payment`
+   * transactions (recordFinancialPayment / the adapted
+   * recordEntryFeePayment below) and never touches pot again. Skipped
+   * entirely if entryFee is configured as 0 — consistent with the
+   * existing no-unnecessary-₱0-records rule commitTrade's tradeFeeSplit
+   * already follows (`if (evaluation.fee > 0)`).
+   *
+   * A participant added under the OLD code (before this revision
+   * shipped) has no such transaction — recordEntryFeePayment() below
+   * detects that and falls back to its original one-shot behavior for
+   * them, so no historical data is migrated or rewritten.
+   */
   addParticipant(seasonId, name) {
     const data = loadData();
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
+    ensureFinancialFields(season);
+    ensureTransactionFields(season);
+
     const id = generateId("p");
     season.participants[id] = createParticipant(id, name.trim());
+
+    const entryFee = season.financialSettings.entryFee;
+    if (Number.isFinite(entryFee) && entryFee > 0) {
+      season.transactions.push({
+        id: generateId("txn"),
+        seasonId,
+        seasonDay: season.currentSeasonDay,
+        timestamp: new Date().toISOString(),
+        type: "entryFee",
+        teamA: id,
+        teamB: null,
+        playersOut: [],
+        playersIn: [],
+        amount: entryFee,
+        status: "pending",
+        relatedTransactionId: null,
+        description: "Entry fee",
+        approvedBy: "commissioner",
+      });
+      season.pot = (season.pot || 0) + entryFee;
+    }
+
     saveData(data);
     return season.participants[id];
   },
@@ -2902,8 +3151,19 @@ const AdminActions = {
    * - financialSettings.entryFee is somehow not a valid non-negative
    *   number even after ensureFinancialFields (defensive — shouldn't
    *   happen, since ensureFinancialFields guarantees this)
-   * - An entryFee transaction already exists for this participant this
-   *   season (duplicate-payment guard)
+   * - Entry fee has already been fully recorded for this participant
+   *
+   * F6 Revision 2: this now branches on whether the participant has a
+   * real entryFee transaction (see addParticipant()):
+   *   - none at all → legacy participant from before this revision —
+   *     falls back to the exact original one-shot behavior (one `entryFee`
+   *     transaction, full amount, pot += amount) so old seasons behave
+   *     identically to before; no migration, no rewritten history.
+   *   - status "pending" (the new model) → "Mark Paid" now means "record
+   *     a payment for whatever is still outstanding" — writes a `payment`
+   *     transaction, category "entryFee", and does NOT touch season.pot
+   *     (the charge already did, back when they joined).
+   *   - status "paid" already → duplicate-payment guard, same as before.
    */
   recordEntryFeePayment(seasonId, participantId) {
     const data = loadData();
@@ -2912,47 +3172,185 @@ const AdminActions = {
     if (!season.participants[participantId]) throw new Error("Participant not found in this season");
 
     ensureFinancialFields(season); // backfill for seasons created before F1
+    ensureTransactionFields(season);
 
     const entryFee = season.financialSettings.entryFee;
     if (!Number.isFinite(entryFee) || entryFee < 0) {
       throw new Error("This season's entry fee is not configured correctly.");
     }
 
-    const alreadyPaid = season.transactions.some(
-      (t) => t.type === "entryFee" && t.teamA === participantId
-    );
-    if (alreadyPaid) {
+    const notVoided = (t) => !isF6Voided(season.transactions, t.id);
+    const entryFeeTxn = season.transactions.find(
+      (t) => t.type === "entryFee" && t.teamA === participantId && notVoided(t)
+    ) || null;
+
+    if (entryFeeTxn && entryFeeTxn.status === "paid") {
       throw new Error("Entry fee has already been recorded for this participant.");
     }
 
+    if (!entryFeeTxn) {
+      // Legacy participant — added before this revision, so they never
+      // received the automatic charge addParticipant() now creates.
+      // Exactly the original F2 behavior: one-shot charge + collection.
+      season.transactions.push({
+        id: generateId("txn"),
+        seasonId,
+        seasonDay: season.currentSeasonDay,
+        timestamp: new Date().toISOString(),
+        type: "entryFee",
+        teamA: participantId,
+        teamB: null,
+        playersOut: [],
+        playersIn: [],
+        amount: entryFee,
+        status: "paid",
+        relatedTransactionId: null,
+        description: "Entry fee",
+        approvedBy: "commissioner",
+      });
+      season.pot = (season.pot || 0) + entryFee;
+      saveData(data);
+      return { amount: entryFee, pot: season.pot };
+    }
+
+    // entryFeeTxn.status === "pending" — a real F6-Revision-2 charge.
+    const breakdown = f6ParticipantBreakdown(season, participantId);
+    const unpaid = breakdown.entryFee.unpaid;
+    if (unpaid <= 0) {
+      throw new Error("Entry fee has already been recorded for this participant.");
+    }
     season.transactions.push({
       id: generateId("txn"),
       seasonId,
       seasonDay: season.currentSeasonDay,
       timestamp: new Date().toISOString(),
-      type: "entryFee",
+      type: "payment",
       teamA: participantId,
       teamB: null,
-      // playersOut/playersIn: no players move for an entry fee — kept as
-      // empty arrays (not omitted) because the existing shared History
-      // tab (admin/trades.js) calls .map() on both for every transaction
-      // type; the same convention jokerDesignation/tenthPickBlueFee
-      // already follow above for their own no-player-moved side.
       playersOut: [],
       playersIn: [],
-      amount: entryFee,
+      amount: unpaid,
       status: "paid",
+      paymentCategory: "entryFee",
       relatedTransactionId: null,
-      description: "Entry fee",
+      description: "Entry fee marked paid (remaining balance)",
       approvedBy: "commissioner",
     });
-    season.pot = (season.pot || 0) + entryFee;
+    // Intentionally no season.pot change — the charge already added this
+    // money to the pot when the participant joined.
 
     saveData(data);
-    return { amount: entryFee, pot: season.pot };
+    return { amount: unpaid, pot: season.pot };
   },
 
   // ── Financial Management (F6 — Adjustments, Refunds, and Corrections) ───
+  // Never deletes or modifies an existing transaction — every action here
+  // only ever pushes a brand-new transaction onto season.transactions[],
+  // referencing the original (where applicable) via relatedTransactionId.
+  // Each function follows the same load → validate → mutate → save-once
+  // pattern as every other AdminActions write; if any validation throws,
+  // nothing has been pushed and season.pot is untouched.
+
+  /**
+   * Records ACTUAL money received from a participant. Never touches
+   * season.pot — the underlying charge (entryFee/tradeFeeSplit/swap/
+   * jokerSwap) already added its amount to pot the moment it was created
+   * (see addParticipant()/commitTrade()/commitSwap()); a payment only
+   * settles how much of that charge has actually come in.
+   *
+   * category is one of "entryFee" | "tradeFee" | "swapFee" | "general".
+   * "general" is never itself written to a transaction — it's a UI-only
+   * convenience that walks the Entry Fee → Trade Fees → Swap Fees
+   * waterfall and writes one `payment` record per category actually
+   * touched (mirroring the existing trade→tradeFeeSplit and
+   * streamerSalaryRun→streamerSalary parent/child patterns), so a later
+   * refund can always point at one specific, single-category payment —
+   * never an ambiguous multi-category lump sum.
+   *
+   * Rejects (writes nothing, pot unchanged) if the requested amount
+   * exceeds what's actually outstanding for the requested category (or,
+   * for "general", the participant's total outstanding across all three
+   * categories) — no partial application, no silently creating a credit
+   * balance from an overpayment.
+   */
+  recordFinancialPayment(seasonId, { participantId, amount, category, reason }) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureFinancialFields(season);
+    ensureTransactionFields(season);
+
+    if (!season.participants[participantId]) throw new Error("Participant not found in this season");
+
+    const amountN = Number(amount);
+    if (!Number.isFinite(amountN) || amountN <= 0) {
+      throw new Error("Payment amount must be a positive number.");
+    }
+    if (!reason || !String(reason).trim()) {
+      throw new Error("A reason is required for a payment.");
+    }
+    const validCategories = ["entryFee", "tradeFee", "swapFee", "general"];
+    if (!validCategories.includes(category)) {
+      throw new Error("Invalid payment category.");
+    }
+
+    const CATEGORY_LABELS = { entryFee: "entry fee", tradeFee: "trade fee", swapFee: "swap fee" };
+    const breakdown = f6ParticipantBreakdown(season, participantId);
+    const allocations = []; // [{ category, amount }]
+
+    if (category !== "general") {
+      const unpaid = breakdown[category].unpaid;
+      if (amountN > unpaid) {
+        throw new Error(`Payment cannot exceed the participant's outstanding ${CATEGORY_LABELS[category]} balance of ₱${unpaid}.`);
+      }
+      allocations.push({ category, amount: amountN });
+    } else {
+      const order = ["entryFee", "tradeFee", "swapFee"];
+      const totalUnpaid = order.reduce((sum, c) => sum + breakdown[c].unpaid, 0);
+      if (amountN > totalUnpaid) {
+        throw new Error(`Payment cannot exceed the participant's total outstanding balance of ₱${totalUnpaid}.`);
+      }
+      let remaining = amountN;
+      for (const c of order) {
+        if (remaining <= 0) break;
+        const take = Math.min(remaining, breakdown[c].unpaid);
+        if (take > 0) {
+          allocations.push({ category: c, amount: take });
+          remaining -= take;
+        }
+      }
+    }
+
+    const trimmedReason = String(reason).trim();
+    const createdIds = [];
+    for (const { category: cat, amount: amt } of allocations) {
+      const id = generateId("txn");
+      season.transactions.push({
+        id,
+        seasonId,
+        seasonDay: season.currentSeasonDay,
+        timestamp: new Date().toISOString(),
+        type: "payment",
+        teamA: participantId,
+        teamB: null,
+        playersOut: [],
+        playersIn: [],
+        amount: amt,
+        status: "paid",
+        paymentCategory: cat,
+        relatedTransactionId: null,
+        description: trimmedReason,
+        approvedBy: "commissioner",
+      });
+      createdIds.push(id);
+    }
+    // Intentionally no season.pot change — see doc comment above.
+
+    saveData(data);
+    return { amount: amountN, allocations, transactionIds: createdIds, pot: season.pot };
+  },
+
+  // ── Financial Management (F6 — Corrections: Refund / Credit / Debit / Void / Streamer Salary) ───
   // Never deletes or modifies an existing transaction — every action here
   // only ever pushes a brand-new transaction onto season.transactions[],
   // referencing the original (where applicable) via relatedTransactionId.
@@ -2988,6 +3386,9 @@ const AdminActions = {
     if (!original) throw new Error("Original transaction not found.");
     if (!F6_REFUNDABLE_TYPES.includes(original.type)) {
       throw new Error(`A "${original.type}" transaction cannot be refunded directly.`);
+    }
+    if (!f6IsCollected(original)) {
+      throw new Error("This charge hasn't been paid yet, so there's nothing to refund. Refund the payment(s) made against it instead.");
     }
     if (!season.participants[original.teamA]) {
       throw new Error("The participant on the original transaction no longer exists.");
@@ -3089,10 +3490,33 @@ const AdminActions = {
    * `void` transaction referencing it via relatedTransactionId. From that
    * point on, getParticipantFinancialAccount/getFinancialSummary exclude
    * the original from their totals (see isF6Voided). Rejects voiding the
-   * same transaction twice. Does NOT change season.pot — a void is an
-   * accounting/status correction, not a new cash movement (if the original
-   * transaction did add real money to the pot and that money needs to
-   * physically leave, use a refund instead/in addition).
+   * same transaction twice.
+   *
+   * Pot effect (F6 Revision 2 — charge vs. payment): a void's effect on
+   * season.pot now depends on whether the original transaction was ever
+   * actually collected (f6IsCollected):
+   *   - A still-`"pending"` charge (entryFee/tradeFeeSplit/swap/jokerSwap
+   *     created under the new model, never paid) added its amount to pot
+   *     the moment it was created — see addParticipant()/commitTrade()/
+   *     commitSwap(). Voiding it means the participant never owed this in
+   *     the first place, so pot must give that amount back: pot -= amount.
+   *     f6ParticipantBreakdown already excludes a voided charge from
+   *     Charged entirely, so Paid (nothing was ever paid against an
+   *     unpaid charge) stays 0 and Unpaid correctly returns to 0 — the
+   *     pot correction here is what keeps pot and Total Charges in sync
+   *     with that.
+   *   - Anything already collected (a legacy `"paid"` record, a legacy
+   *     swap/jokerSwap/tenthPickBlueFee with no status field, a `payment`
+   *     transaction, or a `credit`/`debit`/`streamerSalary` adjustment)
+   *     is UNCHANGED — void still never touches pot for these, exactly as
+   *     before. Refunding (not voiding) remains the only way to reverse
+   *     money that's actually been collected.
+   * Known limitation, unchanged by this fix: if a pending charge already
+   * has partial `payment`s recorded against its category (payments are
+   * tracked per-category, not per-charge — see f6ParticipantBreakdown),
+   * voiding it removes the charge but not those payments; this is the
+   * same pre-existing category-aggregate tradeoff noted when payments
+   * were introduced, not something this fix changes.
    */
   voidFinancialTransaction(seasonId, { transactionId, reason }) {
     const data = loadData();
@@ -3114,6 +3538,9 @@ const AdminActions = {
       throw new Error("This transaction has already been voided.");
     }
 
+    const isPendingCharge = ["entryFee", "tradeFeeSplit", "swap", "jokerSwap"].includes(original.type)
+      && !f6IsCollected(original);
+
     season.transactions.push({
       id: generateId("txn"),
       seasonId,
@@ -3130,7 +3557,11 @@ const AdminActions = {
       description: String(reason).trim(),
       approvedBy: "commissioner",
     });
-    // Intentionally no season.pot change — see doc comment above.
+    if (isPendingCharge) {
+      season.pot = (season.pot || 0) - f6TransactionAmount(original);
+    }
+    // Anything already collected: intentionally no season.pot change —
+    // see doc comment above.
 
     saveData(data);
     return { voidedTransactionId: original.id, pot: season.pot };
@@ -3434,6 +3865,15 @@ const AdminActions = {
     // entirely if fee is ever 0 (not currently reachable — a valid trade
     // always has fee >= 200 — but guarded per the no-unnecessary-₱0-
     // records rule rather than assumed away).
+    //
+    // F6 Revision 2: status is "pending", not "paid" — the fee is CHARGED
+    // now (pot already reflects it, above) but not yet necessarily PAID.
+    // Whether/how much has actually been paid is tracked separately via
+    // `payment` transactions (AdminActions.recordFinancialPayment) — see
+    // f6ParticipantBreakdown's doc comment for the full model. A
+    // tradeFeeSplit written by code that predates this revision always has
+    // status "paid" explicitly, so old records are unambiguous and need no
+    // migration — see f6IsCollected().
     if (evaluation.fee > 0) {
       ensureFinancialFields(season); // backfill for seasons created before F1
       const half = evaluation.fee / 2;
@@ -3448,7 +3888,7 @@ const AdminActions = {
         playersOut: [],
         playersIn: [],
         amount: half,
-        status: "paid",
+        status: "pending",
         relatedTransactionId: tradeTransactionId,
         description: `Trade fee — ${label} share`,
         approvedBy: "commissioner",
@@ -3602,6 +4042,13 @@ const AdminActions = {
       }],
       fee: evaluation.fee,
       feeDoubled: false,
+      // F6 Revision 2: charged now (pot already reflects it, above via
+      // season.pot += evaluation.fee), not yet necessarily paid — see
+      // f6ParticipantBreakdown's doc comment. A swap/jokerSwap record from
+      // before this revision has no status field at all; f6IsCollected()
+      // treats that specific absence as "collected" (the old commitSwap()
+      // unconditionally paid it at creation), so no migration is needed.
+      status: "pending",
       approvedBy: "commissioner",
     });
 
