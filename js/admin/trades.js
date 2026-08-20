@@ -260,11 +260,109 @@ const AdminTradesView = {
 
   // ── SWAP TAB ─────────────────────────────────────────────────────────────
 
+  /**
+   * UI-layer only: takes the EXISTING eligible-replacement list exactly as
+   * returned by LeagueData.getSwapEligibleReplacements(seasonId, '') — no
+   * change to that data-layer call or the availability rule it enforces —
+   * and narrows/groups/sorts it for display:
+   *
+   *   existing eligible players → same position as outgoing → exclude the
+   *   outgoing player itself → split by pool → sort each pool by
+   *   overall DESC (name ASC tiebreak)
+   *
+   * Does not touch AdminActions/evaluateSwap/commitSwap in any way — this
+   * only decides what the replacement list looks like before the admin
+   * picks one and clicks Preview Swap, same as the old <select> did.
+   */
+  _buildReplacementGroups(allEligible, outgoingEntry) {
+    if (!outgoingEntry || !outgoingEntry.player) {
+      return { position: null, green: [], blue: [], other: [], total: 0 };
+    }
+    const position = outgoingEntry.player.position;
+    const currentPlayerId = outgoingEntry.playerId;
+
+    const samePosition = allEligible.filter((p) => p.position === position);
+    // Belt-and-suspenders: getSwapEligibleReplacements already excludes every
+    // currently-rostered player (including this one, since he's on his own
+    // team's roster right now), so this filter should never actually remove
+    // anyone in practice — kept explicit per the requirement so the UI is
+    // still correct even if that upstream rule ever changes.
+    const filtered = samePosition.filter((p) => p.id !== currentPlayerId);
+
+    const sortByOvrThenName = (a, b) => (b.overall - a.overall) || a.name.localeCompare(b.name);
+    const green = filtered.filter((p) => p.pool === 'green').sort(sortByOvrThenName);
+    const blue = filtered.filter((p) => p.pool === 'blue').sort(sortByOvrThenName);
+    // Players with no pool set at all are still eligible under the existing
+    // rules and were still selectable in the old flat <select> — keep them
+    // visible (in their own section) rather than silently dropping them.
+    const other = filtered.filter((p) => p.pool !== 'green' && p.pool !== 'blue').sort(sortByOvrThenName);
+
+    return { position, green, blue, other, total: filtered.length };
+  },
+
+  _renderReplacementRow(p) {
+    const selected = p.id === this._swapIncomingId;
+    return `
+      <div class="swap-replacement-row ${selected ? 'is-selected' : ''}" data-select-replacement="${p.id}">
+        <span class="swap-replacement-ovr">${p.overall}</span>
+        <span class="swap-replacement-name">${escapeHtml(p.name)}</span>
+        <span class="swap-replacement-pos">${escapeHtml(p.position)}</span>
+        <button type="button" class="btn btn-sm ${selected ? 'btn-primary' : 'btn-ghost'}" data-select-replacement="${p.id}">
+          ${selected ? 'SELECTED' : 'SELECT'}
+        </button>
+      </div>`;
+  },
+
+  _renderReplacementPoolSection(label, colorClass, players) {
+    if (!players.length) return '';
+    return `
+      <div class="swap-pool-section">
+        <div class="swap-pool-heading ${colorClass}">${label}</div>
+        <div class="swap-replacement-list">
+          ${players.map((p) => this._renderReplacementRow(p)).join('')}
+        </div>
+      </div>`;
+  },
+
   _renderSwapTab(body, season) {
     const roster = this._swapTeam ? LeagueData.getRosterForTransactions(season.id, this._swapTeam) : [];
     const outgoingEntry = roster.find((e) => e.playerId === this._swapOutgoing);
-    const pool = outgoingEntry?.player?.pool || '';
-    const replacements = LeagueData.getSwapEligibleReplacements(season.id, '');
+
+    // Existing eligibility rule — untouched. UI-side grouping/filtering
+    // happens only in _buildReplacementGroups, below.
+    const allEligible = LeagueData.getSwapEligibleReplacements(season.id, '');
+    const groups = this._buildReplacementGroups(allEligible, outgoingEntry);
+
+    const currentPlayerCard = outgoingEntry && outgoingEntry.player ? `
+      <div class="swap-current-block">
+        <div class="swap-current-card">
+          <div class="swap-current-label">Current Player</div>
+          <div class="swap-current-ovr">${outgoingEntry.player.overall} OVR</div>
+          <div class="swap-current-name">${escapeHtml(outgoingEntry.player.name)}</div>
+          <div class="swap-current-meta">
+            ${escapeHtml(outgoingEntry.player.position)} · ${(outgoingEntry.player.pool || 'unset').toUpperCase()} POOL
+          </div>
+        </div>
+        <div class="swap-arrow">
+          <span class="swap-arrow-icon">⇅</span>
+          <span class="swap-arrow-label">Swap For</span>
+        </div>
+      </div>` : '';
+
+    const replacementSection = !outgoingEntry ? `
+      <p class="helper-text">Select an outgoing player above to see eligible replacements.</p>` : `
+      <div class="swap-replacement-panel">
+        <div class="swap-replacement-header">${escapeHtml(groups.position)} PLAYERS ONLY · ${groups.total} AVAILABLE</div>
+        ${groups.total === 0 ? `
+          <div class="swap-empty-state">
+            <p class="swap-empty-title">NO AVAILABLE ${escapeHtml(groups.position)} PLAYERS</p>
+            <p>There are currently no eligible ${escapeHtml(groups.position)} players available for this swap.</p>
+          </div>` : `
+          ${this._renderReplacementPoolSection('GREEN POOL', 'pool-heading-green', groups.green)}
+          ${this._renderReplacementPoolSection('BLUE POOL', 'pool-heading-blue', groups.blue)}
+          ${this._renderReplacementPoolSection('UNASSIGNED POOL', '', groups.other)}
+        `}
+      </div>`;
 
     body.innerHTML = `
       <div class="card-form">
@@ -286,14 +384,10 @@ const AdminTradesView = {
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group">
-            <label>Replacement (free agent)</label>
-            <select class="input" id="swapIncomingSelect">
-              <option value="">Select replacement…</option>
-              ${replacements.map((p) => `<option value="${p.id}" ${p.id === this._swapIncomingId ? 'selected' : ''}>${escapeHtml(p.name)} — ${p.position}, ${p.overall} OVR, ${p.pool || 'unset'}</option>`).join('')}
-            </select>
-          </div>
+        ${currentPlayerCard}
+        ${replacementSection}
+
+        <div class="form-row" style="margin-top: 1rem;">
           <div class="form-group">
             <label><input type="checkbox" id="swapIsJoker" ${this._swapIsJoker ? 'checked' : ''}> This is a Joker swap (₱300)</label>
             ${this._swapIsJoker ? `
@@ -313,17 +407,27 @@ const AdminTradesView = {
     body.querySelector('#swapTeamSelect').onchange = (e) => {
       this._swapTeam = e.target.value;
       this._swapOutgoing = '';
+      this._swapIncomingId = '';
       this._swapPreview = null;
       this._renderSwapTab(body, season);
     };
     body.querySelector('#swapOutgoingSelect').onchange = (e) => {
       this._swapOutgoing = e.target.value;
+      // The replacement list is position-specific, so a previously selected
+      // replacement (for a different outgoing player's position) is no
+      // longer valid — clear it rather than leaving a stale, invisible
+      // selection behind.
+      this._swapIncomingId = '';
       this._swapPreview = null;
+      this._renderSwapTab(body, season);
     };
-    body.querySelector('#swapIncomingSelect').onchange = (e) => {
-      this._swapIncomingId = e.target.value;
-      this._swapPreview = null;
-    };
+    body.querySelectorAll('[data-select-replacement]').forEach((el) => {
+      el.onclick = () => {
+        this._swapIncomingId = el.getAttribute('data-select-replacement');
+        this._swapPreview = null;
+        this._renderSwapTab(body, season);
+      };
+    });
     body.querySelector('#swapIsJoker').onchange = (e) => {
       this._swapIsJoker = e.target.checked;
       this._renderSwapTab(body, season);

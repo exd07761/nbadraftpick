@@ -1051,6 +1051,105 @@ select.input { cursor: pointer; }
   .pot-summary-strip { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ─── Swap tab: current-player card + position-filtered, pool-grouped,
+   OVR-sorted replacement list. UI/presentation only — no swap rule lives
+   here; all validation still comes from AdminActions.evaluateSwap. ────── */
+.swap-current-block {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+  flex-wrap: wrap;
+}
+.swap-current-card {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  min-width: 220px;
+}
+.swap-current-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+.swap-current-ovr { font-size: 1.3rem; font-weight: 800; color: var(--accent); line-height: 1.1; }
+.swap-current-name { font-size: 1rem; font-weight: 700; margin-top: 0.1rem; }
+.swap-current-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem; }
+
+.swap-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--text-dim);
+  line-height: 1.1;
+}
+.swap-arrow-icon { font-size: 1.3rem; }
+.swap-arrow-label { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+
+.swap-replacement-panel { margin-top: 0.5rem; }
+.swap-replacement-header {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.6rem;
+}
+
+.swap-pool-section { margin-bottom: 0.9rem; }
+.swap-pool-heading {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+}
+.pool-heading-green { color: var(--pool-green); border-bottom-color: var(--pool-green-dim); }
+.pool-heading-blue  { color: var(--pool-blue);  border-bottom-color: var(--pool-blue-dim); }
+
+.swap-replacement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.swap-replacement-row {
+  display: grid;
+  grid-template-columns: 2.4rem 1fr 3rem auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  cursor: pointer;
+}
+.swap-replacement-row:hover { background: var(--bg-hover); border-color: var(--border-light); }
+.swap-replacement-row.is-selected { border-color: var(--accent); background: var(--accent-dim); }
+.swap-replacement-ovr { font-weight: 800; text-align: right; }
+.swap-replacement-name { font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.swap-replacement-pos { font-size: 0.72rem; color: var(--text-muted); text-align: center; }
+
+.swap-empty-state {
+  padding: 0.9rem 1rem;
+  border: 1px dashed var(--border-light);
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+.swap-empty-title { font-weight: 800; color: var(--text); margin-bottom: 0.2rem; }
+
+@media (max-width: 700px) {
+  .swap-replacement-row { grid-template-columns: 2rem 1fr auto; }
+  .swap-replacement-pos { display: none; }
+}
+
 /* ─── F5: Financial Management ────────────────────────────────────────────── */
 .financial-summary-strip {
   display: grid;
