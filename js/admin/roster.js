@@ -17,6 +17,25 @@
  * - Renders into the shared #adminViewContainer, same as every other admin view.
  * - No global state is kept beyond the view object itself.
  */
+
+/**
+ * ⚠ SECURITY NOTE — same caveat as _DELETE_ALL_PLAYERS_PIN in admin/players.js.
+ *
+ * This is a plain constant shipped in this frontend JS file, not a real
+ * second authorization layer — it's trivially readable by anyone who opens
+ * dev tools, and it does NOT protect against a signed-in-but-malicious or
+ * compromised admin session. The actual write gate remains Firebase Auth +
+ * firestore.rules (AuthBoundary.requireAuth(), already required before this
+ * PIN step ever appears). What it DOES do: add a deliberate speed bump
+ * against an *accidental* click that would overwrite manual roster changes
+ * (trades/swaps/Joker designations) made since the last initialization.
+ * Kept as its own isolated constant, same pattern as players.js, so each
+ * destructive action's PIN can be changed independently.
+ *
+ * Set your own PIN here.
+ */
+const _REINIT_ROSTERS_PIN = 'CHANGE-ME-PIN';
+
 const AdminRosterView = {
   render(container) {
     const season = LeagueData.getCurrentSeason();
@@ -200,14 +219,127 @@ const AdminRosterView = {
       AuthBoundary.requireAuth();
       const season2 = LeagueData.getCurrentSeason();
       if (season2?.rostersInitialized) {
-        if (!confirm('Re-initialize rosters from draft picks? Any manual changes to rosters will be lost.')) return;
+        // Destructive path (would overwrite manual changes) — PIN-gated,
+        // same three-stage flow as "Delete All Players" in admin/players.js.
+        this._openReinitConfirm1(season);
+        return;
       }
+      // First-time initialization has nothing to lose — proceed directly,
+      // same behavior as before.
+      this._runInitializeRosters(season);
+    };
+  },
+
+  _runInitializeRosters(season) {
+    try {
+      AdminActions.initializeRostersFromDraft(season.id);
+      showToast('Rosters initialized from draft picks.', 'success');
+      AdminApp.renderView('roster');
+    } catch (e) {
+      showToast(e.message, 'error');
+    }
+  },
+
+  // ── Re-initialize Rosters (destructive) ──────────────────────────────────
+  // Three-stage destructive-action flow: confirm → PIN → final confirm.
+  // See _REINIT_ROSTERS_PIN above for what this PIN does and does not protect.
+  _openReinitConfirm1(season) {
+    document.getElementById('reinitRostersOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'reinitRostersOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reinitTitle1">
+        <div class="modal-eyebrow">⚠ Destructive Action</div>
+        <div class="modal-player-name" id="reinitTitle1">Re-initialize Rosters from Draft</div>
+        <p class="modal-prompt">This will overwrite the current rosters with a fresh copy of the draft picks. Any manual changes made since the last initialization — trades, swaps, Joker designations — will be lost. This cannot be undone.</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="reinitCancelBtn1">Cancel</button>
+          <button class="btn btn-danger" id="reinitContinueBtn1">Continue</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('reinitCancelBtn1').onclick = close;
+    document.getElementById('reinitContinueBtn1').onclick = () => {
+      close();
+      this._openReinitPinStep(season);
+    };
+  },
+
+  _openReinitPinStep(season) {
+    document.getElementById('reinitRostersOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'reinitRostersOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reinitPinTitle">
+        <div class="modal-eyebrow">⚠ Destructive Action</div>
+        <div class="modal-player-name" id="reinitPinTitle">Enter Admin PIN</div>
+        <p class="modal-prompt">Enter the admin PIN to continue re-initializing rosters.</p>
+        <div class="form-group">
+          <input type="password" id="reinitPinInput" class="input" autocomplete="off" placeholder="PIN">
+        </div>
+        <p class="error-text" id="reinitPinError"></p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="reinitPinCancelBtn">Cancel</button>
+          <button class="btn btn-danger" id="reinitPinSubmitBtn">Verify</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('reinitPinCancelBtn').onclick = close;
+
+    const pinInput = document.getElementById('reinitPinInput');
+    pinInput.focus();
+    const submit = () => {
+      const entered = pinInput.value;
+      pinInput.value = ''; // never leave the PIN sitting in the DOM after a check
+      if (entered !== _REINIT_ROSTERS_PIN) {
+        document.getElementById('reinitPinError').textContent = 'Incorrect PIN.';
+        return;
+      }
+      close();
+      this._openReinitConfirm2(season);
+    };
+    document.getElementById('reinitPinSubmitBtn').onclick = submit;
+    pinInput.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  },
+
+  _openReinitConfirm2(season) {
+    document.getElementById('reinitRostersOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'reinitRostersOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="reinitTitle2">
+        <div class="modal-eyebrow">⚠ Final Confirmation</div>
+        <div class="modal-player-name" id="reinitTitle2">Are you absolutely sure?</div>
+        <p class="modal-prompt">This will overwrite the current rosters from draft picks. Manual changes since the last initialization will be lost. This cannot be undone.</p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="reinitCancelBtn2">Cancel</button>
+          <button class="btn btn-danger" id="reinitConfirmBtn2">Re-initialize Rosters</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('reinitCancelBtn2').onclick = close;
+    document.getElementById('reinitConfirmBtn2').onclick = () => {
+      AuthBoundary.requireAuth();
       try {
         AdminActions.initializeRostersFromDraft(season.id);
+        close();
         showToast('Rosters initialized from draft picks.', 'success');
         AdminApp.renderView('roster');
       } catch (e) {
-        showToast(e.message, 'error');
+        // Leave the UI in a recoverable state — modal stays open with a
+        // clear error rather than a false success message.
+        document.querySelector('#reinitRostersOverlay .modal-prompt').insertAdjacentHTML(
+          'afterend', `<p class="error-text">Re-initialize failed: ${escapeHtml(e.message)}</p>`
+        );
       }
     };
   },
