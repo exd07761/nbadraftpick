@@ -7,6 +7,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/draft-public.css">
+  <link rel="stylesheet" href="css/public-theme.css">
 </head>
 <body>
 
@@ -16,28 +19,57 @@
     <p>Loading…</p>
   </div>
 
-  <header class="site-header">
-    <div class="header-inner">
-      <div class="site-logo">NBA <span>2K</span> ASPAKAN</div>
-      <nav class="site-nav">
-        <a class="nav-link" data-route="home" href="#home">Home</a>
-        <a class="nav-link" data-route="schedule" href="#schedule">Schedule</a>
-        <a class="nav-link" data-route="standings" href="#standings">Standings</a>
-        <a class="nav-link" data-route="players" href="#players">Players</a>
-        <a class="nav-link" data-route="playoffs" href="#playoffs">Playoffs</a>
-        <a class="nav-link" data-route="rosters" href="#rosters">Rosters</a>
-      </nav>
-      <div class="header-right">
-        <a class="admin-link" href="admin.html">Admin ↗</a>
+  <!-- ── Phase 2 shared shell (sidebar / mobile top bar + drawer) ─────────────
+       Replaces the old .site-header top nav. Nav links keep the same
+       .nav-link class + data-route attribute the existing public-router.js
+       already binds to and toggles .active on — no router changes. ────── -->
+  <div class="nb-shell">
+    <button class="nb-drawer-scrim" id="nbDrawerScrim" aria-hidden="true" tabindex="-1"></button>
+
+    <aside class="nb-sidebar" id="nbSidebar">
+      <div class="nb-sidebar-top">
+        <div class="nb-sidebar-brand">NBA <span>2K</span> ASPAKAN</div>
+        <button class="nb-drawer-close" id="nbDrawerClose" aria-label="Close menu">×</button>
       </div>
+
+      <nav class="nb-sidebar-nav">
+        <div class="nb-sidebar-group-label">League</div>
+        <a class="nav-link nb-sidebar-link" data-route="home" href="#home"><span class="nb-link-icon">⌂</span><span class="nb-link-label">Dashboard</span></a>
+        <a class="nav-link nb-sidebar-link" data-route="draft" href="#draft"><span class="nb-link-icon">●</span><span class="nb-link-label">Draft</span></a>
+        <a class="nav-link nb-sidebar-link" data-route="rosters" href="#rosters"><span class="nb-link-icon">▤</span><span class="nb-link-label">Rosters</span></a>
+        <a class="nav-link nb-sidebar-link" data-route="schedule" href="#schedule"><span class="nb-link-icon">▦</span><span class="nb-link-label">Schedule</span></a>
+        <a class="nav-link nb-sidebar-link" data-route="standings" href="#standings"><span class="nb-link-icon">▲</span><span class="nb-link-label">Standings</span></a>
+        <a class="nav-link nb-sidebar-link" data-route="playoffs" href="#playoffs"><span class="nb-link-icon">◆</span><span class="nb-link-label">Playoffs</span></a>
+
+        <div class="nb-sidebar-group-label">Players</div>
+        <a class="nav-link nb-sidebar-link" data-route="players" href="#players"><span class="nb-link-icon">☰</span><span class="nb-link-label">Players</span></a>
+      </nav>
+
+      <div class="nb-sidebar-season" id="nbSidebarSeason">
+        <span class="nb-season-caption">Season</span>
+        <span class="nb-season-label" id="nbSeasonLabel">—</span>
+      </div>
+
+      <div class="nb-sidebar-bottom">
+        <a class="admin-link nb-sidebar-admin-link" href="admin.html"><span class="nb-link-label">Admin ↗</span></a>
+        <button class="nb-sidebar-collapse-btn" id="nbSidebarCollapseBtn" title="Collapse sidebar" aria-label="Collapse sidebar">«</button>
+      </div>
+    </aside>
+
+    <div class="nb-content-col">
+      <div class="nb-topbar">
+        <button class="nb-hamburger" id="nbHamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
+        <div class="nb-topbar-title" id="nbTopbarTitle">Dashboard</div>
+        <div class="nb-topbar-status" id="nbTopbarStatus"></div>
+      </div>
+
+      <main class="main-content">
+        <div id="viewContainer"></div>
+      </main>
+
+      <footer class="site-footer">Designed &amp; developed by Jordan Panganiban</footer>
     </div>
-  </header>
-
-  <main class="main-content">
-    <div id="viewContainer"></div>
-  </main>
-
-  <footer class="site-footer">Designed &amp; developed by Jordan Panganiban</footer>
+  </div>
 
   <!-- Firebase SDK (compat build — see admin.html for why compat, not
        modules). Must load first: data.js uses the `firebase` global
@@ -57,6 +89,7 @@
   <script src="js/views/standings.js"></script>
   <script src="js/views/playoffs.js"></script>
   <script src="js/views/players.js"></script>
+  <script src="js/views/draft.js"></script>
   <script src="js/views/stubs.js"></script>
 
   <!-- Shared utilities (escapeHtml, showToast, formatStatus) -->
@@ -64,6 +97,10 @@
 
   <!-- Public router (must load after views and shared-utils) -->
   <script src="js/public-router.js"></script>
+
+  <!-- Phase 2: shared shell behavior (sidebar/drawer/topbar) — additive,
+       loads last so it only observes/enhances what's already wired up. -->
+  <script src="js/shell.js"></script>
 
 </body>
 </html>

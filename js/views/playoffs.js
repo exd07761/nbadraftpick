@@ -54,7 +54,14 @@ const PlayoffsView = {
             🏆 Champion: ${this._teamLabel(season, playoffs.champion)}
           </div>` : ''}
 
-        <div class="bracket-scroll">
+        <div class="bracket-jump" id="bracketJump">
+          <button type="button" class="bracket-jump-btn" data-jump="0">Round 1</button>
+          <button type="button" class="bracket-jump-btn" data-jump="1">Round 2</button>
+          <button type="button" class="bracket-jump-btn" data-jump="2">Semifinals</button>
+          <button type="button" class="bracket-jump-btn" data-jump="3">Championship</button>
+        </div>
+
+        <div class="bracket-scroll" id="bracketScroll">
           <div class="bracket">
 
             <div class="bracket-col">
@@ -91,6 +98,37 @@ const PlayoffsView = {
           </div>
         </div>
       </div>`;
+
+    // Phase 6 addition: mobile round quick-jump — scrolls the existing
+    // .bracket-scroll container to the chosen column instead of leaving a
+    // phone user to swipe through every round to find the current one.
+    // Purely a scroll-position convenience; reads no new data, writes
+    // nothing, and the underlying horizontal-scroll bracket (kept as the
+    // brief allows) works exactly as before with JS disabled.
+    const jumpRow = container.querySelector('#bracketJump');
+    const scrollEl = container.querySelector('#bracketScroll');
+    const cols = scrollEl ? scrollEl.querySelectorAll('.bracket-col') : [];
+    if (jumpRow && cols.length) {
+      const currentIdx = this._currentRoundIndex(playoffs);
+      jumpRow.querySelectorAll('.bracket-jump-btn').forEach((btn, i) => {
+        btn.classList.toggle('current', i === currentIdx);
+        btn.addEventListener('click', () => {
+          cols[i]?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' });
+        });
+      });
+    }
+  },
+
+  // Display-only heuristic (not written anywhere) for which bracket
+  // column to highlight/jump to by default: the first round that still
+  // has an undecided match, or Championship once everything is decided.
+  _currentRoundIndex(playoffs) {
+    if (!playoffs.round1.matches.every(m => m.winner)) return 0;
+    const round2Decided = playoffs.round2.pools.every(p => p.series.every(s => s.winner));
+    if (!round2Decided) return 1;
+    const semisDecided = playoffs.finals.semifinals.every(s => s.winner);
+    if (!semisDecided) return 2;
+    return 3;
   },
 
   _teamLabel(season, participantId) {

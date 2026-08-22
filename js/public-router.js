@@ -5,10 +5,12 @@
  * only. No write operations occur here.
  *
  * IMPORTANT: This file references HomeView, ScheduleView, StandingsView,
- * PlayoffsView, PublicRosterView, and PublicPlayersView (Phase 10), which
- * are defined in js/views/*.js. Only index.html loads those view files —
- * admin.html must NOT include this file, or the `routes` object below
- * will throw a ReferenceError for every view global it can't find.
+ * PlayoffsView, PublicRosterView, PublicPlayersView (Phase 10), and
+ * PublicDraftView (Phase 2 redesign — read-only spectator view of the
+ * live draft; see js/views/draft.js), which are defined in js/views/*.js.
+ * Only index.html loads those view files — admin.html must NOT include
+ * this file, or the `routes` object below will throw a ReferenceError
+ * for every view global it can't find.
  *
  * Depends on shared-utils.js being loaded first for escapeHtml/showToast/
  * formatStatus, but does not itself define any shared utilities — see
@@ -28,6 +30,7 @@ const routes = {
   playoffs: PlayoffsView,
   rosters: PublicRosterView,
   players: PublicPlayersView,
+  draft: PublicDraftView, // Phase 2 redesign — read-only, see js/views/draft.js
 };
 
 let currentRoute = null;

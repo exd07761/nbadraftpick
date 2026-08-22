@@ -33,6 +33,14 @@ const HomeView = {
     const scheduleRounds = LeagueData.getSchedule(s.id);
     const nextRound = this._pickPreviewRound(scheduleRounds);
 
+    // Phase 6 addition: live Draft status, read-only (LeagueData.getDraftState
+    // is the exact same read the public Draft page and admin board already
+    // use — no new data source, no write). Only shown while the season is
+    // actually in its draft phase and a pick is still pending.
+    const draftOrder = LeagueData.getPlayerDraftOrder(s.id);
+    const draftState = (s.status === 'draft' && draftOrder.length) ? LeagueData.getDraftState(s.id) : null;
+    const draftLive = draftState && !draftState.draftComplete && draftState.currentParticipantId;
+
     container.innerHTML = `
       <div class="dashboard">
 
@@ -45,6 +53,16 @@ const HomeView = {
             ${playoffs?.champion ? `<span>🏆 Champion: ${escapeHtml(s.participants[playoffs.champion]?.name || '')}</span>` : ''}
           </div>
         </div>
+
+        ${draftLive ? `
+          <a href="#draft" class="dash-draft-live" data-route="draft">
+            <span class="dash-draft-live-dot"></span>
+            <span class="dash-draft-live-text">
+              <span class="dash-draft-live-eyebrow">Draft in progress · Round ${draftState.currentRound} · Pick ${draftState.currentPickOverall}</span>
+              <span class="dash-draft-live-name">${escapeHtml(draftState.currentParticipant?.name || 'On the clock')}</span>
+            </span>
+            <span class="dash-draft-live-cta">Watch Live →</span>
+          </a>` : ''}
 
         <div class="stats-row">
           <div class="stat-card">
@@ -154,7 +172,7 @@ const HomeView = {
       </div>`;
 
     // Section-link nav items reuse the same client-side router as the main nav.
-    container.querySelectorAll('.section-link[data-route]').forEach(el => {
+    container.querySelectorAll('.section-link[data-route], .dash-draft-live[data-route]').forEach(el => {
       el.addEventListener('click', e => { e.preventDefault(); navigate(el.dataset.route); });
     });
   },

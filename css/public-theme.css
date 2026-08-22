@@ -1,0 +1,360 @@
+/**
+ * public-theme.css — Phase 6: retheme the six public participant-facing
+ * pages (Dashboard, Rosters, Schedule, Standings, Playoffs, Players) onto
+ * the design system established in Phases 1–5 (the Draft page is the
+ * reference implementation this follows).
+ *
+ * PRESENTATION ONLY. Every class name below already exists in main.css
+ * and is rendered by the existing, unmodified view files
+ * (js/views/home.js, roster.js, schedule.js, standings.js, playoffs.js,
+ * players.js) — this file only overrides how those classes look. No
+ * view file's DOM structure changed except:
+ *   - home.js: added a "Live Draft" status section (new markup, still
+ *     100% read-only, see the file itself for the small diff)
+ *   - playoffs.js: added an optional mobile round quick-jump row
+ * Nothing else was touched — same data sources, same LeagueData calls,
+ * same routing, same IDs/classes JS depends on.
+ *
+ * SCOPING: this file is loaded ONLY by index.html. admin.html does not
+ * include it, so admin pages that share some of these class names
+ * (Teams, Players, cap-bar) are completely unaffected — they keep
+ * rendering with main.css/admin.css's original dark theme until their
+ * own turn in a later phase. Because of that, rules here are NOT
+ * scoped with a wrapper class (unlike admin-draft-theme.css, which had
+ * to coexist with admin.html on the same page) — this is the only
+ * stylesheet touching these classes on index.html.
+ *
+ * Loaded after main.css/shell.css/draft-public.css.
+ */
+
+/* ─── Generic building blocks used across every public page ────────────── */
+.empty-state {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.empty-state h2 { color: var(--nb-text); }
+.empty-state p { color: var(--nb-text-muted); }
+.coming-soon { color: var(--nb-text-dim); }
+.muted { color: var(--nb-text-muted); }
+.helper-text { color: var(--nb-text-muted); }
+
+.section-title {
+  color: var(--nb-text-muted);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.section-header-row { border-bottom: 1px solid var(--nb-surface-border); }
+.section-link { color: var(--nb-primary); }
+
+.table-controls .input,
+.search-input {
+  font-family: var(--font-ui);
+  border-radius: var(--nb-r);
+  border: 1px solid var(--nb-surface-border);
+  background: var(--nb-surface-card);
+  color: var(--nb-text);
+}
+.search-input:focus { outline: none; border-color: var(--nb-primary); }
+
+.table-scroll { border-radius: var(--nb-r-lg); }
+
+/* Status chips (season/game status pills) — same darkened-tint pattern
+   used everywhere else in the redesign, not the original dark-bg tints. */
+.status-chip { border-radius: 999px; font-weight: 700; }
+.status-setup            { background: var(--nb-primary-dim); color: var(--nb-primary); }
+.status-draft            { background: var(--nb-gold-dim); color: #7a5a00; }
+.status-team_assignment  { background: rgba(155,89,182,0.12); color: #8e44ad; }
+.status-regular_season   { background: rgba(52,152,219,0.12); color: #2471a3; }
+.status-playoffs         { background: rgba(231,76,60,0.12); color: #c0392b; }
+.status-complete         { background: rgba(31,169,113,0.12); color: var(--nb-positive); }
+.status-scheduled        { background: var(--nb-primary-dim); color: var(--nb-primary); }
+.status-bye              { background: var(--nb-surface); color: var(--nb-text-dim); }
+
+/* ─── Dashboard ──────────────────────────────────────────────────────────── */
+.league-hero {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.league-hero::before { display: none; } /* drop the old dark-theme glow/photo accent */
+.league-hero-eyebrow { color: var(--nb-primary); }
+.league-hero-title { color: var(--nb-text); }
+.league-hero-meta { color: var(--nb-text-muted); }
+
+.stat-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.stat-num { color: var(--nb-primary); }
+.stat-label { color: var(--nb-text-muted); }
+
+.team-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.team-card:hover { border-color: var(--nb-primary); }
+.team-owner { color: var(--nb-text); }
+.team-nba { color: var(--nb-text-muted); }
+
+.mini-standings-row:nth-child(odd) { background: var(--nb-surface); }
+.mini-standings-rank { color: var(--nb-text-dim); }
+.mini-standings-rank.top4 { color: #7a5a00; font-weight: 800; } /* corrected — raw --nb-gold at this size/weight repeats the exact contrast mistake fixed on Tier A; using the same darkened treatment instead */
+.mini-standings-name { color: var(--nb-text); }
+.mini-standings-record { color: var(--nb-text-muted); }
+
+.mini-schedule-row {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.matchup-vs-divider { color: var(--nb-text-dim); }
+
+.seasons-list .season-row {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  color: var(--nb-text);
+}
+.season-row.active { border-color: var(--nb-primary); }
+
+.bracket-champion-banner {
+  background: var(--nb-gold-dim);
+  color: #7a5a00;
+  border: 1px solid var(--nb-gold);
+  border-radius: var(--nb-r-lg);
+}
+
+/* Live Draft status card (home.js addition) — same visual language as the
+   Draft page's own on-the-clock treatment, so the link to Draft feels
+   like a continuation of the same page, not a different product. */
+.dash-draft-live {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-3);
+  background: var(--nb-gold-dim);
+  border: 1px solid var(--nb-gold);
+  border-radius: var(--nb-r-lg);
+  padding: var(--nb-space-4);
+  margin-bottom: var(--nb-space-5);
+  text-decoration: none;
+}
+.dash-draft-live-dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--nb-gold);
+  flex-shrink: 0;
+  animation: nb-pulse 1.4s ease-in-out infinite;
+}
+.dash-draft-live-text { flex: 1; min-width: 0; }
+.dash-draft-live-eyebrow { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #7a5a00; }
+.dash-draft-live-name { font-size: 1.05rem; font-weight: 800; color: var(--nb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-draft-live-cta { font-size: 0.78rem; font-weight: 700; color: #7a5a00; white-space: nowrap; flex-shrink: 0; }
+
+@media (max-width: 900px) {
+  .dashboard-grid { grid-template-columns: 1fr; }
+}
+
+/* ─── Rosters ────────────────────────────────────────────────────────────── */
+.all-rosters-title { color: var(--nb-text); }
+.all-rosters-cap-note { color: var(--nb-text-muted); }
+
+.roster-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.roster-card-name { color: var(--nb-text); }
+.roster-card-count { color: var(--nb-text-muted); }
+.roster-card-ovr-total { color: var(--nb-primary); }
+.roster-card-cap-value, .roster-card-remaining { color: var(--nb-text-muted); }
+.roster-card-source { color: var(--nb-text-dim); }
+.cap-over-text { color: var(--nb-negative); }
+
+.cap-bar-track { background: var(--nb-surface); border: 1px solid var(--nb-surface-border); }
+.cap-bar-fill--ok   { background: var(--nb-positive); }
+.cap-bar-fill--warn { background: var(--nb-gold); }
+.cap-bar-fill--over { background: var(--nb-negative); }
+
+.roster-table th { color: var(--nb-text-muted); border-bottom: 1px solid var(--nb-surface-border); }
+.roster-table td { border-bottom: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+.roster-table tbody tr:hover { background: var(--nb-surface); }
+.roster-table .ovr { color: var(--nb-primary); }
+.empty-roster { color: var(--nb-text-muted); }
+
+/* Fix (Phase 6): drop the least-essential column (Source) on narrow
+   phones instead of relying on the mini-table's own horizontal scroll —
+   the brief's priority list for Rosters is Team / Participant / Players /
+   Position / Overall; Source is secondary and the first thing that can
+   go to keep the rest comfortably scannable without scrolling. */
+@media (max-width: 480px) {
+  .roster-card-table th:last-child,
+  .roster-card-table td:last-child { display: none; }
+}
+
+/* ─── Schedule ───────────────────────────────────────────────────────────── */
+.round-tabs { border-bottom: 1px solid var(--nb-surface-border); }
+.round-tab {
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.round-tab:hover { color: var(--nb-text); border-color: var(--nb-primary); }
+.round-tab.active { color: var(--nb-primary); background: var(--nb-primary-dim); border-color: var(--nb-primary); }
+
+.matchup-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.matchup-card.is-completed { border-color: var(--nb-surface-border); }
+.matchup-card-status.status-complete { background: rgba(31,169,113,0.12); color: var(--nb-positive); }
+.matchup-card-streamer { color: var(--nb-text-muted); }
+.matchup-side-name { color: var(--nb-text); }
+.matchup-side.winner .matchup-side-name { color: var(--nb-primary); }
+.matchup-side.winner .matchup-side-score { color: var(--nb-text); }
+.matchup-side:not(.winner) .matchup-side-score { color: var(--nb-text-dim); }
+.matchup-card.is-bye .matchup-card-body { color: var(--nb-text-dim); }
+
+/* Fix (Phase 6): comfortable ~44px tap target for round tabs, same
+   invisible-hit-area technique used on the Draft page's tabs/chips. */
+.round-tabs { gap: var(--nb-space-2); flex-wrap: wrap; }
+.round-tab { position: relative; padding: 0.6rem 0.9rem; }
+.round-tab::before { content: ''; position: absolute; inset: -6px -2px; }
+
+/* ─── Standings ──────────────────────────────────────────────────────────── */
+.standings-table-wrap {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.standings-table th { color: var(--nb-text-muted); border-bottom: 1px solid var(--nb-surface-border); }
+.standings-table td { border-bottom: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+.standings-table tbody tr:hover { background: var(--nb-surface); }
+.standings-table .pd-pos { color: var(--nb-positive); }
+.standings-table .pd-neg { color: var(--nb-negative); }
+.standings-abbr { color: #7a5a00; font-weight: 800; }
+
+.standings-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.standings-card-rank { color: var(--nb-text-dim); }
+.standings-card-rank.top4 { color: #7a5a00; }
+.standings-card-owner { color: var(--nb-text); }
+.standings-card-record { color: var(--nb-text-muted); }
+.standings-card-pd.pd-pos { color: var(--nb-positive); }
+.standings-card-pd.pd-neg { color: var(--nb-negative); }
+
+.streamer-table th { color: var(--nb-text-muted); border-bottom: 1px solid var(--nb-surface-border); }
+.streamer-table td { border-bottom: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+
+/* ─── Playoffs ───────────────────────────────────────────────────────────── */
+.bracket-col-header { color: var(--nb-text); }
+.bracket-col-sub { color: var(--nb-text-dim); }
+.bracket-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  box-shadow: var(--nb-surface-shadow);
+}
+.bracket-card.active { border-color: var(--nb-gold); }
+.bracket-card.decided { border-color: var(--nb-surface-border); }
+.bracket-card-row { border-bottom: 1px solid var(--nb-surface-border); }
+.bracket-card-row.won { background: var(--nb-primary-dim); }
+.bracket-card-row.won .bracket-team-name { color: var(--nb-primary); }
+.bracket-seed { color: var(--nb-text-dim); }
+.bracket-team-name { color: var(--nb-text); }
+.bracket-card-tbd { color: var(--nb-text-dim); }
+.bracket-format-tag { color: var(--nb-text-muted); }
+
+/* Fix (Phase 6): the bracket already had a contained horizontal-scroll
+   fallback (.bracket-scroll) — kept, since the brief explicitly allows
+   it as a valid mobile strategy. Added on top: a round quick-jump row
+   (playoffs.js) so a phone user can jump straight to "Current round"
+   instead of scrolling through every column to find it — a lighter
+   addition than a full alternate round-by-round view. */
+.bracket-jump { display: none; gap: var(--nb-space-2); margin-bottom: var(--nb-space-3); flex-wrap: wrap; }
+.bracket-jump-btn {
+  position: relative;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  color: var(--nb-text-muted);
+  border-radius: 999px;
+  padding: 0.42rem 0.8rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bracket-jump-btn::before { content: ''; position: absolute; inset: -7px; }
+.bracket-jump-btn.current { color: var(--nb-primary); border-color: var(--nb-primary); background: var(--nb-primary-dim); }
+@media (max-width: 900px) {
+  .bracket-jump { display: flex; }
+}
+
+/* ─── Players (public pool browser) ─────────────────────────────────────── */
+.player-db-title { color: var(--nb-text); }
+.player-db-subtitle { color: var(--nb-text-muted); }
+
+.pool-info-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-left-width: 3px;
+  border-radius: var(--nb-r);
+}
+.pool-info-card-desc { color: var(--nb-text-muted); }
+
+.pool-tabs { border-bottom: none; }
+.pool-tab { background: var(--nb-surface-card); border: 1px solid var(--nb-surface-border); }
+.pool-tab.active.pool-tab-green { background: var(--nb-positive); color: #fff; border-color: var(--nb-positive); }
+.pool-tab.active.pool-tab-blue { background: var(--nb-primary); color: #fff; border-color: var(--nb-primary); }
+
+/* Same-page component, same visual language as the Draft page — the
+   grouped-by-position layout is kept deliberately (see js/views/draft.js
+   header comment for why: this is a reference/browse page, where
+   comparing all players at one position is more useful than Draft's
+   flat "who's pickable right now" list) but every color now comes from
+   the same --nb-* tokens Draft uses, so it reads as the same product. */
+.pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.pos-table-green .pos-table-head { background: rgba(31,169,113,0.1); color: var(--nb-positive); border-bottom: 1px solid rgba(31,169,113,0.25); }
+.pos-table-blue .pos-table-head { background: var(--nb-primary-dim); color: var(--nb-primary); border-bottom: 1px solid rgba(91,91,240,0.25); }
+.pos-table-columns-head { color: var(--nb-text-dim); border-bottom: 1px solid var(--nb-surface-border); }
+.pos-table-empty { color: var(--nb-text-dim); }
+.pos-table-row { border-bottom: 1px solid var(--nb-surface-border); }
+.pos-table-row:hover { background: var(--nb-surface); }
+.pos-rank { color: var(--nb-text-dim); }
+.pos-name { color: var(--nb-text); }
+.pos-ovr { color: var(--nb-text-muted); }
+.pos-ovr-elite { color: var(--nb-positive); }
+.pos-ovr-good { color: var(--nb-text); }
+.pos-drafted-tag { background: var(--nb-surface); color: var(--nb-text-dim); }
+.pos-locked-tag { color: #7a5a00; background: var(--nb-gold-dim); }
+.pos-table-row.drafted .pos-name, .pos-table-row.drafted .pos-ovr { color: var(--nb-text-dim); }
+
+.drafted-note {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  color: var(--nb-text-muted);
+}
+.drafted-note .swatch { background: var(--nb-surface); border: 1px solid var(--nb-surface-border); }
+
+.pool-legend-footer { color: var(--nb-text-muted); }
+.pool-legend-footer .legend-dot.green { background: var(--nb-positive); }
+.pool-legend-footer .legend-dot.blue { background: var(--nb-primary); }
+.pool-legend-footer .legend-dot.live { background: var(--nb-positive); }
+
+/* teamBadge() abbreviation text — same fix as draft-public.css, applied
+   here since these pages use the same shared component. */
+.team-identity-abbr { color: var(--nb-text-muted); }

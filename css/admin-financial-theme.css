@@ -1,0 +1,262 @@
+/**
+ * admin-financial-theme.css — Phase 6, Financial: retheme the Financial
+ * page onto the design system (Draft remains the reference
+ * implementation), plus a CSS-only responsive treatment for its two
+ * data-dense tables.
+ *
+ * PRESENTATION ONLY. No line of js/admin/financial.js was touched — this
+ * file targets only classes/attributes that file already renders. Every
+ * hard constraint from the brief was checked against the actual file
+ * before writing this: f6ParticipantBreakdown/f6IsCollected are read-only
+ * inputs this file never touches: the UI displays account.entryFeeCharged/
+ * .tradeFeesPaid/.totalUnpaid/etc. exactly as financial.js already
+ * computes them — nothing here recalculates Charged/Paid/Unpaid. Every
+ * data-action/data-filter/data-id/data-streamer-select attribute and
+ * every modal-internal ID (#adjParticipant, #payAmount, etc.) is exactly
+ * as it was; none is selected on here in any way that assumes it will
+ * change.
+ *
+ * MOBILE SCOPING — a note on how this avoids editing financial.js:
+ * The Participant table, Streamer table, and Transaction History table
+ * all share the generic `.admin-table` class also used by Players/
+ * Seasons/Trades — a blind `.admin-table` mobile rule would wrongly
+ * restyle those other pages' tables too. Instead of adding a wrapper
+ * class to financial.js (a markup change, which the brief said to stop
+ * and report before making), this file scopes each table using
+ * `:has()` against attributes/structure ALREADY unique to each one:
+ *   - Participant table: has a [data-action="viewDetails"] button
+ *   - Streamer table: has a [data-streamer-select] <select>
+ *   - Transaction History: the only remaining .admin-table with
+ *     exactly 5 header columns
+ * All three checks are further scoped inside
+ * `#adminViewContainer:has(.recon-strip)` — .recon-strip is rendered
+ * only by this page's summary section, so this whole ruleset is
+ * inert unless the Financial view is the one currently mounted (the
+ * router replaces #adminViewContainer's content wholesale on every
+ * navigation, so no other view's markup can ever coexist with it).
+ * This was fully achievable without any financial.js change, so no
+ * structural-change flag was needed for this pass.
+ *
+ * Loaded after admin.css and the other admin-*-theme.css files.
+ */
+
+#adminViewContainer:has(.recon-strip) {
+
+  /* ══════════════════════════════════════════════════════════════════
+     Tier 1 — Financial Overview
+     ══════════════════════════════════════════════════════════════════ */
+  .financial-summary-strip {
+    background: var(--nb-surface);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+  }
+  .financial-summary-strip > div {
+    background: var(--nb-surface-card);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r);
+  }
+  /* Pot / Paid / Unpaid headline row — Total Unpaid gets its own accent
+     so "how much is still owed" is the one number that pops, without
+     inventing a new color (reuses the same negative/red status token
+     used everywhere else in the redesign for an outstanding-money state). */
+  .financial-summary-strip > div:nth-child(2) .pot-summary-value { color: var(--nb-positive); }
+  .financial-summary-strip > div:nth-child(3) .pot-summary-value { color: var(--nb-negative); }
+
+  .recon-strip {
+    background: var(--nb-surface);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r);
+    color: var(--nb-text-muted);
+  }
+  .recon-strip strong { color: var(--nb-text); }
+  /* Gold Contrast Rule: .recon-off previously used a raw gold/yellow hex
+     directly as text color — replaced with the same darkened-gold
+     treatment used everywhere else (Draft Tier A, status-unpaid, etc.),
+     not a new color. */
+  .recon-off, .recon-off strong { color: #7a5a00; }
+  .recon-ok, .recon-ok strong { color: var(--nb-positive); }
+
+  /* ══════════════════════════════════════════════════════════════════
+     Tier 2 — Participants (desktop: cleaner table; mobile: card)
+     ══════════════════════════════════════════════════════════════════ */
+  .admin-table:has([data-action="viewDetails"]) {
+    background: var(--nb-surface-card);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+  }
+  .admin-table:has([data-action="viewDetails"]) td:nth-child(5),
+  .admin-table:has([data-action="viewDetails"]) td:nth-child(6),
+  .admin-table:has([data-action="viewDetails"]) td:nth-child(7) {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Total Unpaid column — the one number this whole page exists to
+     surface — gets the same accent as the Tier 1 card above, and never
+     just a color: the ₱ amount itself is always the text, never hidden
+     behind a badge. */
+  .admin-table:has([data-action="viewDetails"]) td:nth-child(7) { color: var(--nb-negative); }
+
+  @media (max-width: 700px) {
+    .admin-table:has([data-action="viewDetails"]) {
+      display: block;
+    }
+    .admin-table:has([data-action="viewDetails"]) thead { display: none; }
+    .admin-table:has([data-action="viewDetails"]) tbody { display: block; }
+    .admin-table:has([data-action="viewDetails"]) tr {
+      display: flex;
+      flex-direction: column;
+      background: var(--nb-surface-card);
+      border: 1px solid var(--nb-surface-border);
+      border-radius: var(--nb-r-lg);
+      padding: var(--nb-space-4);
+      margin-bottom: var(--nb-space-3);
+    }
+    .admin-table:has([data-action="viewDetails"]) td {
+      display: block;
+      border: none;
+      padding: 0;
+    }
+    /* Collapsed state: Participant name, Status, Outstanding amount,
+       then actions — exactly the brief's four collapsed fields. The
+       Entry/Trade/Swap breakdown + Total Charges + Total Paid cells
+       (2,3,4,5,6) still exist in the DOM (nothing is deleted — a screen
+       reader or "view source" still finds them) but are not shown at
+       this width; the "View Details" button is the expand path — see
+       the note below on why that's a modal instead of an inline
+       accordion. */
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(1) {
+      order: 1; font-size: 1rem; font-weight: 800; color: var(--nb-text); margin-bottom: 0.35rem;
+    }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(8) { order: 2; margin-bottom: 0.6rem; }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(7) {
+      order: 3; font-size: 1.15rem; margin-bottom: var(--nb-space-3);
+    }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(7)::before {
+      content: "Outstanding: "; font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; color: var(--nb-text-dim); display: block; margin-bottom: 0.15rem;
+    }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(2),
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(3),
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(4),
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(5),
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(6) {
+      display: none;
+    }
+    /* Actions row: "View Details" (existing button, unchanged data-action)
+       becomes the visually primary expand affordance — comfortable full-
+       width tap target, chevron via ::after so it reads as "opens more",
+       not just a random ghost button in a row. Record Payment / Adjust
+       stay ghost-styled secondary actions beneath it. */
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(9) {
+      order: 4; display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(9) button {
+      width: 100%; padding: 0.7rem 1rem; font-size: 0.85rem;
+    }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(9) button[data-action="viewDetails"] {
+      background: var(--nb-primary-dim); color: var(--nb-primary); border-color: var(--nb-primary); font-weight: 700;
+    }
+    .admin-table:has([data-action="viewDetails"]) td:nth-child(9) button[data-action="viewDetails"]::after { content: " ›"; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     Streamer Salary — visually distinct payout-workflow section
+     ══════════════════════════════════════════════════════════════════ */
+  /* This section's table gets a subtle gold-tinted border to read as "a
+     different kind of workflow than the balances table above it" —
+     border/tint only, no text uses raw gold (Gold Contrast Rule). */
+  .admin-table:has([data-streamer-select]) {
+    background: var(--nb-surface-card);
+    border: 1px solid var(--nb-gold);
+    border-radius: var(--nb-r-lg);
+  }
+  .admin-table:has([data-streamer-select]) thead tr { background: var(--nb-gold-dim); }
+  .admin-table:has([data-streamer-select]) th { color: #7a5a00; }
+  .admin-table:has([data-streamer-select]) [data-streamer-select] {
+    min-height: 44px; /* comfortable tap target for the participant-mapping dropdown */
+  }
+  @media (max-width: 480px) {
+    .admin-table:has([data-streamer-select]) th,
+    .admin-table:has([data-streamer-select]) td { padding: 0.5rem 0.6rem; font-size: 0.8rem; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     Tier 3 — Transaction History (desktop: clean rows; mobile: cards)
+     ══════════════════════════════════════════════════════════════════ */
+  .admin-table:has(th:nth-child(5):last-child) {
+    background: var(--nb-surface-card);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+  }
+  .admin-table:has(th:nth-child(5):last-child) td:nth-child(3) { color: var(--nb-text-muted); }
+  .admin-table:has(th:nth-child(5):last-child) td:nth-child(5) { color: var(--nb-text-dim); font-variant-numeric: tabular-nums; }
+
+  @media (max-width: 700px) {
+    .admin-table:has(th:nth-child(5):last-child) { display: block; }
+    .admin-table:has(th:nth-child(5):last-child) thead { display: none; }
+    .admin-table:has(th:nth-child(5):last-child) tbody { display: block; }
+    .admin-table:has(th:nth-child(5):last-child) tr {
+      display: flex; flex-direction: column;
+      background: var(--nb-surface-card);
+      border: 1px solid var(--nb-surface-border);
+      border-radius: var(--nb-r);
+      padding: 0.85rem 1rem;
+      margin-bottom: var(--nb-space-2);
+    }
+    .admin-table:has(th:nth-child(5):last-child) td { display: block; border: none; padding: 0; }
+    .admin-table:has(th:nth-child(5):last-child) td:nth-child(2) { order: 1; font-weight: 700; color: var(--nb-text); margin-bottom: 0.25rem; }
+    .admin-table:has(th:nth-child(5):last-child) td:nth-child(4) { order: 2; align-self: flex-start; margin-bottom: 0.35rem; }
+    .admin-table:has(th:nth-child(5):last-child) td:nth-child(3) { order: 3; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .admin-table:has(th:nth-child(5):last-child) td:nth-child(1),
+    .admin-table:has(th:nth-child(5):last-child) td:nth-child(5) {
+      order: 4; font-size: 0.72rem; color: var(--nb-text-dim);
+    }
+    .admin-table:has(th:nth-child(5):last-child) td:nth-child(1)::before { content: "Day "; }
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   Modals (Detail / Adjust / Record Payment / Streamer confirm)
+   ════════════════════════════════════════════════════════════════════
+   IMPORTANT: financial.js appends every one of these overlays directly
+   to document.body (document.body.appendChild(overlay)) — NOT inside
+   #adminViewContainer. So unlike everything above, these rules are
+   scoped by each modal's own unique overlay ID instead of the
+   :has(.recon-strip) container wrapper, which would never match a
+   sibling of that container. Only .financial-detail-grid is a truly
+   unique class name on its own and needs no ID scoping. */
+.financial-detail-grid {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.financial-detail-grid > div {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+
+@media (max-width: 640px) {
+  .financial-detail-grid { grid-template-columns: 1fr; }
+  /* Bottom-sheet-style comfort on small screens — no behavior change,
+     .modal-card is still the exact same element the existing close()/
+     overlay-click logic already targets by class, not by position. */
+  #financialDetailOverlay .modal-card,
+  #financialAdjustOverlay .modal-card,
+  #recordPaymentOverlay .modal-card,
+  #streamerSalaryConfirmOverlay .modal-card {
+    width: 100%; max-width: 100%; border-radius: var(--nb-r-lg) var(--nb-r-lg) 0 0;
+  }
+  #financialDetailOverlay.modal-overlay,
+  #financialAdjustOverlay.modal-overlay,
+  #recordPaymentOverlay.modal-overlay,
+  #streamerSalaryConfirmOverlay.modal-overlay {
+    align-items: flex-end;
+  }
+  #financialDetailOverlay .modal-actions .btn,
+  #financialAdjustOverlay .modal-actions .btn,
+  #recordPaymentOverlay .modal-actions .btn,
+  #streamerSalaryConfirmOverlay .modal-actions .btn {
+    flex: 1; padding: 0.7rem 1rem;
+  }
+}

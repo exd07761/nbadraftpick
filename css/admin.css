@@ -67,9 +67,20 @@
 }
 
 .admin-main {
-  max-width: 1300px;
+  /* width: 100% — see the long comment on .main-content in main.css: this
+     is a flex item of the same kind of column flex shell, and without an
+     explicit width, `margin: 0 auto`'s auto side-margins were disabling
+     stretch and shrinking this to fit its content instead of filling the
+     available space up to max-width. Same fix, same reason. */
+  width: 100%;
+  /* Fluid cap: dense admin tables benefit from real room on a 1920px+
+     monitor, so this grows instead of stopping dead at a fixed number —
+     but a % ceiling keeps a small margin instead of full-bleed content
+     touching the sidebar edge. Padding is fluid for the same reason
+     .main-content's is (see main.css). */
+  max-width: min(1900px, 97%);
   margin: 0 auto;
-  padding: 2rem 1.5rem;
+  padding: clamp(1.5rem, 1rem + 1.2vw, 2.5rem) clamp(1.25rem, 0.5rem + 1.4vw, 2.25rem);
 }
 
 /* ─── Login Screen ───────────────────────────────────────────────────────────── */
@@ -144,7 +155,9 @@
 }
 
 .admin-section-header h2 {
-  font-size: 1.1rem;
+  /* Was a flat 1.1rem — too small to read as a page/section title,
+     especially against the wider .admin-main container above. */
+  font-size: clamp(1.15rem, 1rem + 0.5vw, 1.5rem);
   font-weight: 700;
 }
 
@@ -635,6 +648,31 @@ select.input { cursor: pointer; }
 @media (max-width: 600px) {
   .admin-section { padding: 1.25rem; }
   .form-row { grid-template-columns: 1fr; }
+}
+
+/* ─── Plain .admin-table fallback (mobile) ──────────────────────────────────────
+   Pages that give their table a dedicated mobile treatment (Financial's
+   card-transform via :has() in admin-financial-theme.css, Rosters'
+   column-hiding in admin-pages-theme.css) already win here — those
+   selectors are more specific than the plain .admin-table below, so they
+   still take over regardless of load order. This is only the fallback for
+   the remaining plain .admin-table pages (Seasons, Trades' history table,
+   etc.) that had no mobile handling at all: instead of the browser
+   squeezing every column to fit a 375px screen (wrapping "2026 Aspakan
+   Season" onto 3 lines, truncating the "Participants" header), the table
+   keeps its natural column widths and scrolls horizontally within its
+   card. No JS/HTML change needed — .admin-section is already the table's
+   direct scroll-capable ancestor. */
+@media (max-width: 700px) {
+  .admin-section { overflow-x: auto; }
+  /* width: auto (not a min-width floor — see above), PLUS nowrap cells:
+     without nowrap, table auto-layout still wraps the longest cell's text
+     to shrink that column instead of growing the table past its scroll
+     container. nowrap is what actually forces the browser to give every
+     column its full natural width and let the table (now legitimately
+     wider than the card) scroll horizontally instead. */
+  .admin-table { width: auto; }
+  .admin-table th, .admin-table td { white-space: nowrap; }
 }
 
 /* ─── Phase 4A: Rosters ──────────────────────────────────────────────────────── */

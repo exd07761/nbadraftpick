@@ -1,0 +1,202 @@
+/**
+ * admin-pages-theme-2.css — Phase 6, admin Group 2: retheme Schedule,
+ * Playoffs, and Trade/Swap onto the design system (Draft remains the
+ * reference implementation).
+ *
+ * PRESENTATION ONLY. Every class name below already exists in
+ * admin.css/main.css and is rendered by the existing, unmodified admin
+ * view files (js/admin/schedule.js, playoffs.js, trades.js) — this file
+ * only overrides how those classes look. No DOM structure, event
+ * listener, AdminActions call, or validation rule was touched in any of
+ * those files this pass. In particular, trades.js's preview → validation
+ * → confirm flow (evaluateTrade/evaluateSwap → check-list →
+ * commitTrade/commitSwap), the current-player exclusion in the trade
+ * team-B dropdown (_participantOptions' excludeId param), and the
+ * swap-replacement filtering (_buildReplacementGroups) are all untouched
+ * — this file recolors the classes they already output.
+ *
+ * FINDING (not fixed, out of scope for this pass): .matchup-row is
+ * defined only once, in main.css, and used only by admin/schedule.js —
+ * despite the "shared public/admin" comment on that block, the public
+ * schedule view actually uses a different class (.matchup-card). Also,
+ * .round-tabs/.round-tab in main.css genuinely ARE shared with the
+ * public site, but public-theme.css only loads on index.html — so this
+ * file re-themes them again here for admin.html, at the same
+ * specificity, no conflict since the two pages never share a stylesheet
+ * load.
+ *
+ * Loaded after admin.css, admin-draft-theme.css, and
+ * admin-pages-theme.css (Group 1).
+ */
+
+/* ══════════════════════════════════════════════════════════════════════
+   1. Admin Schedule
+   ══════════════════════════════════════════════════════════════════════ */
+.round-tabs { border-bottom: none; }
+.round-tab {
+  position: relative; /* Fix: comfortable touch target via invisible hit-area, same technique as Draft's tabs/chips */
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  color: var(--nb-text-muted);
+  padding: 0.55rem 0.9rem;
+}
+.round-tab::before { content: ''; position: absolute; inset: -6px -2px; }
+.round-tab:hover { color: var(--nb-text); border-color: var(--nb-primary); }
+.round-tab.active { color: var(--nb-primary); background: var(--nb-primary-dim); border-color: var(--nb-primary); }
+
+.matchup-row {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.matchup-row.bye { opacity: 0.6; }
+.matchup-row.completed { border-color: var(--nb-surface-border); }
+.matchup-teams .winner { color: var(--nb-text); }
+.matchup-vs { color: var(--nb-text-dim); }
+.matchup-score { color: var(--nb-text); }
+.matchup-streamer { color: var(--nb-text-muted); }
+.matchup-status.status-scheduled { background: var(--nb-primary-dim); color: var(--nb-primary); }
+.matchup-status.status-bye { background: var(--nb-surface); color: var(--nb-text-dim); }
+
+.score-panel {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-primary);
+  border-radius: var(--nb-r-lg);
+}
+.score-panel h4 { color: var(--nb-text); }
+
+/* Mobile (Group 2): brief calls for DATE / Game / Team A vs Team B /
+   Status / Streamer / Actions read top-to-bottom without horizontal
+   scroll. .matchup-row already stacks via its own flex-wrap at small
+   widths (existing admin.css behavior, unchanged) — this only grows the
+   Enter Score / Edit action buttons to a comfortable tap size on top of
+   that, and gives each stacked row a touch more breathing room. */
+@media (max-width: 640px) {
+  .matchup-row { align-items: flex-start; gap: 0.6rem; padding: 0.9rem 1rem; }
+  .matchup-row [data-action="enter-score"] { padding: 0.55rem 1rem; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   2. Admin Playoffs
+   ══════════════════════════════════════════════════════════════════════ */
+.champion-banner {
+  background: linear-gradient(90deg, var(--nb-gold-dim), rgba(212,160,23,0.22));
+  border: 1px solid var(--nb-gold);
+  color: #7a5a00; /* darkened-gold text, not raw --nb-gold — see the Gold Contrast Rule */
+}
+
+.playoff-pool-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.playoff-pool-card h4 { color: var(--nb-text); }
+
+.playoff-item-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.playoff-item-card.completed { border-color: var(--nb-surface-border); }
+.playoff-item-card h5 { color: var(--nb-text-muted); }
+.playoff-item-card .matchup-teams .winner { color: var(--nb-primary); font-weight: 800; }
+.playoff-item-card .matchup-vs { color: var(--nb-text-dim); }
+
+.playoff-game-row { border-top: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+
+/* Administrative controls (Regenerate Bracket, selection-choices) are
+   kept visually separate from the bracket content itself per the brief —
+   already structurally separate (header action vs. body content) in the
+   existing markup; this just keeps that action ghost-styled (quiet)
+   rather than competing with the score-entry primary actions below it. */
+.selection-choices .btn { font-size: 0.8rem; }
+
+/* Admin playoffs is already round-grouped/stacked (.playoff-item-list),
+   not a wide bracket graphic — the brief's "preferred mobile
+   representation" (round label, then match cards) is what this page's
+   desktop layout already is, so there's no separate mobile rebuild to
+   do here, only comfortable spacing/touch-target confirmation. */
+@media (max-width: 640px) {
+  .playoff-game-row { flex-wrap: wrap; gap: 0.5rem 0.75rem; }
+  .playoff-game-row .btn { padding: 0.5rem 0.9rem; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   3. Admin Trade / Swap
+   ══════════════════════════════════════════════════════════════════════ */
+.pot-summary-strip > div {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.pot-summary-label { color: var(--nb-text-dim); }
+.pot-summary-value { color: var(--nb-text); }
+
+.trades-tabs { gap: var(--nb-space-2); }
+
+/* Preview → Validation → Confirm, per the brief's "understand before
+   committing" requirement — this flow already exists in trades.js
+   (evaluateTrade/evaluateSwap render a check-list before the Confirm
+   button ever appears, and Confirm stays disabled while invalid); this
+   section only makes that state read clearly at a glance. */
+.validation-summary {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.valid-badge { color: var(--nb-positive); background: rgba(31,169,113,0.12); }
+.invalid-badge { color: var(--nb-negative); background: rgba(224,72,58,0.12); }
+.check-pass { color: var(--nb-positive); }
+.check-fail { color: var(--nb-negative); }
+
+/* Confirm stays the one filled/primary action in the whole preview area
+   — Cancel/Preview stay ghost — so committing an irreversible trade or
+   swap never looks like an ordinary navigation click. Not a new rule:
+   trades.js already only ever renders #btnConfirmTrade/#btnConfirmSwap
+   as .btn-primary and disables it while invalid; this is the retheme of
+   that existing pattern, not a new one. */
+#btnConfirmTrade, #btnConfirmSwap, #btnDesignateJoker {
+  font-weight: 700;
+}
+
+.swap-current-card {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.swap-current-label { color: var(--nb-text-dim); }
+.swap-current-ovr { color: var(--nb-primary); }
+.swap-current-name { color: var(--nb-text); }
+.swap-current-meta { color: var(--nb-text-muted); }
+
+.swap-arrow { color: var(--nb-text-dim); }
+
+.swap-replacement-header { color: var(--nb-text-dim); }
+.swap-pool-heading { border-bottom: 1px solid var(--nb-surface-border); }
+.pool-heading-green { color: var(--nb-positive); border-bottom-color: rgba(31,169,113,0.3); }
+.pool-heading-blue  { color: var(--nb-primary); border-bottom-color: var(--nb-primary-dim); }
+
+.swap-replacement-row {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.swap-replacement-row:hover { background: var(--nb-surface); border-color: var(--nb-text-dim); }
+.swap-replacement-row.is-selected { border-color: var(--nb-primary); background: var(--nb-primary-dim); }
+.swap-replacement-ovr { color: var(--nb-text); }
+.swap-replacement-name { color: var(--nb-text); }
+.swap-replacement-pos { color: var(--nb-text-muted); }
+
+.swap-empty-state { border: 1px dashed var(--nb-surface-border); color: var(--nb-text-muted); }
+.swap-empty-title { color: var(--nb-text); }
+
+/* Mobile (Group 2): the multi-select roster pickers (Trade tab) and the
+   swap replacement list already stack vertically (existing admin.css
+   layout, unchanged) — this grows their row/option touch targets and
+   keeps Confirm/Cancel comfortably tappable, without rewriting the
+   <select multiple> pickers into a different control (that would be a
+   functional change, not a style one — left exactly as-is). */
+@media (max-width: 640px) {
+  .swap-replacement-row { padding: 0.6rem 0.7rem; }
+  .trades-tabs .btn { padding: 0.5rem 0.85rem; }
+}

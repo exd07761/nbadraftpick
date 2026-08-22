@@ -1,0 +1,309 @@
+/**
+ * admin-pages-theme.css — Phase 6, admin Group 1: retheme Participants,
+ * Players, Draft Orders, Team Assignment, and admin Rosters onto the
+ * design system (Draft remains the reference implementation).
+ *
+ * PRESENTATION ONLY. Every class name below already exists in
+ * admin.css/main.css and is rendered by the existing, unmodified admin
+ * view files (js/admin/participants.js, players.js, draft-order.js,
+ * team-assignment.js, roster.js) — this file only overrides how those
+ * classes look. No DOM structure, event listener, AdminActions call, or
+ * validation rule was touched in any of those files this pass.
+ *
+ * SCOPE NOTE: the first section below (## Shared admin primitives)
+ * retheme buttons/inputs/admin-table/modals/forms — these are used by
+ * EVERY admin page, including ones not yet reached (Schedule, Playoffs,
+ * Trades, Financials). That is intentional and unavoidable: they are the
+ * common building blocks, not page-specific chrome, and re-theming them
+ * once now (rather than duplicating per-page) is how a design system
+ * normally rolls out. It does mean those not-yet-redesigned pages will
+ * pick up the new button/input/table look as an interim side effect
+ * while their own page-specific classes remain on the old dark theme
+ * until their turn — flagged in the completion report, not hidden here.
+ *
+ * SCOPING vs admin-draft-theme.css: that file scoped its .pos-table /
+ * .modal-card overrides to `.draft-v2` / `#draftConfirmOverlay`
+ * specifically so they wouldn't leak onto admin Players (which shares
+ * those same classes). The broader (unscoped) rules in THIS file are
+ * lower specificity than those scoped rules, so on the Draft page the
+ * more specific admin-draft-theme.css rules still win automatically —
+ * this file just fills in the same classes everywhere else on admin.html
+ * (chiefly: admin Players' pos-table, and the modal used by Rosters'
+ * re-initialize confirmation flow).
+ *
+ * Loaded after admin.css and admin-draft-theme.css.
+ */
+
+/* ══════════════════════════════════════════════════════════════════════
+   Shared admin primitives (used by every admin page)
+   ══════════════════════════════════════════════════════════════════════ */
+
+.admin-section {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.admin-section-header h2 { color: var(--nb-text); }
+.header-danger-action { border-left: 1px solid var(--nb-surface-border); }
+
+.helper-text { color: var(--nb-text-muted); }
+.helper-text code { background: var(--nb-surface); color: var(--nb-primary); }
+.error-text { color: var(--nb-negative); }
+.muted { color: var(--nb-text-muted); }
+
+.input {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  color: var(--nb-text);
+  border-radius: var(--nb-r);
+}
+.input:focus { border-color: var(--nb-primary); }
+.input::placeholder { color: var(--nb-text-dim); }
+
+.card-form {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.card-form h3 { color: var(--nb-text); }
+
+.form-group label { color: var(--nb-text-muted); }
+
+/* Buttons — same three verbs used everywhere (primary/ghost/danger).
+   Danger stays visually distinct (red outline, not filled) so it never
+   gets mistaken for a primary action, per the brief's requirement that
+   destructive actions be clearly differentiated. */
+.btn-primary {
+  background: var(--nb-primary);
+  color: #fff;
+  border-color: var(--nb-primary);
+}
+.btn-primary:hover:not(:disabled) { background: var(--nb-primary-hover); border-color: var(--nb-primary-hover); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--nb-text-muted);
+  border-color: var(--nb-surface-border);
+}
+.btn-ghost:hover:not(:disabled) { color: var(--nb-text); border-color: var(--nb-text-dim); background: var(--nb-surface); }
+
+.btn-danger {
+  background: transparent;
+  color: var(--nb-negative);
+  border-color: rgba(224,72,58,0.35);
+}
+.btn-danger:hover:not(:disabled) { background: rgba(224,72,58,0.08); border-color: var(--nb-negative); }
+
+.admin-table th { color: var(--nb-text-muted); border-bottom: 2px solid var(--nb-surface-border); }
+.admin-table td { border-bottom: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+.admin-table tbody tr:hover { background: var(--nb-surface); }
+.admin-table th.sort-asc::after, .admin-table th.sort-desc::after { color: var(--nb-primary); }
+.row-active td:first-child { border-left: 2px solid var(--nb-primary); }
+
+.badge-current { background: var(--nb-primary-dim); color: var(--nb-primary); }
+
+.info-banner {
+  background: var(--nb-primary-dim);
+  border: 1px solid rgba(91,91,240,0.3);
+  color: var(--nb-primary);
+  border-radius: var(--nb-r-lg);
+}
+.warn-banner {
+  background: var(--nb-gold-dim);
+  border-color: var(--nb-gold);
+  color: #7a5a00; /* darkened-gold text, not raw --nb-gold — see the Gold Contrast Rule */
+}
+.success-banner {
+  background: rgba(31,169,113,0.08);
+  border: 1px solid rgba(31,169,113,0.3);
+  color: var(--nb-positive);
+  border-radius: var(--nb-r-lg);
+}
+
+.modal-overlay { background: rgba(10,11,16,0.55); }
+.modal-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  color: var(--nb-text);
+  box-shadow: 0 20px 60px rgba(20,22,30,0.25);
+}
+.modal-eyebrow { color: var(--nb-negative); } /* every current modal-eyebrow use is a destructive-action warning */
+.modal-player-meta { color: var(--nb-text-muted); }
+
+.csv-drop-zone { border-color: var(--nb-surface-border); color: var(--nb-text-muted); }
+.csv-drop-zone.dragover { border-color: var(--nb-primary); background: var(--nb-primary-dim); }
+.player-count { color: var(--nb-text-muted); }
+
+.pool-badge-green { background: rgba(31,169,113,0.12); color: var(--nb-positive); }
+.pool-badge-blue { background: var(--nb-primary-dim); color: var(--nb-primary); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   1. Participants
+   ══════════════════════════════════════════════════════════════════════ */
+.participant-row { border-bottom: 1px solid var(--nb-surface-border); }
+.p-num { color: var(--nb-text-muted); }
+.p-name { color: var(--nb-text); }
+.p-team { color: var(--nb-text-muted); }
+/* Status distinct from generic status-chip tints elsewhere — paid/unpaid
+   is a financial state, so it gets the same green/gold-warn language
+   used for cap-bar states, not an arbitrary new color. */
+.status-paid   { background: rgba(31,169,113,0.12); color: var(--nb-positive); }
+.status-unpaid { background: var(--nb-gold-dim); color: #7a5a00; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   2. Players (admin) — same pos-table visual language as Draft/public
+   Players, mode="manage" adds the edit/delete affordances.
+   ══════════════════════════════════════════════════════════════════════ */
+.pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.pos-table-green .pos-table-head { background: rgba(31,169,113,0.1); color: var(--nb-positive); border-bottom: 1px solid rgba(31,169,113,0.25); }
+.pos-table-blue .pos-table-head { background: var(--nb-primary-dim); color: var(--nb-primary); border-bottom: 1px solid rgba(91,91,240,0.25); }
+.pos-table-columns-head { color: var(--nb-text-dim); border-bottom: 1px solid var(--nb-surface-border); }
+.pos-table-row { border-bottom: 1px solid var(--nb-surface-border); }
+.pos-table-row:hover { background: var(--nb-surface); }
+.pos-rank { color: var(--nb-text-dim); }
+.pos-name { color: var(--nb-text); }
+.pos-ovr { color: var(--nb-text-muted); }
+.pos-ovr-elite { color: var(--nb-positive); }
+.pos-ovr-good { color: var(--nb-text); }
+.pos-drafted-tag { background: var(--nb-surface); color: var(--nb-text-dim); }
+.pos-locked-tag { color: #7a5a00; background: var(--nb-gold-dim); }
+.pos-row-delete:hover { color: var(--nb-negative); background: rgba(224,72,58,0.1); }
+.pos-row-edit:hover { color: var(--nb-primary); background: var(--nb-primary-dim); }
+
+.pool-tabs { border-bottom: none; }
+.pool-tab { background: var(--nb-surface-card); border: 1px solid var(--nb-surface-border); }
+.pool-tab.active.pool-tab-green { background: var(--nb-positive); color: #fff; border-color: var(--nb-positive); }
+.pool-tab.active.pool-tab-blue { background: var(--nb-primary); color: #fff; border-color: var(--nb-primary); }
+
+.import-summary-list { color: var(--nb-text-muted); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   3. Draft Orders — drag/drop classes (.drag-item, .dragging, list ids)
+   are untouched; only colors/spacing change.
+   ══════════════════════════════════════════════════════════════════════ */
+.order-card {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.order-card-header h3 { color: var(--nb-text); }
+.order-badge { background: var(--nb-primary-dim); color: var(--nb-primary); }
+.order-current {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+}
+.order-current h4, .order-editor h4 { color: var(--nb-text-muted); }
+.order-list li { color: var(--nb-text); }
+
+.drag-item {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.drag-item:hover { border-color: var(--nb-primary); }
+.drag-item.dragging { opacity: 0.4; }
+.drag-handle { color: var(--nb-text-dim); }
+.drag-num { color: var(--nb-text-muted); }
+.drag-name { color: var(--nb-text); }
+
+.snake-preview {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.snake-preview h3 { color: var(--nb-text); }
+.snake-round-label { color: var(--nb-primary); }
+.snake-pick {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.pick-num { color: var(--nb-primary); }
+.pick-name { color: var(--nb-text-muted); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   4. Team Assignment
+   ══════════════════════════════════════════════════════════════════════ */
+.assignment-queue h3, .team-picker h3 { color: var(--nb-text); }
+.queue-row {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.queue-row.next { border-color: var(--nb-gold); background: var(--nb-gold-dim); }
+.queue-num { color: var(--nb-text-muted); }
+.queue-name { color: var(--nb-text); }
+.queue-assigned { color: var(--nb-positive); }
+.queue-pending { color: var(--nb-text-dim); }
+
+.nba-team-tile {
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.nba-team-tile.available { background: var(--nb-surface-card); }
+.nba-team-tile.available:hover { border-color: var(--nb-primary); background: var(--nb-primary-dim); }
+.nba-team-tile.taken { background: var(--nb-surface); }
+.tile-abbr { color: var(--nb-primary); }
+.tile-name { color: var(--nb-text-muted); }
+.tile-owner { color: var(--nb-positive); }
+
+.assign-panel {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-primary);
+  border-radius: var(--nb-r-lg);
+}
+.assign-panel h4 { color: var(--nb-text); }
+.assign-panel h4 span { color: var(--nb-primary); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   5. Admin Rosters
+   ══════════════════════════════════════════════════════════════════════ */
+.roster-grid-section h3 { color: var(--nb-text); }
+.roster-card {
+  /* Incidental fix: the original rule read `background: var(--surface)`,
+     a token that is referenced throughout admin.css but never actually
+     defined anywhere — meaning these cards previously rendered with an
+     invalid/transparent background. Not a business-logic change, just
+     giving it a real value along with the rest of the retheme. */
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.roster-card--over { border-color: rgba(224,72,58,0.5); }
+.roster-card-header { background: var(--nb-surface); border-bottom: 1px solid var(--nb-surface-border); }
+.roster-card-name { color: var(--nb-text); }
+.roster-card-count { color: var(--nb-text-muted); }
+
+.cap-bar-wrap { background: var(--nb-surface); border-bottom: 1px solid var(--nb-surface-border); }
+.cap-bar-current { color: var(--nb-text); }
+.cap-bar-cap, .cap-bar-remaining { color: var(--nb-text-muted); }
+.cap-bar-track { background: var(--nb-surface-border); }
+.cap-bar-fill--ok   { background: var(--nb-positive); }
+.cap-bar-fill--warn { background: var(--nb-gold); }
+.cap-bar-fill--over { background: var(--nb-negative); }
+.cap-over-text { color: var(--nb-negative); }
+
+.roster-table th { color: var(--nb-text-muted); border-bottom: 1px solid var(--nb-surface-border); }
+.roster-table td { border-bottom: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+.roster-table tbody tr:hover { background: var(--nb-surface); }
+.roster-table .ovr { color: var(--nb-primary); }
+.roster-pick-num { color: var(--nb-text-muted); }
+
+/* ── Mobile (Group 1): expandable-row / stacked-table pattern instead of
+   forcing a wide table into a narrow admin viewport. The brief is
+   explicit that admin mobile should avoid horizontal scroll for anything
+   that can reasonably go vertical, and avoid becoming "decorative" —
+   this collapses the least-essential roster-table column exactly as the
+   public Rosters page already does, kept consistent rather than
+   inventing a different mobile pattern for admin. Existing 900px rules
+   in admin.css already collapse .orders-grid/.assignment-layout/
+   .roster-controls-row to one column — not repeated here. ────────────── */
+@media (max-width: 640px) {
+  .roster-table th:last-child, .roster-table td:last-child { display: none; } /* Source */
+}

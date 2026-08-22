@@ -1,0 +1,122 @@
+/**
+ * admin-draft-theme.css — Phase 5: restyle the existing admin Draft
+ * console (js/admin/draft.js) onto the new design system.
+ *
+ * PRESENTATION ONLY. Nothing in admin/draft.js was touched — every class
+ * name, data attribute, and DOM structure it renders is unchanged; this
+ * file only overrides how those existing classes look. AdminActions.
+ * makeDraftPick / undoLastDraftPick / markDraftComplete, the confirm
+ * modal's control flow, position/rating/roster validation, and the
+ * Firebase writes behind them are all exactly as they were — see
+ * js/admin/draft.js and js/data.js, neither edited for this pass.
+ *
+ * SCOPING: .draft-v2 / .pos-table / .pool-tab / .pool-badge / .modal-*
+ * are shared with the public and admin Players pages (shared-utils.js's
+ * positionPoolGrid()). Restyling them globally would be a Players-page
+ * change too, which is out of scope for "Draft first." Every rule below
+ * is written as a descendant selector under `.draft-v2` (or targets
+ * `#draftConfirmOverlay` specifically, since the confirm modal only ever
+ * appears from the Draft page) so ONLY the Draft screen picks up the new
+ * look — Players pages keep rendering with the existing dark theme until
+ * their own turn in a later phase.
+ *
+ * Loaded after admin.css, so these overrides win on equal specificity.
+ */
+
+/* ─── Page frame ─────────────────────────────────────────────────────────── */
+.draft-v2 { color: var(--nb-text); }
+
+.draft-v2 .admin-section-header h2 { color: var(--nb-text); }
+
+.draft-v2 .success-banner {
+  background: var(--nb-positive);
+  color: #fff;
+  border: none;
+}
+
+/* ─── Topbar: search + pool tabs + actions ──────────────────────────────── */
+.draft-v2 .draft-search-input {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  color: var(--nb-text);
+  border-radius: var(--nb-r);
+}
+.draft-v2 .draft-search-input:focus { border-color: var(--nb-primary); }
+.draft-v2 .draft-search-clear:hover { color: var(--nb-text); background: var(--nb-surface); }
+.draft-v2 .draft-search-dropdown {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-primary);
+  box-shadow: var(--nb-surface-shadow);
+}
+.draft-v2 .draft-search-row { border-bottom: 1px solid var(--nb-surface-border); }
+.draft-v2 .draft-search-row:hover:not(.disabled) { background: var(--nb-primary-dim); }
+.draft-v2 .dsr-pos, .draft-v2 .dsr-status { color: var(--nb-text-muted); }
+.draft-v2 .dsr-ovr { color: var(--nb-text); }
+.draft-v2 .draft-search-empty { color: var(--nb-text-muted); }
+.draft-v2 .draft-search-footer { color: var(--nb-primary); background: var(--nb-surface); }
+.draft-v2 .draft-search-footer:hover { background: var(--nb-surface-border); }
+
+.draft-v2 .pool-tabs { border-bottom: none; }
+.draft-v2 .pool-tab { border: 1px solid var(--nb-surface-border); background: var(--nb-surface-card); }
+.draft-v2 .pool-tab.active.pool-tab-green { background: var(--nb-positive); color: #fff; border-color: var(--nb-positive); }
+.draft-v2 .pool-tab.active.pool-tab-blue { background: var(--nb-primary); color: #fff; border-color: var(--nb-primary); }
+
+/* ─── Body: sidebar + main position board ───────────────────────────────── */
+.draft-v2 .draft-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.draft-v2 .draft-card-label { color: var(--nb-primary); }
+.draft-v2 .draft-roster-count { color: var(--nb-text-dim); }
+.draft-v2 .draft-otc-card { border-color: var(--nb-gold); background: var(--nb-gold-dim); }
+.draft-v2 .otc-team-name { color: var(--nb-text-muted); }
+
+.draft-v2 .draft-status-chip {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.draft-v2 .status-label { color: var(--nb-text-muted); }
+.draft-v2 .status-value { color: var(--nb-primary); }
+
+.draft-v2 .draft-roster-row:nth-child(odd) { background: var(--nb-surface); }
+.draft-v2 .drr-num { color: var(--nb-text-dim); }
+.draft-v2 .drr-name { color: var(--nb-text); }
+
+.draft-v2 .position-need-pill { background: var(--nb-surface); border: 1px solid var(--nb-surface-border); color: var(--nb-text-muted); }
+.draft-v2 .position-need-pill--complete .position-need-dot { background: var(--nb-positive); }
+.draft-v2 .position-need-pill--needed .position-need-dot { background: var(--nb-gold); }
+.draft-v2 .legend-dot-sm.complete { background: var(--nb-positive); }
+.draft-v2 .legend-dot-sm.needed { background: var(--nb-gold); }
+.draft-v2 .draft-needs-legend { color: var(--nb-text-muted); }
+
+/* ─── Position board (shared component, scoped here to Draft only) ─────── */
+.draft-v2 .pos-table { background: var(--nb-surface-card); border: 1px solid var(--nb-surface-border); border-radius: var(--nb-r-lg); }
+.draft-v2 .pos-table-green .pos-table-head { background: rgba(31,169,113,0.1); color: var(--nb-positive); }
+.draft-v2 .pos-table-blue .pos-table-head { background: var(--nb-primary-dim); color: var(--nb-primary); }
+.draft-v2 .pos-table-columns-head { color: var(--nb-text-muted); }
+.draft-v2 .pos-table-row { border-bottom: 1px solid var(--nb-surface-border); }
+.draft-v2 .pos-table-row:hover { background: var(--nb-surface); }
+.draft-v2 .pos-name { color: var(--nb-text); }
+.draft-v2 .pos-ovr { color: var(--nb-text-muted); }
+.draft-v2 .pos-ovr-elite { color: var(--nb-positive); }
+.draft-v2 .pos-ovr-good { color: var(--nb-text); }
+.draft-v2 .pos-drafted-tag { background: var(--nb-surface); color: var(--nb-text-muted); }
+.draft-v2 .pos-locked-tag { color: #a3760a; background: var(--nb-gold-dim); }
+.draft-v2 .pos-table-row.selectable:hover,
+.draft-v2 .pos-table-row.selectable:focus-visible {
+  background: var(--nb-primary-dim);
+  box-shadow: inset 2px 0 0 var(--nb-primary);
+}
+
+/* ─── Confirmation modal (only ever opened from this page) ─────────────── */
+#draftConfirmOverlay .modal-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  color: var(--nb-text);
+  box-shadow: 0 20px 60px rgba(20,22,30,0.25);
+}
+#draftConfirmOverlay .modal-eyebrow { color: var(--nb-primary); }
+#draftConfirmOverlay .modal-player-meta { color: var(--nb-text-muted); }
