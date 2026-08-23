@@ -14,7 +14,17 @@
    at 1300px, which was redundant while .main-content was narrower but
    would have re-narrowed the highest-priority page the moment
    .main-content was widened to fix the "everything shrinks" issue. */
-.dft-view { margin: 0 auto; }
+/* Fix (found during Phase-7 redesign): every element here was inheriting
+   body's color: var(--text) — the OLD dark-theme token (near-white,
+   meant for dark backgrounds) that main.css never overrode for this
+   page. It was subtle enough at small sizes to go unnoticed (pale gray
+   on white, not literally invisible) in the order/history rows, but the
+   new larger "Recently Picked" card made it obvious. Setting the correct
+   light-theme text color once, here at the page root, fixes every
+   descendant that doesn't already set its own color — instead of
+   patching .dft-order-name, .dft-history-name, .dft-lastpick-name, etc.
+   individually. Scoped to this page only; body's own color is untouched. */
+.dft-view { margin: 0 auto; color: var(--nb-text); }
 
 .dft-muted { color: var(--nb-text-muted); font-size: 0.85rem; }
 
@@ -26,9 +36,6 @@
   box-shadow: var(--nb-surface-shadow);
   padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-3);
   margin-bottom: var(--nb-space-4);
-  position: sticky;
-  top: calc(var(--nb-topbar-height) + var(--nb-space-2));
-  z-index: 10;
 }
 
 /* Tier A — who's picking: the single most dominant element on the page.
@@ -106,8 +113,17 @@
   border-radius: 999px;
   padding: 0.25rem 0.65rem;
 }
+.dft-progress-wrap { flex: 1 1 100%; }
+.dft-progress-numbers {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+.dft-progress-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--nb-text-dim); }
+.dft-progress-fraction { font-size: 0.78rem; font-weight: 700; color: var(--nb-text); font-variant-numeric: tabular-nums; }
+.dft-progress-pct { font-size: 0.78rem; font-weight: 800; color: var(--nb-gold); margin-left: auto; font-variant-numeric: tabular-nums; }
 .dft-progress-track {
-  flex: 1 1 100%;
   height: 6px;
   border-radius: 999px;
   background: var(--nb-surface);
@@ -132,7 +148,18 @@
   border-top: 1px dashed var(--nb-surface-border);
   color: var(--nb-text);
 }
-.dft-lastpick-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--nb-text-dim); margin-right: 0.15rem; }
+.dft-lastpick-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 999px;
+  padding: 0.12rem 0.5rem;
+  margin-right: 0.2rem;
+}
 .dft-lastpick-name { font-weight: 700; }
 .dft-lastpick-meta, .dft-lastpick-by { color: var(--nb-text-muted); }
 
@@ -250,12 +277,86 @@
   font-size: 0.84rem;
 }
 .dft-order-row:last-child, .dft-history-row:last-child { border-bottom: none; }
-.dft-order-row-current { background: var(--nb-gold-dim); }
+.dft-order-row-current {
+  background: var(--nb-gold-dim);
+  position: relative;
+}
+/* A left accent bar (not just a background tint) so the current pick
+   reads as "this one" even at a glance / in peripheral vision, matching
+   the reference's strong current-pick highlight. */
+.dft-order-row-current::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--nb-gold);
+}
 .dft-order-pick, .dft-history-pick { font-weight: 700; color: var(--nb-text-muted); min-width: 2.2rem; font-variant-numeric: tabular-nums; }
+.dft-order-row-current .dft-order-pick { color: #7a5a00; }
 .dft-order-name, .dft-history-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dft-order-round { color: var(--nb-text-muted); font-size: 0.76rem; }
+.dft-order-round {
+  color: var(--nb-text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 999px;
+  padding: 0.1rem 0.45rem;
+}
 .dft-history-meta { color: var(--nb-text-muted); font-size: 0.78rem; }
 .dft-history-by { color: var(--nb-text-dim); font-size: 0.76rem; }
+
+/* ─── Info panel (Up Next / Recently Picked / Full History) ─────────────── */
+.dft-info-heading {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--nb-text-dim);
+  margin: var(--nb-space-4) 0 0.5rem;
+}
+.dft-info-heading:first-child { margin-top: 0; }
+.dft-upnext-list .dft-order-row { font-size: 0.8rem; padding: 0.5rem var(--nb-space-3); }
+.dft-recent-pick-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  padding: var(--nb-space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.dft-recent-pick-card .dft-lastpick-name { font-size: 1rem; }
+
+/* ─── Board legend ───────────────────────────────────────────────────────── */
+.dft-board-legend {
+  display: flex;
+  gap: var(--nb-space-4);
+  margin-top: var(--nb-space-3);
+  padding-top: var(--nb-space-2);
+  font-size: 0.72rem;
+  color: var(--nb-text-muted);
+}
+.dft-board-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
+.dft-board-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dft-board-legend-dot-drafted { background: var(--nb-text-dim); }
+.dft-board-legend-dot-picked { background: var(--nb-gold); }
+
+/* Just-picked row: reuses the same gold accent as the current-draft-pick
+   highlight elsewhere on this page, so "this just happened" reads as one
+   consistent visual language across the header, order list, and pool. */
+.dft-panel-board .pos-table-row.just-picked {
+  background: var(--nb-gold-dim);
+  position: relative;
+}
+.dft-panel-board .pos-table-row.just-picked::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--nb-gold);
+}
 
 /* ─── Desktop: 3-column layout (Order | Board | History), spec §3.3 ────────
    Panels render simultaneously instead of via tabs — same DOM, same
@@ -316,4 +417,70 @@
   .dft-panel-board .pos-table-grid {
     grid-template-columns: repeat(5, minmax(160px, 1fr));
   }
+
+  /* ─── Compact single-row header (spec §1) ────────────────────────────────
+     Mobile keeps tiers A/B/C stacked (glance-zone priority order, spec
+     §5/§8) — this only changes desktop, where there's enough width to lay
+     "who's picking," "round/pick/progress," and "last pick" out side by
+     side instead of stacked, which is what was making the header feel
+     like an oversized banner instead of a compact status bar. */
+  .dft-glance {
+    display: flex;
+    align-items: center;
+    gap: var(--nb-space-4);
+    padding: var(--nb-space-3) var(--nb-space-4);
+  }
+  .dft-tier-a { margin-bottom: 0; flex: 1 1 auto; min-width: 0; }
+  .dft-tier-b {
+    flex: 0 0 200px;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 0;
+    padding-left: var(--nb-space-4);
+    border-left: 1px dashed var(--nb-surface-border);
+  }
+  .dft-progress-wrap { width: 100%; }
+  .dft-tier-c {
+    flex: 0 0 220px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    padding-top: 0;
+    padding-left: var(--nb-space-4);
+    border-top: none;
+    border-left: 1px dashed var(--nb-surface-border);
+  }
+
+  /* ─── Draft Order panel: stronger current-pick + compact rows (spec §2) ── */
+  .dft-panel-order .dft-order-list { border-radius: var(--nb-r-lg); }
+
+  /* ─── Player pool polish (spec §3) — scoped to the draft board only so
+     the public Players page (which shares these same .pos-table classes)
+     is completely untouched. ────────────────────────────────────────────── */
+  .dft-panel-board .pos-table-grid { gap: var(--nb-space-3); }
+  .dft-panel-board .pos-table {
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+    box-shadow: 0 1px 2px rgba(20,22,27,0.04);
+    overflow: hidden;
+  }
+  .dft-panel-board .pos-table-row { padding: 0.4rem 0.55rem; }
+  .dft-panel-board .pos-table-row:hover:not(.drafted) { background: var(--nb-surface); }
+  .dft-panel-board .pos-name { font-weight: 600; }
+  .dft-panel-board .pos-ovr { font-size: 0.88rem; }
+
+  /* ─── Search + pool switcher polish (spec §4) — segmented-control feel. ── */
+  .dft-panel-board #dftSearch {
+    padding: 0.6rem 0.9rem;
+    box-shadow: 0 1px 2px rgba(20,22,27,0.03);
+  }
+  .dft-panel-board .pool-tabs {
+    background: var(--nb-surface);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+    padding: 0.3rem;
+    gap: 0.3rem;
+    display: inline-flex;
+  }
+  .dft-panel-board .pool-tab { border-radius: calc(var(--nb-r-lg) - 3px); }
 }

@@ -60,7 +60,7 @@ const PublicDraftView = {
         <div class="dft-tabs">
           <button type="button" class="dft-tab ${this._tab === 'board' ? 'active' : ''}" data-tab="board">Available Players</button>
           <button type="button" class="dft-tab ${this._tab === 'order' ? 'active' : ''}" data-tab="order">Draft Order</button>
-          <button type="button" class="dft-tab ${this._tab === 'history' ? 'active' : ''}" data-tab="history">History</button>
+          <button type="button" class="dft-tab ${this._tab === 'history' ? 'active' : ''}" data-tab="history">Draft Info</button>
         </div>
 
         <div class="dft-panels">
@@ -73,7 +73,7 @@ const PublicDraftView = {
           </section>
 
           <section class="dft-panel dft-panel-history ${this._tab === 'history' ? 'active' : ''}" data-panel="history">
-            ${this._renderHistoryPanel(season, state)}
+            ${this._renderInfoPanel(season, state, draftOrder)}
           </section>
         </div>
       </div>`;
@@ -113,8 +113,15 @@ const PublicDraftView = {
         <div class="dft-tier-b">
           <span class="dft-pick-chip">Round ${state.currentRound ?? '—'}</span>
           <span class="dft-pick-chip">Pick ${state.currentPickOverall ?? '—'} overall</span>
-          <div class="dft-progress-track" title="${state.totalPicksMade} of ${totalExpectedPicks} picks made">
-            <div class="dft-progress-fill" style="width:${progressPct}%"></div>
+          <div class="dft-progress-wrap">
+            <div class="dft-progress-numbers">
+              <span class="dft-progress-label">Draft Progress</span>
+              <span class="dft-progress-fraction">${state.totalPicksMade} / ${totalExpectedPicks}</span>
+              <span class="dft-progress-pct">${progressPct}%</span>
+            </div>
+            <div class="dft-progress-track" title="${state.totalPicksMade} of ${totalExpectedPicks} picks made">
+              <div class="dft-progress-fill" style="width:${progressPct}%"></div>
+            </div>
           </div>
         </div>
 
@@ -129,10 +136,32 @@ const PublicDraftView = {
     if (!player) return '';
     const participant = season.participants[pick.participantId];
     return `
-      <span class="dft-lastpick-label">Just picked</span>
+      <span class="dft-lastpick-label">Just Picked</span>
       <span class="dft-lastpick-name">${escapeHtml(player.name)}</span>
       <span class="dft-lastpick-meta">${player.position || '—'} · ${player.overall ?? '—'} OVR</span>
       <span class="dft-lastpick-by">by ${escapeHtml(participant?.name || 'Unknown')}</span>`;
+  },
+
+  // ── Shared upcoming-picks calculation — same snake-order math
+  // getDraftState already computes, extracted so both the Order panel
+  // (full list) and the new Info panel's "Up Next" preview (short list,
+  // starting one pick later) can use it without duplicating the round/
+  // snake-order logic. No behavior change from the original inline
+  // version in _renderOrderPanel. ─────────────────────────────────────
+  _computeUpcoming(season, state, count, skip = 0) {
+    const n = state.n;
+    const upcoming = [];
+    const total = Math.min(count, n * MAX_ROSTER_SIZE - state.totalPicksMade - skip);
+    for (let i = 0; i < total; i++) {
+      const idx = state.totalPicksMade + skip + i;
+      const round = Math.floor(idx / n) + 1;
+      const posInRound = idx % n;
+      const isEvenRound = round % 2 === 0;
+      const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
+      const participantId = season.playerDraftOrder[orderIndex];
+      upcoming.push({ pickOverall: idx + 1, round, participant: season.participants[participantId], abbr: season.nbaTeamAssignments[participantId] });
+    }
+    return upcoming;
   },
 
   // ── Order panel: upcoming picks, computed the same snake-order way
@@ -142,17 +171,7 @@ const PublicDraftView = {
     if (state.draftComplete) {
       return `<p class="dft-muted" style="padding:0.5rem 0;">Draft complete — no picks remaining.</p>`;
     }
-    const n = state.n;
-    const upcoming = [];
-    for (let i = 0; i < Math.min(12, n * MAX_ROSTER_SIZE - state.totalPicksMade); i++) {
-      const idx = state.totalPicksMade + i;
-      const round = Math.floor(idx / n) + 1;
-      const posInRound = idx % n;
-      const isEvenRound = round % 2 === 0;
-      const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
-      const participantId = season.playerDraftOrder[orderIndex];
-      upcoming.push({ pickOverall: idx + 1, round, participant: season.participants[participantId], abbr: season.nbaTeamAssignments[participantId] });
-    }
+    const upcoming = this._computeUpcoming(season, state, 12);
 
     return `
       <div class="dft-order-list">
@@ -189,6 +208,10 @@ const PublicDraftView = {
       </div>
       <div id="dftPlayerGrid">
         ${this._renderGrid(poolStatus)}
+      </div>
+      <div class="dft-board-legend">
+        <span class="dft-board-legend-item"><span class="dft-board-legend-dot dft-board-legend-dot-drafted"></span>Drafted</span>
+        <span class="dft-board-legend-item"><span class="dft-board-legend-dot dft-board-legend-dot-picked"></span>Just Picked</span>
       </div>`;
   },
 
@@ -198,6 +221,48 @@ const PublicDraftView = {
       .filter(({ player }) => player.pool === this._activePool)
       .filter(({ player }) => !q || player.name.toLowerCase().includes(q) || (player.position || '').toLowerCase().includes(q));
     return positionPoolGrid(entries, this._activePool, { mode: 'view', sortMode: 'ovr-desc' });
+  },
+
+  // ── Info panel (was "History"): the reference redesign asks for a
+  // compact "Up Next" + "Recently Picked" glance area instead of a single
+  // long chronological log filling this whole column. Rather than
+  // replace the existing full history, this prepends the two new
+  // sections in front of it — _renderHistoryPanel below is completely
+  // unchanged and still shows the full pick log, just lower in this
+  // same scrollable column (.dft-panel-history already has
+  // max-height:70vh + overflow-y:auto on desktop — see draft-public.css)
+  // instead of being removed. No data this reads isn't already computed
+  // elsewhere on this page (state.picks, _computeUpcoming). ─────────────
+  _renderInfoPanel(season, state, draftOrder) {
+    if (state.draftComplete) {
+      return this._renderHistoryPanel(season, state);
+    }
+    // Skip 1: the very next pick is already the page's Tier A "On the
+    // Clock" + the Order panel's top row — "Up Next" previews what's
+    // AFTER that, matching the reference's #69.. list (which starts one
+    // past the current #68 pick).
+    const upNext = this._computeUpcoming(season, state, 6, 1);
+    const lastPick = state.picks.length ? state.picks[state.picks.length - 1] : null;
+
+    return `
+      ${upNext.length ? `
+        <div class="dft-info-heading">Up Next</div>
+        <div class="dft-order-list dft-upnext-list">
+          ${upNext.map(u => `
+            <div class="dft-order-row">
+              <span class="dft-order-pick">#${u.pickOverall}</span>
+              ${teamBadge(u.abbr, { size: 'sm' })}
+              <span class="dft-order-name">${escapeHtml(u.participant?.name || 'Unknown')}</span>
+              <span class="dft-order-round">R${u.round}</span>
+            </div>`).join('')}
+        </div>` : ''}
+
+      ${lastPick ? `
+        <div class="dft-info-heading">Recently Picked</div>
+        <div class="dft-recent-pick-card">${this._renderLastPick(season, lastPick)}</div>` : ''}
+
+      <div class="dft-info-heading">Full History</div>
+      ${this._renderHistoryPanel(season, state)}`;
   },
 
   // ── History panel: full chronological pick log — tier-3 info per spec,
@@ -224,6 +289,19 @@ const PublicDraftView = {
       </div>`;
   },
 
+  // ── Marks the most recently picked player's row in the position grid
+  // (if it's on-screen in the currently active pool) so it's visually
+  // recognizable at a glance, same way the reference redesign highlights
+  // a row — reuses state.picks (already computed), no new data read. ───
+  _markLastPickRow(container, state) {
+    const grid = container.querySelector('#dftPlayerGrid');
+    if (!grid) return;
+    grid.querySelectorAll('.pos-table-row.just-picked').forEach(el => el.classList.remove('just-picked'));
+    const lastPick = state.picks.length ? state.picks[state.picks.length - 1] : null;
+    if (!lastPick) return;
+    grid.querySelector(`.pos-table-row[data-player-id="${lastPick.playerId}"]`)?.classList.add('just-picked');
+  },
+
   _bind(container, season, state, poolStatus) {
     // Mobile tab switching (CSS ignores this on desktop — see draft-public.css)
     container.querySelectorAll('.dft-tab').forEach(tab => {
@@ -236,6 +314,7 @@ const PublicDraftView = {
 
     const refreshGrid = () => {
       container.querySelector('#dftPlayerGrid').innerHTML = this._renderGrid(poolStatus);
+      this._markLastPickRow(container, state);
     };
 
     container.querySelector('#dftSearch')?.addEventListener('input', e => {
@@ -250,5 +329,7 @@ const PublicDraftView = {
         refreshGrid();
       };
     });
+
+    this._markLastPickRow(container, state);
   },
 };
