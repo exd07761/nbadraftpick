@@ -26,6 +26,7 @@ const AdminApp = {
     playoffs: AdminPlayoffsView,
     trades: AdminTradesView,
     financial: AdminFinancialView,
+    backup: AdminBackupView,
   },
 
   renderView(viewName) {
