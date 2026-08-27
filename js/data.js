@@ -86,6 +86,35 @@ function createSeason(id, name) {
 
     draftComplete: false,
 
+    // ── Revision 1: Phase 2 Draft Skip ───────────────────────────────────────
+    // Append-only audit trail of every Skip action, mirroring how
+    // playerDraftPicks is itself the audit trail for picks — a skip is
+    // NEVER written into playerDraftPicks (that array's meaning — "the
+    // players this participant has actually drafted" — is relied on all
+    // over this file via ownPickNumber/roster-cap/position-state counts,
+    // and must stay exactly as it always has been).
+    // afterPickCount anchors each skip to its exact place in history: the
+    // length of playerDraftPicks at the moment the skip happened. Together
+    // with playerDraftPicks this lets computeDraftSchedule() below replay
+    // the full chronological sequence of turns (picks interleaved with
+    // skips) to figure out whose turn it is now, purely by derivation —
+    // same "nothing stored, everything computed on read" philosophy
+    // getDraftState already used before this revision.
+    draftSkips: [],   // [{ participantId, round, afterPickCount, timestamp }]
+
+    // Explicit, human-readable record of each participant's pending
+    // future double-pick entitlement (see computeDraftSchedule) —
+    // { [participantId]: number }. This is a materialized snapshot of
+    // what computeDraftSchedule already derives from draftSkips/
+    // playerDraftPicks on every read; it is kept in sync by
+    // AdminActions.skipDraftPick/makeDraftPick/undoLastDraftPick purely
+    // so the entitlement is visible as its own named piece of state
+    // (rather than only implied by replaying history), per Revision 1's
+    // explicit requirement not to represent this as a bare turn-index
+    // manipulation. computeDraftSchedule's own replay remains the
+    // authoritative source of truth for whose turn it is.
+    bonusPicks: {},   // { [participantId]: number }
+
     // ── Process 2: NBA Team Assignment ───────────────────────────────────────
     // Completely separate from Process 1. Second DuckRace result entered independently.
     teamAssignmentOrder: [], // array of participantIds — NEVER assumed to equal playerDraftOrder
@@ -103,10 +132,32 @@ function createSeason(id, name) {
     // Single source of truth for "who has which player right now".
     ratingCap: 875,       // max total OVR allowed per roster; enforced at draft time (makeDraftPick) and by Phase 5 trades/swaps
     rostersInitialized: false,
-    // currentRosters[participantId] = [{ playerId, source, isJoker?, jokerPosition? }]
-    //   source: 'draft' | 'trade' | 'swap'
+    // currentRosters[participantId] = [{ playerId, source, isJoker?, jokerPosition?, draftSlot? }]
+    //   source: 'draft' | 'trade' | 'swap' | 'manual' | 'empty'
     //   isJoker/jokerPosition: set only for the participant's designated Joker
     //   (Phase 5) — see AdminActions.designateJoker. Absent on every other entry.
+    //   draftSlot: the participant's own 1-based original pick number this
+    //   roster row represents (Revision — Preserve Original Draft Pick
+    //   Slot). Set for every entry at initializeRostersFromDraft() and
+    //   preserved by manual Replace/Remove even when the occupant changes
+    //   to a player with no playerDraftPicks record of their own — a
+    //   roster-display concept only, never read by the Joker/classification
+    //   system (which still looks up ownPickNumber from playerDraftPicks by
+    //   the CURRENT occupant's own playerId, unaffected by this field).
+    //   Absent/null on a manually-Added entry with no original slot, and on
+    //   an 'empty' placeholder's occupant (source:'empty' has playerId:null
+    //   but keeps its draftSlot so the vacancy still shows its original
+    //   number rather than being silently renumbered away — see
+    //   manualRemovePlayerFromRoster).
+    //   classificationSourcePlayerId: set only when a slot has been
+    //   manually replaced — the playerId whose ORIGINAL playerDraftPicks
+    //   record getPlayerClassificationInfo should use for this entry's
+    //   Red/Yellow tag instead of the current occupant's own playerId (who
+    //   was never personally drafted). Chained across repeated
+    //   replacements so the tag traces back to the slot's true original
+    //   draft pick. Absent on every entry that has never been manually
+    //   replaced — normal draft/trade/swap classification is completely
+    //   unaffected.
     currentRosters: {},   // { [participantId]: [{ playerId, source }] }
 
     // ── Phase 5: Trading / Swap System ──────────────────────────────────────
@@ -232,8 +283,8 @@ function computePositionState(season, playersById, participantId) {
 
 const BLUE_MIN_RATING = 84;
 const GREEN_MIN_RATING = 75;
-const MAX_BLUE_PLAYERS = 4;
-const MAX_FIRST_THREE_BLUE_TOTAL = 280;
+const MAX_BLUE_PLAYERS = 5;
+const MAX_FIRST_THREE_BLUE_TOTAL = 380;
 const MAX_FOURTH_BLUE_RATING = 94;
 const MAX_TENTH_PICK_BLUE_RATING = 94;
 const TENTH_PICK_BLUE_FEE = 100;
@@ -280,6 +331,131 @@ function classifyPickNumber(ownPickNumber) {
   return null;
 }
 
+// ─── Revision 1: Phase 2 Draft Skip — turn schedule derivation ────────────
+
+/** Backfills draftSkips/bonusPicks for seasons created before Revision 1. */
+function ensureDraftSkipFields(season) {
+  if (!Array.isArray(season.draftSkips)) season.draftSkips = [];
+  if (!season.bonusPicks || typeof season.bonusPicks !== "object") season.bonusPicks = {};
+}
+
+/**
+ * Derives whose turn it is in the live Phase 2 snake draft, accounting
+ * for Skip/bonus-double-pick turns, by replaying the full chronological
+ * history from scratch every time this is called. Nothing here is
+ * stored — same "derived every render" approach getDraftState already
+ * used pre-Revision-1 — so a page refresh, an Undo, or a remote Firestore
+ * update can never leave a stale turn pointer behind.
+ *
+ * Model: the base rotation (the existing, UNCHANGED snake formula — odd
+ * rounds forward through playerDraftOrder, even rounds reversed) assigns
+ * each of n participants exactly one "turn slot" per round, in order,
+ * regardless of skips. A turn slot normally resolves with exactly one
+ * pick. Skipping a slot resolves it immediately with zero picks and
+ * grants that participant a pending bonus; the NEXT time the rotation
+ * reaches that same participant's slot, it requires two picks in a row
+ * (their normal pick, then the bonus pick) before the rotation advances
+ * to the next participant. This is why "the skipped participant's next
+ * scheduled turn becomes a double-pick turn" rather than an immediate
+ * extra pick — the bonus is only resolved when the base rotation would
+ * have given them a turn anyway.
+ *
+ * playerDraftPicks and draftSkips are merged into one chronological
+ * timeline using each skip's afterPickCount (the picks-so-far count at
+ * the moment it happened) as the interleave point, then that timeline is
+ * consumed turn slot by turn slot.
+ */
+function computeDraftSchedule(season) {
+  const order = season.playerDraftOrder || [];
+  const n = order.length;
+  const picks = season.playerDraftPicks || [];
+  const skips = season.draftSkips || [];
+
+  const bonusPicks = {}; // replayed fresh — see doc comment on season.bonusPicks
+
+  if (n === 0) {
+    return {
+      turnIndex: 0,
+      currentParticipantId: null,
+      currentRound: null,
+      isBonusTurn: false,
+      picksTakenThisTurn: 0,
+      picksNeededThisTurn: 1,
+      bonusPicks,
+    };
+  }
+
+  // Merge picks + skips into one chronological timeline. For each point k
+  // (0..picks.length), any skip recorded with afterPickCount === k
+  // happened right before pick k+1 (or, if k === picks.length, is the
+  // most recent event of all).
+  const timeline = [];
+  let skipCursor = 0;
+  for (let k = 0; k <= picks.length; k++) {
+    while (skipCursor < skips.length && skips[skipCursor].afterPickCount === k) {
+      timeline.push({ type: "skip", participantId: skips[skipCursor].participantId });
+      skipCursor++;
+    }
+    if (k < picks.length) {
+      timeline.push({ type: "pick", pick: picks[k] });
+    }
+  }
+
+  function baseTurnParticipant(turnIndex) {
+    const round = Math.floor(turnIndex / n) + 1;
+    const posInRound = turnIndex % n;
+    const isEvenRound = round % 2 === 0;
+    const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
+    return { participantId: order[orderIndex], round };
+  }
+
+  let turnIndex = 0;
+  let eventPtr = 0;
+
+  while (true) {
+    const { participantId, round } = baseTurnParticipant(turnIndex);
+    const isBonusTurn = (bonusPicks[participantId] || 0) > 0;
+    const picksNeeded = isBonusTurn ? 2 : 1;
+
+    let takenThisTurn = 0;
+    let turnResolved = false;
+
+    while (takenThisTurn < picksNeeded && eventPtr < timeline.length) {
+      const ev = timeline[eventPtr];
+      if (ev.type === "skip") {
+        // A skip always resolves the whole slot immediately, whether or
+        // not it was a bonus turn — bonus turns aren't expected to be
+        // skippable (AdminActions.skipDraftPick rejects that), but if
+        // history ever contains one anyway, don't get stuck.
+        eventPtr++;
+        bonusPicks[participantId] = (bonusPicks[participantId] || 0) + 1;
+        takenThisTurn = picksNeeded;
+        turnResolved = true;
+        break;
+      }
+      eventPtr++;
+      takenThisTurn++;
+      if (takenThisTurn === picksNeeded) turnResolved = true;
+    }
+
+    if (!turnResolved) {
+      // Timeline exhausted mid-turn — this is the current, in-progress turn.
+      return {
+        turnIndex,
+        currentParticipantId: participantId,
+        currentRound: round,
+        isBonusTurn,
+        picksTakenThisTurn: takenThisTurn,
+        picksNeededThisTurn: picksNeeded,
+        bonusPicks,
+      };
+    }
+
+    if (isBonusTurn) bonusPicks[participantId] = 0; // entitlement consumed
+    turnIndex++;
+  }
+}
+
 /** Locates a player's current roster entry (and owner) across all participants. */
 function findCurrentRosterEntry(season, playerId) {
   for (const participantId of Object.keys(season.currentRosters || {})) {
@@ -302,9 +478,20 @@ function findCurrentRosterEntry(season, playerId) {
  * their ORIGINAL draft pick number, otherwise null (6th+ pick, no Joker).
  */
 function getPlayerClassificationInfo(season, playerId) {
-  const originalPick = getOriginalPickInfo(season, playerId);
   const current = findCurrentRosterEntry(season, playerId);
   const isJoker = !!(current && current.entry.isJoker);
+  // Revision — Preserve Trade/Swap Red Tag: a manually-replaced entry's
+  // classification is anchored to whichever player's ORIGINAL draft
+  // record the roster SLOT itself carries forward (see
+  // manualReplacePlayerOnRoster's classificationSourcePlayerId), not the
+  // current occupant's own playerId. Absent on every entry that has never
+  // been manually replaced (normal draft picks, ordinary trades/swaps of
+  // an actually-drafted player), so classification for those is exactly
+  // what it always was — this only changes anything for a manually
+  // replaced slot, which previously had no classification at all because
+  // its new occupant was never personally drafted.
+  const lookupPlayerId = (current && current.entry.classificationSourcePlayerId) || playerId;
+  const originalPick = getOriginalPickInfo(season, lookupPlayerId);
   const classification = isJoker
     ? "PINK"
     : originalPick
@@ -500,6 +687,33 @@ function ensureTransactionFields(season) {
   if (!Array.isArray(season.transactions)) season.transactions = [];
   if (typeof season.pot !== "number") season.pot = 0;
   if (typeof season.currentSeasonDay !== "number") season.currentSeasonDay = 1;
+}
+
+/**
+ * Backfills `draftSlot` on currentRosters entries for a season that
+ * predates the "Preserve Original Draft Pick Slot" revision — same lazy,
+ * in-place backfill pattern as ensureTransactionFields/ensureFinancialFields
+ * above, called at the top of every manual-roster-edit write. For each
+ * entry missing draftSlot: if its playerId still matches one of that
+ * participant's own playerDraftPicks (i.e. this exact roster slot has
+ * never been manually replaced since rosters were initialized), assign
+ * that pick's ownPickNumber; otherwise leave draftSlot as null — matching
+ * the "never invent a pick number" rule, since a slot already replaced
+ * under the old code has no recoverable original number.
+ */
+function ensureRosterDraftSlots(season) {
+  if (!season.rostersInitialized || !season.currentRosters) return;
+  for (const participantId of Object.keys(season.currentRosters)) {
+    const roster = season.currentRosters[participantId];
+    if (!Array.isArray(roster) || !roster.length) continue;
+    if (roster.every((e) => e.draftSlot !== undefined)) continue; // already backfilled
+    const ownPicks = (season.playerDraftPicks || []).filter((p) => p.participantId === participantId);
+    for (const entry of roster) {
+      if (entry.draftSlot !== undefined) continue;
+      const pickIdx = ownPicks.findIndex((p) => p.playerId === entry.playerId);
+      entry.draftSlot = pickIdx === -1 ? null : pickIdx + 1;
+    }
+  }
 }
 
 /**
@@ -1054,7 +1268,7 @@ function isPlayoffItemDownstreamLocked(playoffs, itemId, kind) {
  * silently groups unrelated players — see makeDraftPick's `if
  * (player.variantGroup)` truthiness check, which relies on this.
  */
-function createPlayer(id, { name, position, overall, pool, variantGroup }) {
+function createPlayer(id, { name, position, overall, pool, variantGroup, nba2kRef }) {
   return {
     id,
     name,        // e.g. "M. JORDAN" or "LEBRON JAMES (PRIME)"
@@ -1063,6 +1277,12 @@ function createPlayer(id, { name, position, overall, pool, variantGroup }) {
     pool: pool || undefined,               // 'green' | 'blue' | undefined
     variantGroup: variantGroup || undefined, // string | undefined
     createdAt: new Date().toISOString(),
+    // Phase 3 (NBA2K promotion) — optional back-reference to the source
+    // nba2k_players/<slug> document this player was promoted from. Every
+    // existing caller (manual Add Player form, CSV import) never passes
+    // this, so it's `undefined` for them exactly like `pool`/`variantGroup`
+    // already are when omitted — no schema change for any existing player.
+    nba2kRef: nba2kRef || undefined,
   };
 }
 
@@ -1363,32 +1583,32 @@ const LeagueData = {
     const totalPicksMade = picks.length;
     const availablePlayers = this.getAvailablePlayers(seasonId);
 
-    let currentRound = null;
-    let currentPickInRound = null;
-    let currentPickOverall = null;
-    let currentParticipantId = null;
-
-    if (n > 0) {
-      const idx = totalPicksMade; // 0-based index of the NEXT pick to make
-      currentRound = Math.floor(idx / n) + 1;
-      const posInRound = idx % n;
-      currentPickInRound = posInRound + 1;
-      currentPickOverall = idx + 1;
-      const isEvenRound = currentRound % 2 === 0;
-      const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
-      currentParticipantId = order[orderIndex];
-    }
+    // Revision 1: turn/round/current-participant are now derived via
+    // computeDraftSchedule (replays playerDraftPicks + draftSkips) instead
+    // of the old raw idx/n arithmetic, so Skip/bonus-double-pick turns are
+    // reflected correctly. Still fully derived, still nothing stored.
+    const schedule = n > 0 ? computeDraftSchedule(season) : null;
+    const currentParticipantId = schedule ? schedule.currentParticipantId : null;
 
     return {
       n,
       totalPicksMade,
-      currentRound,
-      currentPickInRound,
-      currentPickOverall,
+      currentRound: schedule ? schedule.currentRound : null,
+      currentPickInRound: schedule ? (schedule.turnIndex % n) + 1 : null,
+      // "Overall pick" is the ordinal of the next ACTUAL pick about to be
+      // made (skips don't consume one) — same meaning as before this
+      // revision for a draft with no skips.
+      currentPickOverall: currentParticipantId ? totalPicksMade + 1 : null,
       currentParticipantId,
       currentParticipant: currentParticipantId
         ? season.participants[currentParticipantId]
         : null,
+      // New in Revision 1 — see computeDraftSchedule for what these mean.
+      isBonusTurn: schedule ? schedule.isBonusTurn : false,
+      picksTakenThisTurn: schedule ? schedule.picksTakenThisTurn : 0,
+      picksNeededThisTurn: schedule ? schedule.picksNeededThisTurn : 1,
+      bonusPicks: schedule ? schedule.bonusPicks : {},
+      skipCount: (season.draftSkips || []).length,
       draftComplete: season.draftComplete,
       poolExhausted: availablePlayers.length === 0,
       picks,
@@ -1429,20 +1649,49 @@ const LeagueData = {
     const data = loadData();
 
     if (season.rostersInitialized && season.currentRosters[participantId]) {
-      return season.currentRosters[participantId].map(entry => ({
-        ...entry,
-        player: data.players[entry.playerId] || null,
-      }));
+      const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
+      return season.currentRosters[participantId].map(entry => {
+        const player = data.players[entry.playerId] || null;
+        // Display-only fallback for legacy rosters saved before the
+        // "Preserve Original Draft Pick Slot" revision — not persisted
+        // here (see ensureRosterDraftSlots, called by the manual-edit
+        // writes, for the persisted version of this same backfill).
+        let draftSlot = entry.draftSlot;
+        if (draftSlot === undefined) {
+          const pickIdx = ownPicks.findIndex((p) => p.playerId === entry.playerId);
+          draftSlot = pickIdx === -1 ? null : pickIdx + 1;
+        }
+        return {
+          ...entry,
+          player,
+          draftSlot,
+          // Pool-agnostic — see getEffectivePosition. Added so every roster
+          // display (public Rosters page, admin Rosters page) can show a
+          // Joker's assigned position instead of always falling back to the
+          // player's card-native position, exactly like getRosterForTransactions
+          // already did for the Trades page.
+          effectivePosition: player ? getEffectivePosition(entry, player) : null,
+        };
+      });
     }
 
-    // Fallback: derive from draft picks (pre-initialization view)
+    // Fallback: derive from draft picks (pre-initialization view) — no
+    // Joker exists yet at this stage (rostersInitialized is false), so
+    // effectivePosition is always just the player's own position.
+    // draftSlot mirrors what initializeRostersFromDraft will assign a
+    // moment later, purely for display consistency pre-initialization.
     return season.playerDraftPicks
       .filter(p => p.participantId === participantId)
-      .map(p => ({
-        playerId: p.playerId,
-        source: 'draft',
-        player: data.players[p.playerId] || null,
-      }));
+      .map((p, i) => {
+        const player = data.players[p.playerId] || null;
+        return {
+          playerId: p.playerId,
+          source: 'draft',
+          player,
+          effectivePosition: player ? player.position : null,
+          draftSlot: i + 1,
+        };
+      });
   },
 
   /**
@@ -2259,9 +2508,10 @@ const LeagueData = {
 
   /**
    * Players on a participant's roster eligible to become their Joker:
-   * their own draft picks #6-10 (rule 7), not already the Joker, and only
-   * once they've completed their first 5 picks. Returns [] (with a reason)
-   * if that participant hasn't reached pick 6 yet.
+   * their own draft picks #1-10 (Rule C, revised — Joker eligibility is no
+   * longer restricted to picks #6-10; any of a participant's own first 10
+   * picks may be designated Joker), not already the Joker. Returns []
+   * once a participant's own picks run out (fewer than 1, i.e. none yet).
    */
   getJokerEligiblePlayers(seasonId, participantId) {
     const season = this.getSeason(seasonId);
@@ -2270,7 +2520,7 @@ const LeagueData = {
     const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
     return ownPicks
       .map((p, i) => ({ pick: p, ownPickNumber: i + 1 }))
-      .filter(({ ownPickNumber }) => ownPickNumber >= 6 && ownPickNumber <= 10)
+      .filter(({ ownPickNumber }) => ownPickNumber >= 1 && ownPickNumber <= 10)
       .map(({ pick, ownPickNumber }) => ({
         playerId: pick.playerId,
         player: data.players[pick.playerId] || null,
@@ -2464,6 +2714,7 @@ const AdminActions = {
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
+    ensureDraftSkipFields(season); // backfill for seasons created before Revision 1
     if (!season.playerDraftOrder.length)
       throw new Error("Set the player draft order before drafting.");
     const player = data.players[playerId];
@@ -2491,14 +2742,17 @@ const AdminActions = {
       }
     }
 
-    const n = season.playerDraftOrder.length;
-    const idx = season.playerDraftPicks.length; // 0-based index of this pick
-    const round = Math.floor(idx / n) + 1;
-    const posInRound = idx % n;
-    const isEvenRound = round % 2 === 0;
-    const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
-    const participantId = season.playerDraftOrder[orderIndex];
-    const pick = idx + 1;
+    // Revision 1: who's on the clock (and which round) is now derived via
+    // computeDraftSchedule, which accounts for Skip/bonus-double-pick
+    // turns — see its doc comment. `pick` remains a simple incrementing
+    // counter of actual picks made, same meaning as before.
+    const schedule = computeDraftSchedule(season);
+    if (!schedule.currentParticipantId) {
+      throw new Error("No active turn — set the draft order first.");
+    }
+    const participantId = schedule.currentParticipantId;
+    const round = schedule.currentRound;
+    const pick = season.playerDraftPicks.length + 1;
 
     // ── Phase 4B: mandatory first-five-positions rule ───────────────────
     // Enforced here at the data layer (not just in the UI) so the rule
@@ -2613,6 +2867,12 @@ const AdminActions = {
 
     season.playerDraftPicks.push({ round, pick, participantId, playerId });
 
+    // Refresh the bonusPicks mirror (see season.bonusPicks doc comment) now
+    // that this pick has been recorded — computeDraftSchedule replays the
+    // updated history and returns the authoritative, up-to-date entitlement
+    // map, whether this pick just consumed a bonus turn or not.
+    season.bonusPicks = computeDraftSchedule(season).bonusPicks;
+
     if (tenthPickBlueFeeCharged) {
       season.pot = (season.pot || 0) + TENTH_PICK_BLUE_FEE;
       season.transactions.push({
@@ -2670,6 +2930,12 @@ const AdminActions = {
     if (season.draftComplete) {
       season.draftComplete = false;
     }
+    // Keep the bonusPicks mirror correct — e.g. undoing a bonus turn's
+    // 2nd pick should show that participant as still owed the bonus.
+    ensureDraftSkipFields(season);
+    if (season.playerDraftOrder.length) {
+      season.bonusPicks = computeDraftSchedule(season).bonusPicks;
+    }
     saveData(data);
   },
 
@@ -2679,6 +2945,65 @@ const AdminActions = {
     if (!season) throw new Error("Season not found");
     season.draftComplete = true;
     saveData(data);
+  },
+
+  /**
+   * Revision 1 — Phase 2 Draft Skip. Records that the current drafter is
+   * skipping their turn this round: no player is drafted, the pick is
+   * NOT added to playerDraftPicks (that array's meaning — the players a
+   * participant has actually drafted — must stay exactly as it always
+   * has been, since ownPickNumber/roster-cap/position-state/Joker-window
+   * logic all depend on it unchanged). Instead this is recorded in
+   * draftSkips (its own append-only audit trail, mirroring
+   * playerDraftPicks), the draft immediately moves to the next
+   * participant (computeDraftSchedule advances past a skip
+   * automatically), and the skipping participant is credited a bonus
+   * pick — see season.bonusPicks and computeDraftSchedule's doc comment
+   * for exactly when and how that bonus turn is redeemed.
+   */
+  skipDraftPick(seasonId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureTransactionFields(season);
+    ensureDraftSkipFields(season);
+    if (!season.playerDraftOrder.length) {
+      throw new Error("Set the player draft order before drafting.");
+    }
+    if (season.draftComplete) {
+      throw new Error("The draft is already complete — there is no active turn to skip.");
+    }
+
+    const schedule = computeDraftSchedule(season);
+    if (!schedule.currentParticipantId) {
+      throw new Error("No active turn — there is nothing to skip.");
+    }
+    if (schedule.isBonusTurn) {
+      // A bonus (double-pick) turn is the redemption of an earlier skip —
+      // it must be filled with its two picks, not skipped again, or the
+      // entitlement could compound indefinitely.
+      throw new Error(
+        "This is a bonus double-pick turn from an earlier skip — it must be filled with two picks, not skipped."
+      );
+    }
+
+    season.draftSkips.push({
+      participantId: schedule.currentParticipantId,
+      round: schedule.currentRound,
+      afterPickCount: season.playerDraftPicks.length,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Refresh the bonusPicks mirror the same way makeDraftPick does —
+    // computeDraftSchedule replays the now-updated history to produce the
+    // authoritative entitlement map.
+    season.bonusPicks = computeDraftSchedule(season).bonusPicks;
+
+    saveData(data);
+    return {
+      skippedParticipantId: schedule.currentParticipantId,
+      round: schedule.currentRound,
+    };
   },
 
   // ── Process 2: NBA Team Assignment Order (second DuckRace — independent) ──
@@ -3076,6 +3401,19 @@ const AdminActions = {
    * - Season not found
    * - Draft not marked complete (guard against partial-draft initialization)
    */
+  /**
+   * One-time roster seed from the completed draft. Every entry gets a
+   * `draftSlot` — the participant's own 1-based pick number (1..N) that
+   * this roster row represents (Revision — Preserve Original Draft Pick
+   * Slot). This is a roster-entry-level concept, distinct from and never
+   * read by the Joker/Red-Yellow classification system (that still looks
+   * up ownPickNumber straight from the immutable playerDraftPicks, keyed
+   * by whichever player currently occupies the slot, exactly as before —
+   * see getOriginalPickInfo/getJokerEligiblePlayers, untouched by this
+   * revision). draftSlot only drives what the roster UI displays as the
+   * row's pick number, and survives manual Replace/Remove below even when
+   * the occupant changes to a player who was never personally drafted.
+   */
   initializeRostersFromDraft(seasonId) {
     const data = loadData();
     const season = data.seasons[seasonId];
@@ -3083,16 +3421,24 @@ const AdminActions = {
     if (!season.draftComplete)
       throw new Error("Mark the draft complete before initializing rosters.");
 
-    // Group draft picks by participant, preserving pick order within each.
+    // Group draft picks by participant, preserving pick order within each,
+    // and number each entry with that participant's own running pick count.
     const rosters = {};
+    const ownPickCounters = {};
     for (const participant of Object.values(season.participants)) {
       rosters[participant.id] = [];
+      ownPickCounters[participant.id] = 0;
     }
     for (const pick of season.playerDraftPicks) {
-      if (!rosters[pick.participantId]) rosters[pick.participantId] = [];
+      if (!rosters[pick.participantId]) {
+        rosters[pick.participantId] = [];
+        ownPickCounters[pick.participantId] = 0;
+      }
+      ownPickCounters[pick.participantId] += 1;
       rosters[pick.participantId].push({
         playerId: pick.playerId,
         source: 'draft',
+        draftSlot: ownPickCounters[pick.participantId],
       });
     }
 
@@ -4068,11 +4414,15 @@ const AdminActions = {
   },
 
   /**
-   * Rule C: designates one of a participant's own picks #6-10 as their
-   * Joker (PINK). Only one Joker per participant at a time — designating a
-   * new one first clears any existing Joker flag for that participant
-   * (does not remove the player, only the isJoker/jokerPosition tag).
-   * The player's original draft history (playerDraftPicks) is untouched.
+   * Rule C (revised): designates one of a participant's own picks #1-10 as
+   * their Joker (PINK). Joker eligibility is no longer restricted to picks
+   * #6-10 — any of a participant's first 10 own picks qualifies. Only one
+   * Joker per participant at a time — designating a new one first clears
+   * any existing Joker flag for that participant (does not remove the
+   * player, only the isJoker/jokerPosition tag). The player's original
+   * draft history (playerDraftPicks) is untouched, and their original
+   * Red/Yellow classification (picks #1-2 / #3-5) is simply overridden by
+   * PINK while they remain the Joker — see getPlayerClassificationInfo.
    */
   designateJoker(seasonId, participantId, playerId, jokerPosition) {
     if (!jokerPosition) throw new Error("A Joker requires an assigned roster position.");
@@ -4085,9 +4435,9 @@ const AdminActions = {
     const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
     const pickIndex = ownPicks.findIndex((p) => p.playerId === playerId);
     const ownPickNumber = pickIndex + 1;
-    if (pickIndex === -1 || ownPickNumber < 6 || ownPickNumber > 10) {
+    if (pickIndex === -1 || ownPickNumber < 1 || ownPickNumber > 10) {
       throw new Error(
-        "Joker must be one of this participant's own picks #6-10, declared after their first 5 picks."
+        "Joker must be one of this participant's own picks #1-10."
       );
     }
 
@@ -4130,12 +4480,291 @@ const AdminActions = {
     saveData(data);
   },
 
+  // ── Revision 2: Manual Roster Edit ──────────────────────────────────────
+  //
+  // A restricted, PIN-gated administrative capability (see
+  // js/admin/roster.js — reuses the same _DELETE_ALL_PLAYERS_PIN check
+  // js/admin/players.js's Delete All Players already uses, rather than a
+  // second PIN) for correcting roster assignments without the full Phase 5
+  // trade/swap workflow. All three operations below reuse the exact same
+  // player-identity, ownership, and roster-rule validators Phase 5
+  // trades/swaps already enforce (validateResultingPositions,
+  // validateBlueComposition, validateMinimumRating, validateRatingCap,
+  // findCurrentRosterEntry) so a manual edit can never create a roster
+  // that a normal trade/swap couldn't also have produced. "Available" is
+  // never a separately stored list — exactly like getSwapEligibleReplacements
+  // already does for Phase 5, a player is available the instant they are
+  // absent from every entry of every season.currentRosters[*] array, and
+  // unavailable the instant they're present in one. Player ID (never
+  // name) is the identity used throughout, so this works unchanged for
+  // Green, Blue, Classics, All-Time, or any future imported pool — pool
+  // membership/size is never hard-coded here.
+
+  /**
+   * Manually assigns a currently-unowned player onto a participant's
+   * roster. The player leaves the available pool the moment this write
+   * lands, because "available" is derived from currentRosters membership,
+   * not tracked separately.
+   *
+   * targetDraftSlot (optional): when provided, fills that specific
+   * vacated original draft-pick slot (an 'empty' placeholder entry left by
+   * manualRemovePlayerFromRoster — see that function) in place, so the
+   * new player inherits the original draft-pick slot number rather than
+   * being appended as a brand-new, slot-less entry. Omit it to append a
+   * genuinely new roster entry with no original draft slot (draftSlot:
+   * null) — e.g. when there is no vacancy to fill.
+   */
+  manualAddPlayerToRoster(seasonId, participantId, playerId, targetDraftSlot = null) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureTransactionFields(season);
+    if (!season.rostersInitialized) {
+      throw new Error("Rosters must be initialized (post-draft) before manual roster editing.");
+    }
+    ensureRosterDraftSlots(season);
+    if (!season.participants[participantId]) throw new Error("Participant not found.");
+    const player = data.players[playerId];
+    if (!player) throw new Error("Player not found.");
+
+    const owner = findCurrentRosterEntry(season, playerId);
+    if (owner) {
+      const ownerName = season.participants[owner.participantId]?.name || "another team";
+      throw new Error(`${player.name} is already on ${ownerName}'s roster — cannot be assigned twice.`);
+    }
+
+    const roster = season.currentRosters[participantId] || [];
+    let afterEntries;
+    if (targetDraftSlot != null) {
+      const slotIndex = roster.findIndex((e) => e.source === "empty" && e.draftSlot === targetDraftSlot);
+      if (slotIndex === -1) {
+        throw new Error(`Draft slot #${targetDraftSlot} is not an open vacancy on this roster.`);
+      }
+      const vacatedEntry = roster[slotIndex];
+      afterEntries = roster.slice();
+      // Inherit the vacancy's classification anchor (if any) so refilling
+      // an emptied slot restores its Red/Yellow tag exactly like a direct
+      // Replace would — see getPlayerClassificationInfo.
+      const inheritedClassificationSource = vacatedEntry.classificationSourcePlayerId ?? null;
+      afterEntries[slotIndex] = {
+        playerId, source: "manual", draftSlot: targetDraftSlot,
+        ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}),
+      };
+    } else {
+      afterEntries = [...roster, { playerId, source: "manual", draftSlot: null }];
+    }
+
+    const posCheck = validateResultingPositions(roster, afterEntries, data.players);
+    if (!posCheck.valid) throw new Error(posCheck.reason);
+    const blueCheck = validateBlueComposition(afterEntries, data.players);
+    if (!blueCheck.valid) throw new Error(blueCheck.reason);
+    const minCheck = validateMinimumRating(player);
+    if (!minCheck.valid) throw new Error(minCheck.reason);
+    const cap = season.ratingCap ?? 875;
+    const capCheck = validateRatingCap(afterEntries, data.players, cap);
+    if (!capCheck.valid) throw new Error(capCheck.reason);
+
+    season.currentRosters[participantId] = afterEntries;
+
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "manualRosterAdd",
+      teamA: participantId,
+      teamB: null,
+      playersOut: [],
+      playersIn: [{
+        playerId, name: player.name, overall: player.overall, pool: player.pool, isJoker: false,
+        draftSlot: targetDraftSlot,
+      }],
+      fee: 0,
+      feeDoubled: false,
+      approvedBy: "commissioner",
+    });
+
+    saveData(data);
+  },
+
+  /**
+   * Manually removes a player from a participant's roster. This ONLY
+   * removes their season.currentRosters entry — it never deletes the
+   * player from the global database (js/admin/players.js's Delete
+   * Player/Delete All Players is the only thing that does that) — so the
+   * player is immediately draftable/assignable again everywhere
+   * "available" is derived from currentRosters (getSwapEligibleReplacements,
+   * getRosterForTransactions, and this same manual editor).
+   *
+   * If the removed entry carried an original draftSlot (Revision —
+   * Preserve Original Draft Pick Slot), that slot is never simply deleted
+   * from the array (which would silently renumber every later entry) —
+   * it's replaced in place with an 'empty' placeholder that keeps the same
+   * draftSlot, so the vacancy displays as e.g. "Pick #1 — EMPTY" and can
+   * later be refilled at that same slot via manualAddPlayerToRoster's
+   * targetDraftSlot. A manually-added entry with no original slot
+   * (draftSlot: null) has nothing to preserve, so it's removed outright.
+   */
+  manualRemovePlayerFromRoster(seasonId, participantId, playerId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureTransactionFields(season);
+    if (!season.rostersInitialized) {
+      throw new Error("Rosters must be initialized (post-draft) before manual roster editing.");
+    }
+    ensureRosterDraftSlots(season);
+    const roster = season.currentRosters[participantId] || [];
+    const idx = roster.findIndex((e) => e.playerId === playerId);
+    if (idx === -1) throw new Error("Player is not currently on this participant's roster.");
+    const entry = roster[idx];
+
+    const afterEntries = roster.slice();
+    if (entry.draftSlot != null) {
+      // Carry the vacancy's classification anchor forward too — whichever
+      // player's original draft record this slot's Red/Yellow tag should
+      // trace back to (itself, if never replaced before; or whatever it
+      // already inherited, if this is a re-removal of an already-replaced
+      // slot) — so a later refill via manualAddPlayerToRoster's
+      // targetDraftSlot can restore the tag exactly as a direct Replace
+      // would. See getPlayerClassificationInfo.
+      const classificationSourcePlayerId = entry.classificationSourcePlayerId ?? entry.playerId;
+      afterEntries[idx] = {
+        source: "empty", playerId: null, draftSlot: entry.draftSlot, classificationSourcePlayerId,
+      };
+    } else {
+      afterEntries.splice(idx, 1);
+    }
+    season.currentRosters[participantId] = afterEntries;
+
+    const player = data.players[playerId];
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "manualRosterRemove",
+      teamA: participantId,
+      teamB: null,
+      playersOut: [{
+        playerId, name: player?.name, overall: player?.overall, pool: player?.pool,
+        isJoker: !!entry.isJoker, returnedToPool: true, draftSlot: entry.draftSlot ?? null,
+      }],
+      playersIn: [],
+      fee: 0,
+      feeDoubled: false,
+      approvedBy: "commissioner",
+    });
+
+    saveData(data);
+  },
+
+  /**
+   * Manually swaps one roster player out for a currently-unowned one, in
+   * a single atomic write — equivalent to remove + add, but validated as
+   * one operation so an in-between invalid state is never possible (and
+   * never persisted, since either the whole write happens or an Error is
+   * thrown before saveData is called).
+   *
+   * The replacement is written in place at the outgoing entry's own array
+   * position and inherits its draftSlot unchanged (Revision — Preserve
+   * Original Draft Pick Slot): the draft-pick slot belongs to the roster
+   * slot being replaced, never to the specific player variant occupying
+   * it, so a Blue↔Green (or any) swap never loses, renumbers, or invents a
+   * pick number — this works identically whether the outgoing player was
+   * originally drafted (draftSlot set) or was themselves a slot-less
+   * manual addition (draftSlot: null, and it stays null after the swap).
+   *
+   * It also inherits a classificationSourcePlayerId (Revision — Preserve
+   * Trade/Swap Red Tag): whichever playerId's ORIGINAL draft record this
+   * slot's Red/Yellow tag should be read from (see
+   * getPlayerClassificationInfo), defaulting to the OUTGOING player's own
+   * id the first time a slot is ever replaced, and chained forward
+   * unchanged on every replacement after that — so the tag always traces
+   * back to whoever was truly drafted into this slot, no matter how many
+   * times it's since been manually replaced. isJoker/jokerPosition are
+   * deliberately NOT carried over: Joker is a designation earned by the
+   * specific player who holds it (see designateJoker's own eligibility
+   * check), not a property of the slot, so a replacement is never
+   * accidentally made a Joker just by occupying a Joker's old spot.
+   */
+  manualReplacePlayerOnRoster(seasonId, participantId, outgoingPlayerId, incomingPlayerId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureTransactionFields(season);
+    if (!season.rostersInitialized) {
+      throw new Error("Rosters must be initialized (post-draft) before manual roster editing.");
+    }
+    ensureRosterDraftSlots(season);
+    if (outgoingPlayerId === incomingPlayerId) {
+      throw new Error("Outgoing and incoming player cannot be the same.");
+    }
+
+    const roster = season.currentRosters[participantId] || [];
+    const idx = roster.findIndex((e) => e.playerId === outgoingPlayerId);
+    if (idx === -1) throw new Error("Outgoing player is not currently on this participant's roster.");
+    const outEntry = roster[idx];
+
+    const incomingPlayer = data.players[incomingPlayerId];
+    if (!incomingPlayer) throw new Error("Incoming player not found.");
+    const owner = findCurrentRosterEntry(season, incomingPlayerId);
+    if (owner) {
+      const ownerName = season.participants[owner.participantId]?.name || "another team";
+      throw new Error(`${incomingPlayer.name} is already on ${ownerName}'s roster — cannot be assigned twice.`);
+    }
+
+    const preservedDraftSlot = outEntry.draftSlot ?? null;
+    const classificationSourcePlayerId = outEntry.classificationSourcePlayerId ?? outgoingPlayerId;
+    const afterEntries = roster.slice();
+    afterEntries[idx] = {
+      playerId: incomingPlayerId, source: "manual", draftSlot: preservedDraftSlot, classificationSourcePlayerId,
+    };
+
+    const posCheck = validateResultingPositions(roster, afterEntries, data.players);
+    if (!posCheck.valid) throw new Error(posCheck.reason);
+    const blueCheck = validateBlueComposition(afterEntries, data.players);
+    if (!blueCheck.valid) throw new Error(blueCheck.reason);
+    const minCheck = validateMinimumRating(incomingPlayer);
+    if (!minCheck.valid) throw new Error(minCheck.reason);
+    const cap = season.ratingCap ?? 875;
+    const capCheck = validateRatingCap(afterEntries, data.players, cap);
+    if (!capCheck.valid) throw new Error(capCheck.reason);
+
+    season.currentRosters[participantId] = afterEntries;
+
+    const outgoingPlayer = data.players[outgoingPlayerId];
+    season.transactions.push({
+      id: generateId("txn"),
+      seasonId,
+      seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(),
+      type: "manualRosterReplace",
+      teamA: participantId,
+      teamB: null,
+      playersOut: [{
+        playerId: outgoingPlayerId, name: outgoingPlayer?.name, overall: outgoingPlayer?.overall,
+        pool: outgoingPlayer?.pool, isJoker: !!outEntry.isJoker, returnedToPool: true,
+        draftSlot: preservedDraftSlot,
+      }],
+      playersIn: [{
+        playerId: incomingPlayerId, name: incomingPlayer.name, overall: incomingPlayer.overall,
+        pool: incomingPlayer.pool, isJoker: false, draftSlot: preservedDraftSlot,
+      }],
+      fee: 0,
+      feeDoubled: false,
+      approvedBy: "commissioner",
+    });
+
+    saveData(data);
+  },
+
   // ── Player Database ────────────────────────────────────────────────────────
 
-  addPlayer({ name, position, overall, pool, variantGroup }) {
+  addPlayer({ name, position, overall, pool, variantGroup, nba2kRef }) {
     const data = loadData();
     const id = generateId("pl");
-    const player = createPlayer(id, { name, position, overall, pool, variantGroup });
+    const player = createPlayer(id, { name, position, overall, pool, variantGroup, nba2kRef });
     data.players[id] = player;
     saveData(data);
     return player;

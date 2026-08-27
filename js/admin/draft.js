@@ -32,6 +32,7 @@ const AdminDraftView = {
   _filter: '',
   _activePool: 'green',
   _outsideClickBound: false,
+  _skipInFlight: false, // Revision 1 — frontend double-submission guard, same pattern as admin/backup.js's this._running
 
   render(container) {
     const season = LeagueData.getCurrentSeason();
@@ -86,6 +87,10 @@ const AdminDraftView = {
 
           <div class="draft-topbar-actions">
             <button class="btn btn-ghost" id="btnUndoPick" ${state.totalPicksMade === 0 ? 'disabled' : ''}>Undo Last Pick</button>
+            ${!state.draftComplete && state.currentParticipantId ? `
+            <button class="btn btn-ghost" id="btnSkipPick" ${state.isBonusTurn ? 'disabled title="Bonus double-pick turn — must be filled with two picks, not skipped"' : ''}>
+              Skip
+            </button>` : ''}
             ${state.draftComplete
               ? ''
               : `<button class="btn btn-primary" id="btnMarkDraftComplete">Mark Draft Complete</button>`}
@@ -148,6 +153,10 @@ const AdminDraftView = {
             ${abbr ? `<span class="otc-team-name">${escapeHtml(LeagueData.getNBATeam(abbr)?.name || '')}</span>` : `<span class="otc-team-name muted">No NBA team assigned yet</span>`}
           </div>
         </div>
+        ${state.isBonusTurn ? `
+        <div class="info-banner warn-banner" style="margin-top:0.5rem;padding:0.5rem 0.75rem;font-size:0.85rem;">
+          ⭐ Bonus double-pick turn (earned from an earlier Skip) — pick ${state.picksTakenThisTurn + 1} of ${state.picksNeededThisTurn}.
+        </div>` : ''}
         <div class="otc-stats-grid">
           <div class="draft-status-chip">
             <span class="status-label">Round</span>
@@ -336,6 +345,17 @@ const AdminDraftView = {
       }
     };
 
+    // Skip (Revision 1) — the only path that calls AdminActions.skipDraftPick.
+    // Frontend double-submission guard mirrors admin/backup.js's pattern:
+    // a this._skipInFlight flag plus immediately disabling the button.
+    const skipBtn = container.querySelector('#btnSkipPick');
+    if (skipBtn && !skipBtn.disabled) {
+      skipBtn.onclick = () => {
+        if (this._skipInFlight) return;
+        this._openSkipConfirm(season, skipBtn);
+      };
+    }
+
     // Mark complete
     container.querySelector('#btnMarkDraftComplete')?.addEventListener('click', () => {
       AuthBoundary.requireAuth();
@@ -403,6 +423,57 @@ const AdminDraftView = {
       dropdown.classList.add('hidden');
       container.querySelector('#draftPlayerSearch').blur();
     });
+  },
+
+  // ── Skip confirmation modal (Revision 1) — mirrors the same modal
+  // pattern as _openDraftConfirm below. this._skipInFlight guards against
+  // rapid double-clicks on the confirm button itself, same idea as
+  // admin/backup.js's this._running. ──────────────────────────────────────
+  _openSkipConfirm(season, triggerBtn) {
+    document.getElementById('skipConfirmOverlay')?.remove();
+    const currentName = escapeHtml(LeagueData.getDraftState(season.id).currentParticipant?.name || 'This participant');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'skipConfirmOverlay';
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="skipConfirmTitle">
+        <div class="modal-eyebrow">Skip Pick</div>
+        <div class="modal-player-name" id="skipConfirmTitle">Skip ${currentName}'s turn?</div>
+        <p class="modal-prompt">
+          ${currentName} will not pick this turn and the draft moves on immediately.
+          They'll receive two picks in a row on their next scheduled turn to make up for it.
+        </p>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" id="skipModalCancelBtn">Cancel</button>
+          <button class="btn btn-primary" id="skipModalConfirmBtn">Skip Turn</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('skipModalCancelBtn').onclick = close;
+    const onKeydown = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKeydown); } };
+    document.addEventListener('keydown', onKeydown);
+
+    document.getElementById('skipModalConfirmBtn').onclick = () => {
+      if (this._skipInFlight) return;
+      this._skipInFlight = true;
+      if (triggerBtn) triggerBtn.disabled = true;
+      AuthBoundary.requireAuth();
+      try {
+        AdminActions.skipDraftPick(season.id);
+        showToast(`${currentName}'s turn skipped.`, 'success');
+        close();
+        AdminApp.renderView('draft');
+      } catch (e) {
+        showToast(e.message, 'error');
+        close();
+      } finally {
+        this._skipInFlight = false;
+      }
+    };
   },
 
   // ── Confirmation modal — the ONLY path that calls AdminActions.makeDraftPick.

@@ -1,0 +1,301 @@
+/**
+ * admin-nba2k-theme.css — NBA 2K26 Player Database Browser.
+ * Phase 2: browse/search/filter/detail. Phase 3: promotion controls.
+ *
+ * Scoped entirely to classes rendered only by js/admin/nba2k-database.js
+ * (all prefixed `.nba2k-`, plus the new `.nba2k-table`/`.nba2k-db`
+ * wrapper classes) — nothing here touches an existing selector, so no
+ * other admin page is affected. Shared primitives this page reuses as-is
+ * (unmodified): .admin-section, .admin-table, .table-controls, .input,
+ * .search-input, .player-count, .modal-overlay, .modal-card, .btn,
+ * .backup-muted, .backup-result(-success|-error), .pos-ovr(-elite|-good),
+ * .helper-text, .form-actions.
+ *
+ * Loaded after admin.css / admin-pages-theme.css so the shared .pos-ovr
+ * tier colors above are already in effect here.
+ */
+
+.nba2k-db-subtitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  color: var(--nb-text-muted, var(--text-muted));
+  font-size: 0.85rem;
+  margin: -0.25rem 0 1.25rem;
+}
+.nba2k-db-subtitle .player-count {
+  margin-left: 0;
+  font-weight: 700;
+  color: var(--nb-text, var(--text));
+}
+
+.nba2k-controls .input { flex: 1 1 160px; min-width: 140px; }
+.nba2k-controls .search-input { flex: 2 1 240px; }
+
+.nba2k-row { cursor: pointer; }
+.nba2k-row:hover { background: var(--nb-primary-dim, var(--bg-hover)); }
+.nba2k-row:focus-visible { outline: 2px solid var(--nb-primary, var(--accent)); outline-offset: -2px; }
+.nba2k-cell-player { font-weight: 700; }
+.nba2k-cell-ovr .pos-ovr { font-size: 1rem; font-weight: 800; }
+
+/* ─── Detail modal ────────────────────────────────────────────────────── */
+.nba2k-detail-modal {
+  max-width: 640px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+  padding-top: 2.5rem;
+}
+.nba2k-detail-close {
+  position: absolute;
+  top: 0.75rem; right: 0.9rem;
+  background: none; border: none;
+  font-size: 1.5rem; line-height: 1;
+  color: var(--nb-text-muted, var(--text-muted));
+  cursor: pointer;
+}
+.nba2k-detail-close:hover { color: var(--nb-text, var(--text)); }
+
+.nba2k-detail-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--nb-surface-border, var(--border));
+}
+.nba2k-avatar {
+  position: relative;
+  width: 72px; height: 72px;
+  flex: none;
+  border-radius: var(--nb-r, var(--r));
+  overflow: hidden;
+  background: var(--nb-primary-dim, var(--bg-hover));
+  display: flex; align-items: center; justify-content: center;
+}
+.nba2k-avatar img {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+}
+.nba2k-avatar-fallback {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--nb-primary, var(--accent));
+}
+.nba2k-detail-name { font-size: 1.25rem; font-weight: 900; }
+.nba2k-detail-meta {
+  display: flex; flex-wrap: wrap; gap: 0.6rem;
+  align-items: center;
+  margin: 0.3rem 0;
+  font-size: 0.85rem;
+  color: var(--nb-text-muted, var(--text-muted));
+}
+.nba2k-detail-ovr { font-size: 0.95rem; font-weight: 800; }
+.nba2k-detail-physicals {
+  display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem;
+  font-size: 0.78rem;
+  color: var(--nb-text-dim, var(--text-dim));
+}
+
+.nba2k-attr-groups {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.nba2k-attr-section h4 {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nb-primary, var(--accent));
+  margin-bottom: 0.5rem;
+}
+.nba2k-attr-row {
+  display: grid;
+  grid-template-columns: 108px 1fr 28px;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  font-size: 0.78rem;
+}
+.nba2k-attr-label { color: var(--nb-text-muted, var(--text-muted)); }
+.nba2k-attr-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--nb-surface-border, var(--border));
+  overflow: hidden;
+}
+.nba2k-attr-bar-fill { height: 100%; border-radius: 3px; }
+.nba2k-attr-elite { background: var(--nb-positive, var(--green)); }
+.nba2k-attr-good  { background: var(--nb-primary, var(--accent)); }
+.nba2k-attr-mid   { background: var(--nb-gold, var(--yellow)); }
+.nba2k-attr-low   { background: var(--nb-text-dim, var(--text-dim)); }
+.nba2k-attr-value { text-align: right; font-weight: 700; }
+
+.nba2k-badges-section h4 {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nb-primary, var(--accent));
+  margin-bottom: 0.6rem;
+}
+.nba2k-badge-group { margin-bottom: 0.75rem; }
+.nba2k-badge-tier {
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+.nba2k-badge-tier-legendary    { color: #c084fc; }
+.nba2k-badge-tier-hall-of-fame { color: var(--nb-gold, #d4a017); }
+.nba2k-badge-tier-gold         { color: #d4a017; }
+.nba2k-badge-tier-silver       { color: #9aa4b2; }
+.nba2k-badge-tier-bronze       { color: #b5723a; }
+.nba2k-badge-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.nba2k-badge-chip {
+  font-size: 0.72rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: var(--nb-surface-border, var(--bg-hover));
+  color: var(--nb-text, var(--text));
+}
+
+/* ─── Phase 3: promotion status pill (table row) ─────────────────────────── */
+.nba2k-status-pill {
+  display: inline-block;
+  margin-left: 0.6rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.nba2k-status-pill-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); color: var(--pool-green, #34d17c); }
+.nba2k-status-pill-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); color: var(--pool-blue, #4d9bf5); }
+.nba2k-status-pill-none  { background: var(--nb-surface-border, var(--border)); color: var(--nb-text-muted, var(--text-muted)); }
+
+/* ─── Phase 3: "Add to Draft Pool" section in the detail modal ───────────── */
+.nba2k-promo {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--nb-surface-border, var(--border));
+}
+.nba2k-promo h4 {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nb-primary, var(--accent));
+  margin-bottom: 0.75rem;
+}
+.nba2k-promo-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.nba2k-promo-row label { font-size: 0.82rem; font-weight: 600; min-width: 70px; }
+.nba2k-promo-row .input { max-width: 160px; }
+.nba2k-promo-radios { display: flex; gap: 1rem; }
+.nba2k-promo-radios label { display: flex; align-items: center; gap: 0.35rem; font-weight: 500; min-width: 0; }
+
+.nba2k-promo-status {
+  padding: 0.9rem 1rem;
+  border-radius: var(--nb-r, var(--r));
+  background: var(--nb-positive, var(--green));
+  background: color-mix(in srgb, var(--nb-positive, var(--green)) 12%, transparent);
+}
+.nba2k-promo-eyebrow {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nb-positive, var(--green));
+  margin-bottom: 0.25rem;
+}
+.nba2k-promo-pool-label { font-size: 1rem; font-weight: 800; }
+
+.nba2k-promo-confirm-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: var(--nb-r, var(--r));
+  border: 1px solid var(--nb-surface-border, var(--border));
+  background: var(--nb-surface, var(--bg-hover));
+}
+.nba2k-promo-confirm-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.82rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--nb-surface-border, var(--border));
+}
+.nba2k-promo-confirm-row:last-of-type { border-bottom: none; }
+.nba2k-promo-confirm-row span { color: var(--nb-text-muted, var(--text-muted)); }
+
+/* ─── Phase 4: category tabs (All / Current / Classics / All-Time) ──────── */
+.nba2k-category-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+/* ─── Phase 4: category chip (table row + detail header) ────────────────── */
+.nba2k-category-chip {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.08rem 0.5rem;
+  border-radius: 999px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.nba2k-category-chip-curr  { background: var(--pool-green-dim, rgba(52,209,124,0.14)); color: var(--pool-green, #34d17c); }
+.nba2k-category-chip-class { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); color: var(--pool-blue, #4d9bf5); }
+.nba2k-category-chip-allt  { background: rgba(192,132,252,0.16); color: #c084fc; }
+.nba2k-category-chip-other { background: var(--nb-surface-border, var(--border)); color: var(--nb-text-muted, var(--text-muted)); }
+
+.nba2k-eligibility-label {
+  font-size: 0.75rem;
+  color: var(--nb-text-dim, var(--text-dim));
+  margin: 0.15rem 0 0.4rem;
+}
+
+/* ─── Mobile: player list becomes cards, not a shrunken table ───────────── */
+@media (max-width: 700px) {
+  .nba2k-controls { flex-direction: column; align-items: stretch; }
+  .nba2k-controls .input { max-width: none; }
+
+  .nba2k-category-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.2rem; }
+  .nba2k-category-tab { flex: none; }
+
+  .nba2k-table thead { display: none; }
+  .nba2k-table, .nba2k-table tbody { display: block; width: 100%; }
+  .nba2k-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    padding: 0.75rem 0.25rem;
+    border-bottom: 1px solid var(--nb-surface-border, var(--border));
+  }
+  .nba2k-table td { border: none; padding: 0; white-space: normal; }
+  .nba2k-cell-player { flex: 1 1 100%; order: 1; font-size: 0.95rem; }
+  .nba2k-cell-ovr { order: 2; }
+  .nba2k-table td[data-label="Position"] { order: 3; font-size: 0.78rem; color: var(--nb-text-muted, var(--text-muted)); }
+  .nba2k-table td[data-label="Team"] { order: 4; font-size: 0.78rem; color: var(--nb-text-muted, var(--text-muted)); }
+  .nba2k-table td[data-label="Position"]::before { content: "· "; }
+
+  .nba2k-attr-groups { grid-template-columns: 1fr; }
+  .nba2k-attr-row { grid-template-columns: 92px 1fr 24px; }
+  .nba2k-detail-modal { max-width: 100%; }
+  .nba2k-detail-header { flex-wrap: wrap; }
+
+  .nba2k-promo-row { flex-wrap: wrap; }
+  .nba2k-promo-row .input { max-width: none; flex: 1 1 100%; }
+  .nba2k-promo-confirm-row { flex-direction: column; gap: 0.15rem; }
+}

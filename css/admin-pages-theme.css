@@ -295,6 +295,19 @@
 .roster-table .ovr { color: var(--nb-primary); }
 .roster-pick-num { color: var(--nb-text-muted); }
 
+/* Revision 2: Manual Roster Editor — same treatment as .pos-row-delete/
+   .pos-row-edit above, just applied to this page's own icon buttons. */
+.btn-icon-sm { color: var(--nb-text-dim); }
+.btn-icon-sm:hover { color: var(--nb-primary); background: var(--nb-primary-dim); }
+.roster-manual-actions .btn-icon-sm[title="Remove"]:hover { color: var(--nb-negative); background: rgba(224,72,58,0.1); }
+.roster-manual-editor-controls { border-top: 1px solid var(--nb-surface-border); }
+.roster-manual-picker {
+  background: var(--nb-surface);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  padding: 0.75rem;
+}
+
 /* ── Mobile (Group 1): expandable-row / stacked-table pattern instead of
    forcing a wide table into a narrow admin viewport. The brief is
    explicit that admin mobile should avoid horizontal scroll for anything

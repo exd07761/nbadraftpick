@@ -513,7 +513,7 @@ const AdminTradesView = {
       <div class="card-form">
         <h3>Designate Joker</h3>
         <p class="helper-text">
-          Eligible only from a participant's own picks #6–10, after they've completed their first 5 picks.
+          Eligible from any of a participant's own picks #1–10.
           The Joker can be assigned any roster position, regardless of the card's natural position.
         </p>
         <div class="form-row">
@@ -525,7 +525,7 @@ const AdminTradesView = {
             </select>
           </div>
           <div class="form-group">
-            <label>Eligible player (picks #6-10)</label>
+            <label>Eligible player (picks #1-10)</label>
             <select class="input" id="jokerPlayerSelect" ${eligible.length ? '' : 'disabled'}>
               <option value="">Select player…</option>
               ${eligible.map((e) => `<option value="${e.playerId}" ${e.playerId === this._jokerPlayer ? 'selected' : ''}>${escapeHtml(e.player.name)} — pick #${e.ownPickNumber}, ${e.player.position}, ${e.player.overall} OVR</option>`).join('')}

@@ -791,6 +791,53 @@ select.input { cursor: pointer; }
   width: 24px;
 }
 
+/* ── Revision 2: Manual Roster Editor ── */
+.roster-manual-actions {
+  white-space: nowrap;
+  width: 1%;
+  text-align: right;
+}
+
+.btn-icon-sm {
+  background: none;
+  border: none;
+  color: var(--text-dim, var(--text-muted));
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  transition: color 0.12s, background 0.12s;
+}
+
+.btn-icon-sm:hover {
+  color: var(--accent);
+  background: var(--accent-dim, rgba(52, 152, 219, 0.1));
+}
+
+.roster-manual-actions .btn-icon-sm[title="Remove"]:hover {
+  color: var(--red, #e74c3c);
+  background: rgba(231, 76, 60, 0.1);
+}
+
+.roster-manual-editor-controls {
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.roster-manual-picker {
+  margin: 0 1rem 1rem;
+}
+
+.roster-manual-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.roster-row-empty td { opacity: 0.6; font-style: italic; }
+
 .info-banner {
   padding: 0.75rem 1rem;
   border-radius: var(--r-lg);
@@ -1226,3 +1273,26 @@ select.input { cursor: pointer; }
   border-radius: 8px;
   padding: 0.5rem 0.75rem;
 }
+
+/* ─── Firestore Backup admin view (js/admin/backup.js) ────────────────────── */
+.backup-intro { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem; max-width: 60ch; }
+.backup-muted { color: var(--text-muted); font-size: 0.85rem; }
+
+.backup-result { margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; }
+.backup-result-success { background: rgba(52, 209, 124, 0.1); border: 1px solid var(--green); color: var(--text); }
+.backup-result-success strong { color: var(--green); display: block; margin-bottom: 0.25rem; }
+.backup-result-error { background: rgba(240, 90, 90, 0.1); border: 1px solid var(--red); color: var(--text); }
+.backup-result-error strong { color: var(--red); display: block; margin-bottom: 0.25rem; }
+
+.backup-latest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+.backup-latest-label { color: var(--text-muted); margin-right: 0.35rem; }

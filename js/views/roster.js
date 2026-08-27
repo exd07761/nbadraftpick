@@ -64,7 +64,7 @@ const PublicRosterView = {
       <div class="roster-card">
         <div class="roster-card-head">
           <span class="roster-card-name">${escapeHtml(participant.name)}</span>
-          <span class="roster-card-count">${rosterEntries.length} player${rosterEntries.length !== 1 ? 's' : ''}</span>
+          <span class="roster-card-count">${rosterEntries.filter(e => e.player).length} player${rosterEntries.filter(e => e.player).length !== 1 ? 's' : ''}</span>
         </div>
         <div class="roster-card-team">
           ${teamBadge(abbr, { size: 'lg', showName: true })}
@@ -88,18 +88,26 @@ const PublicRosterView = {
         <table class="roster-table roster-card-table">
           <thead>
             <tr>
-              <th>#</th><th>Player</th><th>Pool</th><th>Pos</th><th>OVR</th><th>Source</th>
+              <th>Pick #</th><th>Player</th><th>Pool</th><th>Pos</th><th>OVR</th><th>Source</th>
             </tr>
           </thead>
           <tbody>
-            ${rosterEntries.map((e, i) => {
+            ${rosterEntries.map((e) => {
               const p = e.player;
+              const slotLabel = e.draftSlot != null ? e.draftSlot : '—';
+              if (e.source === 'empty') {
+                return `
+                  <tr class="roster-row-empty">
+                    <td>${slotLabel}</td>
+                    <td colspan="5" class="muted"><em>EMPTY — draft slot vacated</em></td>
+                  </tr>`;
+              }
               return `
                 <tr>
-                  <td>${i + 1}</td>
+                  <td>${slotLabel}</td>
                   <td>${p ? escapeHtml(p.name) : '<span class="muted">(removed)</span>'}</td>
                   <td>${p ? (p.pool === 'green' ? 'Green' : p.pool === 'blue' ? 'Blue' : '—') : '—'}</td>
-                  <td>${p ? (p.position || '—') : '—'}</td>
+                  <td>${p ? escapeHtml(e.effectivePosition || p.position || '—') : '—'}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
                   <td class="ovr">${p ? p.overall : '—'}</td>
                   <td class="roster-card-source">${escapeHtml(e.source || '—')}</td>
                 </tr>`;
