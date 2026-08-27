@@ -2508,25 +2508,45 @@ const LeagueData = {
 
   /**
    * Players on a participant's roster eligible to become their Joker:
-   * their own draft picks #1-10 (Rule C, revised — Joker eligibility is no
-   * longer restricted to picks #6-10; any of a participant's own first 10
-   * picks may be designated Joker), not already the Joker. Returns []
-   * once a participant's own picks run out (fewer than 1, i.e. none yet).
+   * whoever currently occupies one of their own draft picks #1-10 (Rule C,
+   * revised — Joker eligibility is no longer restricted to picks #6-10;
+   * any of a participant's own first 10 picks may be designated Joker),
+   * not already the Joker. Returns [] once a participant's own picks run
+   * out (fewer than 1, i.e. none yet).
+   *
+   * Eligibility is read from each entry's CURRENT `draftSlot` on
+   * season.currentRosters — the same "own pick #1-10" slot Manual Roster
+   * Edit already preserves across Add/Fill-Slot/Replace (Revision —
+   * Preserve Original Draft Pick Slot) — rather than from the immutable
+   * playerDraftPicks history. playerDraftPicks only records who was
+   * originally drafted into a slot, so a manually-added player filling a
+   * vacated own-pick slot would never appear there and could never be
+   * offered as Joker-eligible even though they now legitimately hold that
+   * pick. (Bugfix — Missing Joker Icon on Manually Added Players.) This
+   * does not affect Red/Yellow classification, which intentionally still
+   * traces back to the original draftee via getOriginalPickInfo.
    */
   getJokerEligiblePlayers(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
     const data = loadData();
-    const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
-    return ownPicks
-      .map((p, i) => ({ pick: p, ownPickNumber: i + 1 }))
-      .filter(({ ownPickNumber }) => ownPickNumber >= 1 && ownPickNumber <= 10)
-      .map(({ pick, ownPickNumber }) => ({
-        playerId: pick.playerId,
-        player: data.players[pick.playerId] || null,
-        ownPickNumber,
-      }))
-      .filter((e) => e.player);
+    const roster = (season.currentRosters && season.currentRosters[participantId]) || [];
+    // Legacy fallback for rosters saved before the "Preserve Original
+    // Draft Pick Slot" revision (mirrors getCurrentRoster/
+    // ensureRosterDraftSlots) — not persisted here since this is a
+    // read-only method.
+    const ownPicks = (season.playerDraftPicks || []).filter((p) => p.participantId === participantId);
+    return roster
+      .filter((e) => e.playerId)
+      .map((e) => {
+        let ownPickNumber = e.draftSlot;
+        if (ownPickNumber === undefined) {
+          const pickIdx = ownPicks.findIndex((p) => p.playerId === e.playerId);
+          ownPickNumber = pickIdx === -1 ? null : pickIdx + 1;
+        }
+        return { playerId: e.playerId, player: data.players[e.playerId] || null, ownPickNumber };
+      })
+      .filter((e) => e.player && e.ownPickNumber != null && e.ownPickNumber >= 1 && e.ownPickNumber <= 10);
   },
 };
 
@@ -3405,14 +3425,18 @@ const AdminActions = {
    * One-time roster seed from the completed draft. Every entry gets a
    * `draftSlot` — the participant's own 1-based pick number (1..N) that
    * this roster row represents (Revision — Preserve Original Draft Pick
-   * Slot). This is a roster-entry-level concept, distinct from and never
-   * read by the Joker/Red-Yellow classification system (that still looks
-   * up ownPickNumber straight from the immutable playerDraftPicks, keyed
-   * by whichever player currently occupies the slot, exactly as before —
-   * see getOriginalPickInfo/getJokerEligiblePlayers, untouched by this
-   * revision). draftSlot only drives what the roster UI displays as the
-   * row's pick number, and survives manual Replace/Remove below even when
-   * the occupant changes to a player who was never personally drafted.
+   * Slot). This is a roster-entry-level concept. Red/Yellow classification
+   * still looks up ownPickNumber straight from the immutable
+   * playerDraftPicks, keyed by whichever player was ORIGINALLY drafted
+   * into a slot (see getOriginalPickInfo) — that never changes, no matter
+   * who currently occupies the slot. Joker eligibility, however, DOES read
+   * this draftSlot field (see getJokerEligiblePlayers/designateJoker,
+   * Bugfix — Missing Joker Icon on Manually Added Players): a Joker is a
+   * designation of whoever currently and legitimately holds one of this
+   * participant's own pick slots #1-10, so draftSlot — which already
+   * survives manual Replace/Remove/Fill-Slot below even when the occupant
+   * changes to a player who was never personally drafted — is the correct
+   * current source of truth for it, not the historical draft record.
    */
   initializeRostersFromDraft(seasonId) {
     const data = loadData();
@@ -4431,19 +4455,23 @@ const AdminActions = {
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
     if (!season.rostersInitialized) throw new Error("Rosters must be initialized before designating a Joker.");
-
-    const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
-    const pickIndex = ownPicks.findIndex((p) => p.playerId === playerId);
-    const ownPickNumber = pickIndex + 1;
-    if (pickIndex === -1 || ownPickNumber < 1 || ownPickNumber > 10) {
-      throw new Error(
-        "Joker must be one of this participant's own picks #1-10."
-      );
-    }
+    ensureRosterDraftSlots(season); // backfill for seasons predating "Preserve Original Draft Pick Slot"
 
     const roster = season.currentRosters[participantId];
     const entry = roster && roster.find((e) => e.playerId === playerId);
     if (!entry) throw new Error("Player is not currently on this participant's roster.");
+
+    // Own-pick eligibility is read from the roster entry's CURRENT
+    // draftSlot (see getJokerEligiblePlayers), not from the immutable
+    // playerDraftPicks history, so a manually-added player filling one of
+    // this participant's own vacated pick slots #1-10 is eligible too —
+    // matching what getJokerEligiblePlayers already offers as eligible.
+    const ownPickNumber = entry.draftSlot;
+    if (ownPickNumber == null || ownPickNumber < 1 || ownPickNumber > 10) {
+      throw new Error(
+        "Joker must be one of this participant's own picks #1-10."
+      );
+    }
 
     const afterEntries = roster.map((e) =>
       e.playerId === playerId
