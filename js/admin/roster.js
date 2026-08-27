@@ -34,7 +34,7 @@
  *
  * Set your own PIN here.
  */
-const _REINIT_ROSTERS_PIN = 'CHANGE-ME-PIN';
+const _REINIT_ROSTERS_PIN = '7761';
 
 /**
  * ⚠ SECURITY NOTE — Revision 2 (Manual Roster Edit).
