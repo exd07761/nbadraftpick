@@ -1,18 +1,41 @@
 # Firestore Backup & Restore
 
-This app stores its entire state in one Firestore document
-(`league/main` — see `js/data.js`), read by the frontend directly via the
-Firebase client SDK. The backup/restore system started as local-only CLI
-scripts (no frontend changes at all); it now also includes a "Backup
-Firestore" button in the Admin panel, backed by a Cloud Function — see
-"Admin Panel backup button — architecture" below for that part
-specifically. The frontend changes for that are minimal and listed under
-"Files modified".
+This app uses two Firestore root collections today (see "What's backed
+up" below): `league` (its entire application state, in one document,
+`league/main` — see `js/data.js`) and `nba2k_players` (the imported NBA
+2K player database — see `js/nba2k-database.js` /
+`js/admin/nba2k-import.js`). There are two independent backup mechanisms:
 
-The backup script itself does **not** hardcode the `league/main` path —
-it discovers every root collection and recursively walks every
-subcollection via `listCollections()`, so it stays correct even if more
-collections get added later.
+### Local CLI Backup
+
+```bash
+npm run backup
+```
+
+This remains the full Admin SDK backup mechanism described throughout
+this document, and continues to use the existing service-account
+authentication. It discovers every root collection and recursively walks
+every subcollection via the Admin SDK's `listCollections()` — nothing is
+hardcoded — so it stays correct even if more collections get added
+later.
+
+### Admin Panel Backup
+
+```text
+Admin → Backup → Download Full Firestore JSON
+```
+
+This is a browser-generated JSON backup, using the authenticated Firebase
+**Web** SDK — it does not use Cloud Functions or Cloud Storage (an
+earlier version did; that architecture was removed — see "Admin Panel
+backup — architecture" below). It is limited to whatever data the
+signed-in Admin can read through Firestore Security Rules, and — because
+the Web SDK has no equivalent of the Admin SDK's `listCollections()` — to
+a hand-maintained list of known collections (`js/admin/backup.js`) rather
+than genuine generic discovery. It is **not** identical to a Firebase
+Console native export, and is called a **Firestore JSON backup** here
+rather than that, since it isn't the native export format. See "Admin
+Panel backup — architecture" for the full limitation writeup.
 
 ## Files created
 
@@ -21,101 +44,84 @@ CLI backup/restore (original):
 - `scripts/restore.js` — restores a backup folder back into Firestore (dry-run by default).
 - `scripts/lib/firestore-serialize.js` — shared type-preserving (de)serialization used by both.
 - `scripts/lib/init-admin.js` — shared, secure credential loading.
-- `scripts/lib/backup-core.js` — the collection-discovery/walk logic, extracted out of `backup.js` so the Cloud Function (below) can reuse it unchanged instead of duplicating it.
+- `scripts/lib/backup-core.js` — the collection-discovery/walk logic, extracted out of `backup.js` as its own module (originally so a now-removed Cloud Function could also reuse it — see "Admin Panel backup — architecture" below for the current, Cloud-Function-free architecture).
 - `package.json` — `npm run backup` / `npm run restore` commands.
 - `.gitignore` — added (didn't exist before).
 - `BACKUP_RESTORE.md` — this file.
 
-Admin Panel "Backup Firestore" button (Cloud Functions):
-- `functions/index.js` — the two callable Cloud Functions (`backupFirestore`, `getBackupHistory`).
-- `functions/package.json` — Cloud Functions' own dependencies (`firebase-admin`, `firebase-functions`).
-- `functions/lib/` — **generated**, not hand-written: a synced copy of `scripts/lib/firestore-serialize.js` + `backup-core.js`, regenerated automatically before every deploy (see "Why `functions/lib` exists" below). Git-ignored.
-- `scripts/sync-functions-lib.js` — does that syncing; also runnable manually via `npm run sync-functions-lib`.
-- `firebase.json`, `.firebaserc` — Firebase project config (`nbadraftpick`) and the Cloud Functions source directory + predeploy hook.
-- `js/admin/backup.js` — the Admin panel view (button, result display, backup history table).
+Admin Panel "Download Full Firestore JSON" button (browser-only, current):
+- `js/admin/backup.js` — the Admin panel view: the button, a hand-maintained list of known root collections, a browser-compatible Firestore-native-type serializer, and the Blob-based download. See its file header comment for the full design rationale.
+
+Removed (previous Cloud Function architecture — no longer part of this
+project): `functions/index.js`, `functions/package.json`, `functions/lib/`
+(generated), `scripts/sync-functions-lib.js`, `firebase.json`. Nothing
+else in the project depended on the `functions/` directory or on
+`firebase.json`, so both were deleted outright rather than partially
+cleaned up.
 
 ## Files modified
 
-- `js/admin.js` — registered the new `backup` route.
-- `admin.html` — added the "Backup" sidebar link, the `firebase-functions-compat.js` script tag, and `<script src="js/admin/backup.js">`.
-- `css/admin.css` — added `.backup-*` styles, using the same design tokens (`var(--text)`, `var(--green)`, etc.) as the rest of the admin panel.
+- `js/admin.js` — registered the `backup` route (unchanged by this revision).
+- `admin.html` — removed the now-unused `firebase-functions-compat.js` script tag (the Admin panel backup no longer calls any Cloud Function).
+- `css/admin.css` — removed `.backup-latest`/`.backup-latest-label` (the backup-history table they styled no longer exists); kept `.backup-intro`/`.backup-muted`/`.backup-result*`, which the current view still uses.
+- `package.json` — removed the `sync-functions-lib` script (its target file no longer exists).
+- `scripts/lib/backup-core.js` — updated its header comment only (no logic change) to stop referencing the now-removed Cloud Function.
 
-Nothing else in the frontend changed — draft/roster/schedule/etc. views, Firestore security rules, and the public site are all untouched.
+Nothing else in the frontend changed — draft/roster/schedule/etc. views, Firestore security rules, and the public site are all untouched. The CLI backup/restore system (`scripts/backup.js`, `scripts/restore.js`, `scripts/lib/firestore-serialize.js`, `scripts/lib/init-admin.js`) is functionally unchanged.
 
-## Admin Panel backup button — architecture
+## Admin Panel backup — architecture
 
 ```
-Admin clicks "Create Backup"
+Admin clicks "Download Full Firestore JSON"
         │
-        │  firebase.functions().httpsCallable('backupFirestore')()
-        │  (Firebase Functions client SDK — automatically attaches the
-        │   signed-in admin's Firebase Auth ID token; no credential of
-        │   any kind lives in js/admin/backup.js)
+        │  AuthBoundary.requireAuth() — fast client-side check
+        │  (js/admin/backup.js)
         ▼
-Cloud Function: backupFirestore  (functions/index.js)
-        │  1. requireAuth(request) — verified server-side by the
-        │     Callable Functions framework before this code even runs;
-        │     rejects with 'unauthenticated' if there's no valid token
-        │  2. acquireLock(db) — Firestore-transaction-based lock, so two
-        │     near-simultaneous clicks can't start two backups
-        │  3. collectAllCollections(db, log)  — functions/lib/backup-core.js,
-        │     the SAME function scripts/backup.js uses locally
-        │  4. writes firestore-backups/<slug>/... to Cloud Storage
-        │  5. writes a metadata-only history record to Firestore
-        │     (_internal/backupHistory/runs/<slug>) — never the actual
-        │     backed-up content
-        │  6. releaseLock(db) (always — even on failure)
+For each name in KNOWN_ROOT_COLLECTIONS (currently ["league", "nba2k_players"]):
+        │  firebase.firestore().collection(name).get()
+        │  (Firebase Web SDK — reads only what Firestore Security Rules
+        │   allow the signed-in admin to read; no credential beyond the
+        │   admin's own Firebase Auth session is involved anywhere)
         ▼
-Response: { success, totalDocuments, totalCollectionPaths, durationMs }
+Every document serialized (Timestamp/GeoPoint/Bytes/DocumentReference
+preserved as tagged values, same {"__type": ...} shape the CLI backup
+uses) and collected into one { metadata, documents: [{path, data}, ...] } object
         ▼
-js/admin/backup.js renders the result / refreshes the history table
+Blob + <a download> — the file downloads directly to the admin's computer;
+nothing is uploaded anywhere, and nothing is written to Firestore
+        ▼
+js/admin/backup.js renders the result (document count, collection-path
+count, filename, elapsed time) or a non-sensitive error message
 ```
 
-`admin.initializeApp()` in `functions/index.js` is called with **zero
-arguments** — in the Cloud Functions execution environment, that uses the
-function's attached runtime service account, an identity Google Cloud
-manages and injects automatically. There is no private-key file anywhere
-in this path (unlike the local CLI's `GOOGLE_APPLICATION_CREDENTIALS`
-flow) — nothing exists that could accidentally be exposed, committed, or
-served to a browser, because nothing like that exists here at all.
+**Why this can't genuinely discover collections the way the CLI does**:
+the CLI (and the former Cloud Function) can call `db.listCollections()` /
+`docRef.listCollections()` because the Admin SDK runs with privileged
+(service-account) access. The Firebase **Web** SDK has no equivalent of
+that method at all — collection discovery isn't something Firestore
+Security Rules can expose to a signed-in client, by design. So
+`KNOWN_ROOT_COLLECTIONS` in `js/admin/backup.js` is a hand-maintained
+list, confirmed against this codebase's actual Firestore reads at the
+time this was written. **If a new top-level collection or a subcollection
+is ever added to this app, that list must be updated by hand**, or the
+browser backup will silently miss it — this limitation is called out in
+that file's header comment and is why this feature is described as a
+"Firestore JSON backup" rather than a complete/generic export.
 
-**Authorization**: this app has exactly one role — any signed-in Firebase
-Auth user is the commissioner/admin (see `js/admin/auth-boundary.js`;
-enforced identically today via `firestore.rules`' `request.auth != null`).
-`requireAuth()` in `functions/index.js` is that exact same check, applied
-server-side. There's no separate roles/permissions system in this project
-to integrate with — if one is added later, it would extend that one
-function.
+**Authorization**: same single-role model as everywhere else in this app
+— any signed-in Firebase Auth user is the commissioner/admin (see
+`js/admin/auth-boundary.js`), enforced by `firestore.rules`
+(`request.auth != null`). The browser backup reads through that same
+boundary; it has no elevated access beyond what the signed-in admin
+already has via the public client SDK.
 
-**Why `functions/lib` exists (not just `require('../scripts/lib')`
-directly)**: `firebase deploy` only uploads the contents of the
-`functions` source directory — it has no access to sibling directories
-like `scripts/lib` in Cloud Build's environment. An earlier version of
-this used a `file:../scripts/lib` npm dependency, which `npm install`
-resolves as a symlink pointing outside `functions/` — that symlink would
-be broken as soon as it left this machine. `scripts/lib` remains the one
-place you actually edit; `functions/lib` is a disposable copy of it,
-regenerated automatically by firebase.json's `predeploy` hook before every
-deploy (and via `npm run sync-functions-lib` any other time you want it
-fresh, e.g. for local emulator testing).
-
-**Backup storage**: Cloud Storage, under `firestore-backups/<timestamp>/`
-— same layout/`metadata.json` shape as the local CLI backup, just in a
-bucket instead of on disk. Only reachable by someone with access to the
-Firebase project's Cloud Storage (i.e. project members with the right
-IAM role) or, from the app's own perspective, from server-side code
-running with the function's service account — never from the browser.
-
-**Duplicate-request protection (Phase 7)**: a Firestore-transaction-based
-lock (`_internal/backupLock`), not the frontend button-disable alone. A
-lock older than 10 minutes is treated as stale/available again, so one
-crashed run can't permanently wedge the feature.
-
-**Restore**: intentionally NOT exposed in the Admin panel. `npm run
-restore` remains the only way to restore, run locally by someone with a
-real service-account key — see "Running a restore" above. A website
-restore button is meaningfully higher-risk than a backup button and is
-out of scope here on purpose.
+**No history, no lock, no restore**: this view has no backup-history
+list (nothing server-side records past browser-downloaded backups — each
+one exists only in browser memory during generation and then as the
+downloaded file) and no duplicate-request lock (only a same-tab
+button-disable while a download is in progress). Restore remains
+intentionally NOT exposed in the Admin panel; `npm run restore` is still
+the only way to restore, same as before this revision.
 
 ## Running a backup
 
@@ -173,11 +179,14 @@ own timestamped subfolder; nothing here is ever deleted automatically.
 ## What's backed up
 
 Everything Firestore has, discovered generically rather than hardcoded.
-As currently deployed, that's the one collection this app actually uses:
+As currently deployed, this app uses two root collections:
 - `league` (1 document: `main`, containing all seasons/players/settings).
+- `nba2k_players` (one document per imported NBA 2K player, keyed by slug).
 
 If you ever add more top-level collections or subcollections, they'll be
-picked up automatically on the next backup run — no script changes needed.
+picked up automatically on the next **CLI** backup run — no script
+changes needed. The separate Admin Panel browser backup does NOT get
+this for free — see "Admin Panel backup — architecture" above.
 
 ## Authentication
 
@@ -240,14 +249,13 @@ hosting situation if you want it done.
 - Restore defaults to a dry run; the destructive path requires the
   literal `--confirm` flag, and always reports the target project and
   overwrite count first.
-- The frontend for the CLI/local backup path is completely unmodified —
-  it still only ever talks to Firestore through the public client SDK /
-  API key already in `js/firebase-config.js`, which was always meant to
-  be public (it's restricted by `firestore.rules`, not secrecy). The
-  Admin panel's "Backup Firestore" button (see the architecture section
-  above) is the one frontend addition, and it never touches Firestore
-  directly at all — it only calls a Cloud Function through the Functions
-  client SDK, which attaches the user's own ID token, nothing more.
+- The Admin panel's "Download Full Firestore JSON" button (see "Admin
+  Panel backup — architecture" above) reads Firestore directly through
+  the same public client SDK / API key already in `js/firebase-config.js`
+  (meant to be public; restricted by `firestore.rules`, not secrecy) that
+  the rest of the app already uses — it adds no new credential, endpoint,
+  or elevated access of any kind. The downloaded file only ever goes to
+  the admin's own computer; nothing is uploaded anywhere.
 
 ## Verification results
 
@@ -288,39 +296,33 @@ network rules). All of the following passed:
 - ✅ Re-ran this entire suite again after extracting `backup-core.js` out
   of `backup.js` (for the Cloud Function to share) — no regression.
 
-**Cloud Function** (`functions/index.js`) — **not yet deployed, so this
-could only be tested at the logic level**, against the same kind of fake
-Firestore plus a fake Cloud Storage bucket, exercising the real,
-unmodified `runBackupCore`/`getHistoryCore`/`acquireLock`/`releaseLock`/
-`requireAuth` functions directly:
+**Admin Panel browser backup** (`js/admin/backup.js`) — the previous
+Cloud Function architecture described in earlier revisions of this
+document has been removed entirely (see "Admin Panel backup —
+architecture" above) and replaced with this browser-only mechanism. Its
+logic (serialization, filename generation, and the overall flow) was
+reviewed by inspection and by running the pure functions (the
+Timestamp/GeoPoint/Bytes/DocumentReference serializer, and the filename
+builder) outside a browser against representative inputs — a real
+end-to-end run (loading the Admin panel in an authenticated browser
+session, clicking the button, and inspecting the downloaded file against
+live Firestore data) has **not** been performed as part of this revision,
+since that requires an actual signed-in session against the deployed
+project. Treat "the code is correct" and "verified end-to-end against
+production" as separate claims; only the first is made here.
 
-- ✅ An unauthenticated request (`request.auth` missing or null) is
-  rejected with `HttpsError('unauthenticated', ...)`.
-- ✅ An authenticated request succeeds and extracts the correct `uid`.
-- ✅ Backup discovers `league/main`, a synthetic 30-document collection
-  (proving no hardcoding), and a subcollection — all in one run.
-- ✅ Output is written to Cloud Storage under the documented
-  `firestore-backups/<timestamp>/` prefix, with content identical to what
-  the local CLI backup would produce for the same data.
-- ✅ The Firestore history record contains status/counts/timing only —
-  never the actual backed-up content.
-- ✅ `getBackupHistory` returns runs newest-first.
-- ✅ A second backup attempt while one is "in progress" is correctly
-  rejected (`HttpsError('already-exists', ...)`) — the concurrency lock
-  works.
-- ✅ A backup that fails partway (simulated Firestore read failure)
-  writes **zero** files to Storage, records a `status: 'failed'` history
-  entry (never a false `'success'`), surfaces only a generic error
-  message to the caller, and still releases the lock.
-
-**What this does NOT prove**, and I want to be direct about it: none of
-this exercises Google's actual Callable-Functions auth verification,
-real network/IAM behavior, real Cloud Storage permissions, or the real
-`onCall` wrapper — those only exist once this is actually deployed. The
-`_testables` exports in `functions/index.js` exist specifically so this
-logic could be tested before that point, but "logic is correct" and
-"deployed and working in production" are different claims, and I'm only
-making the first one. Deployment (and that final confirmation) is up to
-you, per Phase 12/9's explicit instruction to stop and wait for approval
-first.
+**Known limitations of the browser-based backup**, stated plainly rather
+than implied:
+- It cannot discover collections/subcollections the way the CLI backup
+  does — it only reads `KNOWN_ROOT_COLLECTIONS` in `js/admin/backup.js`,
+  currently `["league", "nba2k_players"]`. A collection or subcollection
+  added to the app without updating that list will be silently missed by
+  this feature (though still caught by the CLI backup, which discovers
+  generically).
+- It is limited to whatever the signed-in admin's Firestore Security
+  Rules allow them to read — same boundary the rest of the app already
+  operates under, not a new restriction, but worth stating since it's a
+  different privilege level than the CLI backup's Admin SDK access.
+- It has no backup-history record and no concurrency lock — see "No
+  history, no lock, no restore" above.
 

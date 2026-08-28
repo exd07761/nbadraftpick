@@ -1283,16 +1283,3 @@ select.input { cursor: pointer; }
 .backup-result-success strong { color: var(--green); display: block; margin-bottom: 0.25rem; }
 .backup-result-error { background: rgba(240, 90, 90, 0.1); border: 1px solid var(--red); color: var(--text); }
 .backup-result-error strong { color: var(--red); display: block; margin-bottom: 0.25rem; }
-
-.backup-latest {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.85rem;
-}
-.backup-latest-label { color: var(--text-muted); margin-right: 0.35rem; }

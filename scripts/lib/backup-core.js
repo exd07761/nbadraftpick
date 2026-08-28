@@ -2,17 +2,19 @@
  * scripts/lib/backup-core.js
  *
  * The actual "walk every collection/subcollection and serialize every
- * document" logic — extracted out of scripts/backup.js so it can be
- * reused, unchanged, by the new Cloud Function (functions/index.js)
- * instead of being duplicated. This module has NO knowledge of where
- * the result ends up (local disk vs Cloud Storage) — it just returns an
- * in-memory structure; the caller decides how to persist it.
+ * document" logic — extracted out of scripts/backup.js as its own
+ * module. This module has NO knowledge of where the result ends up
+ * (currently: local disk) — it just returns an in-memory structure; the
+ * caller decides how to persist it.
  *
- * scripts/backup.js (local CLI, writes to disk) and functions/index.js
- * (Cloud Function, writes to Cloud Storage) both call
- * collectAllCollections() and get identical discovery/serialization
- * behavior — same pagination, same recursive subcollection walk, same
- * Firestore-native-type handling — from this one place.
+ * Uses the Admin SDK's listCollections(), which requires privileged
+ * (service-account) access — this generic discovery/walk approach is
+ * why the CLI backup can find every collection/subcollection without
+ * anything being hardcoded. It's also why the separate Admin-panel
+ * browser backup (js/admin/backup.js) can't reuse this module directly:
+ * the Web SDK has no listCollections() equivalent, so that feature
+ * reads a hand-maintained list of known collections instead — see that
+ * file's header comment for details.
  */
 
 const { serializeDocData } = require('./firestore-serialize');

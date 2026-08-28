@@ -5,8 +5,7 @@
   "description": "Firestore backup/restore utilities for the NBA 2K Draft Pick app. The app itself (index.html/admin.html) is a static frontend and does not need this package — this exists only for scripts/backup.js and scripts/restore.js.",
   "scripts": {
     "backup": "node scripts/backup.js",
-    "restore": "node scripts/restore.js",
-    "sync-functions-lib": "node scripts/sync-functions-lib.js"
+    "restore": "node scripts/restore.js"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0"
