@@ -36,15 +36,18 @@ const ScheduleView = {
       this._selectedRound = rounds[0].round;
     }
     const activeRound = rounds.find((r) => r.round === this._selectedRound);
+    const isGroupStage = season.scheduleFormat === 'groupStage';
+    const activeStage = activeRound.matchups[0]?.stage || null;
 
     container.innerHTML = `
       <div class="schedule-view" style="max-width:none;">
-        <h2 class="section-title">Regular Season Schedule</h2>
+        <h2 class="section-title">Regular Season Schedule${isGroupStage ? ' — Group Stage' : ''}</h2>
+        ${isGroupStage ? `<p class="helper-text">Stage ${activeStage} of 2 — 4 groups of 4, 3 games/team per stage.</p>` : ''}
 
         <div class="round-tabs" id="roundTabs">
           ${rounds.map((r) => `
             <button class="round-tab ${r.round === this._selectedRound ? 'active' : ''}" data-round="${r.round}">
-              Round ${r.round}
+              Round ${r.round}${isGroupStage ? ` · Stage ${r.matchups[0]?.stage || ''}` : ''}
             </button>`).join('')}
         </div>
 
@@ -88,6 +91,7 @@ const ScheduleView = {
           <span class="matchup-card-status ${isCompleted ? 'status-complete' : 'status-scheduled'}">
             ${isCompleted ? 'Final' : 'Scheduled'}
           </span>
+          ${m.group ? `<span class="matchup-card-streamer">Group ${m.group}</span>` : ''}
           ${isCompleted ? `<span class="matchup-card-streamer">🎥 ${escapeHtml(m.streamer)}</span>` : ''}
         </div>
         <div class="matchup-card-body">

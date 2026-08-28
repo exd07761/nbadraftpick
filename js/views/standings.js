@@ -51,6 +51,8 @@ const StandingsView = {
       <div class="standings-view" style="max-width:none;">
         <h2 class="section-title">Standings</h2>
 
+        ${this._renderGroupStageSection(season)}
+
         <!-- Desktop/tablet: full table (hidden below 700px, see main.css) -->
         <div class="standings-table-wrap table-scroll">
           <table class="standings-table" id="teamStandingsTable">
@@ -112,5 +114,50 @@ const StandingsView = {
           </table>
         </div>` : ''}
       </div>`;
+  },
+
+  /**
+   * Group Stage only: shows the current stage's per-group standings above
+   * the combined final table above (which already correctly reflects the
+   * combined 6-game record once both stages exist — untouched). Returns
+   * '' for a Round Robin season, so that season's rendering is byte-for-
+   * byte what it always was.
+   */
+  _renderGroupStageSection(season) {
+    if (season.scheduleFormat !== 'groupStage' || !season.groupStageState) return '';
+    const gs = season.groupStageState;
+    const standings = LeagueData.getGroupStageStandings(season.id, gs.stage);
+    if (!standings) return '';
+
+    return `
+      <h3 class="section-title" style="margin-bottom:0.5rem;">
+        Group Stage — Stage ${gs.stage} of 2
+      </h3>
+      <div class="standings-cards" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+        ${['A', 'B', 'C', 'D'].map((g) => `
+          <div class="standings-table-wrap table-scroll" style="min-width:220px;flex:1;">
+            <table class="standings-table">
+              <thead><tr><th colspan="4">Group ${g}</th></tr>
+                <tr><th>#</th><th>Team</th><th>W-L</th><th>PD</th></tr>
+              </thead>
+              <tbody>
+                ${(standings[g] || []).map((row, i) => `
+                  <tr>
+                    <td>${i + 1}</td>
+                    <td>${teamBadge(row.nbaTeam, { size: 'sm' })} ${escapeHtml(row.participantName || '—')}</td>
+                    <td>${row.wins}-${row.losses}</td>
+                    <td class="${row.pointDifferential > 0 ? 'pd-pos' : row.pointDifferential < 0 ? 'pd-neg' : ''}">
+                      ${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}
+                    </td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>`).join('')}
+      </div>
+      <p class="helper-text">
+        ${gs.stage === 1
+          ? 'Round 1 group standings — final position determines each team\'s seed for the Round 2 re-seeded groups.'
+          : 'Round 2 group standings (re-seeded from Round 1). The combined final standings across both stages are below.'}
+      </p>`;
   },
 };

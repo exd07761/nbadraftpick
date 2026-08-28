@@ -89,6 +89,7 @@ const AdminRosterView = {
         <div class="admin-section-header">
           <h2>Current Rosters — ${escapeHtml(season.name)}</h2>
           <div class="header-actions">
+            <button class="btn btn-ghost" id="btnValidateRosters">✓ Validate Rosters</button>
             ${this._manualEditUnlocked
               ? `<button class="btn btn-ghost" id="btnLockManualEdit">🔓 Manual Roster Editor Active — Exit</button>`
               : `<button class="btn btn-ghost header-danger-action" id="btnUnlockManualEdit">🔒 Edit Roster Manually</button>`
@@ -100,8 +101,11 @@ const AdminRosterView = {
         ${this._renderStatusBanner(draftComplete, rostersInitialized, totalParticipants, initializedCount)}
         ${this._manualEditUnlocked ? `
         <div class="info-banner warn-banner">
-          🔓 Manual Roster Editor unlocked. Add/Remove/Replace actions below write directly to current rosters —
-          removed players return to the available pool immediately.
+          <strong>🔓 Manual Roster Override Active.</strong>
+          Normal roster rules (rating cap, position requirements, Blue/Green composition, minimum rating) are
+          bypassed while editing — removed players return to the available pool immediately.
+          Player ownership and basic data-integrity checks (no duplicate assignment, no invalid player records)
+          remain enforced. Use <strong>✓ Validate Rosters</strong> above to review the final state when you're done.
           ${!rostersInitialized ? ' Rosters have not been initialized from the draft yet, so there is nothing to edit until that\'s done below.' : ''}
         </div>` : ''}
 
@@ -388,6 +392,13 @@ const AdminRosterView = {
       this._runInitializeRosters(season);
     };
 
+    // ── Revision 3: Validate Rosters — read-only, always available (does
+    // not require Manual Roster Edit to be unlocked, and never writes). ──
+    container.querySelector('#btnValidateRosters')?.addEventListener('click', () => {
+      const result = LeagueData.validateAllRosters(season.id);
+      this._openValidateRostersModal(result);
+    });
+
     // ── Revision 2: Manual Roster Edit ─────────────────────────────────
     container.querySelector('#btnUnlockManualEdit')?.addEventListener('click', () => {
       AuthBoundary.requireAuth();
@@ -478,7 +489,14 @@ const AdminRosterView = {
         try {
           // Reuses the exact same AdminActions.designateJoker call
           // admin/trades.js's Joker tab uses — no separate Joker logic.
-          AdminActions.designateJoker(season.id, btn.dataset.participantId, btn.dataset.playerId, position);
+          // Revision 3: passes bypassRosterRules so a manual Joker
+          // correction isn't blocked by the resulting-position check —
+          // own-pick #1-10 eligibility (inside designateJoker itself) is
+          // never bypassed. See designateJoker's doc comment in data.js.
+          AdminActions.designateJoker(
+            season.id, btn.dataset.participantId, btn.dataset.playerId, position,
+            { bypassRosterRules: true }
+          );
           showToast('Joker Swap applied.', 'success');
           this._manualJokerFor = null;
           AdminApp.renderView('roster');
@@ -565,6 +583,67 @@ const AdminRosterView = {
         );
       };
     });
+  },
+
+  // ── Revision 3: Validate Rosters — read-only diagnostic modal. Never
+  // calls any AdminActions write, never requires the PIN/AuthBoundary —
+  // it only renders whatever LeagueData.validateAllRosters() (a pure read)
+  // returns. Separate from, and independent of, Manual Roster Edit. ─────
+  _openValidateRostersModal(result) {
+    document.getElementById('validateRostersOverlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'validateRostersOverlay';
+    overlay.className = 'modal-overlay';
+    const errCount = result.errors.length;
+    const warnCount = result.warnings.length;
+    const headline = result.valid
+      ? '✓ Rosters Valid'
+      : `❌ ${errCount} error${errCount !== 1 ? 's' : ''} found`;
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="validateRostersTitle" style="max-width:640px;max-height:80vh;overflow-y:auto;">
+        <div class="modal-eyebrow">Roster Validation</div>
+        <div class="modal-player-name" id="validateRostersTitle">${escapeHtml(headline)}</div>
+        <p class="modal-prompt">
+          ${result.teamsChecked} team${result.teamsChecked !== 1 ? 's' : ''} checked —
+          ${errCount} error${errCount !== 1 ? 's' : ''}, ${warnCount} warning${warnCount !== 1 ? 's' : ''}.
+        </p>
+        ${this._renderValidationFindings(result)}
+        <div class="modal-actions">
+          <button class="btn btn-primary" id="validateRostersCloseBtn">Close</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    document.getElementById('validateRostersCloseBtn').onclick = close;
+  },
+
+  // Groups the flat errors/warnings arrays by team name (league-wide
+  // findings — e.g. a duplicate player owned by two teams — have
+  // teamId/teamName null and are shown under their own heading).
+  _renderValidationFindings(result) {
+    if (result.valid && !result.warnings.length) {
+      return `<div class="success-banner">✓ No roster errors or warnings found.</div>`;
+    }
+    const groups = new Map();
+    const bucketFor = (item) => {
+      const key = item.teamName || 'League-wide';
+      if (!groups.has(key)) groups.set(key, { errors: [], warnings: [] });
+      return groups.get(key);
+    };
+    result.errors.forEach(e => bucketFor(e).errors.push(e));
+    result.warnings.forEach(w => bucketFor(w).warnings.push(w));
+
+    return `<div class="validate-rosters-groups">
+      ${[...groups.entries()].map(([name, findings]) => `
+        <div style="margin-bottom:0.85rem;">
+          <div style="font-weight:700;margin-bottom:0.25rem;">${escapeHtml(name)}</div>
+          <ul style="margin:0;padding-left:1.15rem;font-size:0.85rem;">
+            ${findings.errors.map(e => `<li class="error-text">❌ ${escapeHtml(e.message)}</li>`).join('')}
+            ${findings.warnings.map(w => `<li style="color:var(--nb-gold,#c9a227)">⚠ ${escapeHtml(w.message)}</li>`).join('')}
+          </ul>
+        </div>`).join('')}
+    </div>`;
   },
 
   // ── Manual Roster Edit — PIN step, reusing _DELETE_ALL_PLAYERS_PIN from

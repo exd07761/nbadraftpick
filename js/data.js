@@ -199,12 +199,48 @@ function createSeason(id, name) {
     //   scoreA, scoreB, winner,  // winner is participantId, always derived
     //   streamer,                // free-text string, set at score-entry time
     //   playedAt,                // ISO string, set when the result is saved
+    //   stage, group,            // Group Stage only (see below) — absent/
+    //                            // undefined on every Round Robin matchup,
+    //                            // so nothing that reads a Matchup needs to
+    //                            // change for Round Robin to keep working.
+    //                            // stage: 1 | 2. group: 'A'|'B'|'C'|'D'.
     // }
     // NBA team abbreviation is intentionally NOT stored here — look it up via
     // season.nbaTeamAssignments[participantId] (single source of truth,
     // see Process 2 above) rather than duplicating it onto the matchup.
     schedule: [],
     scheduleGeneratedAt: null, // ISO string, set each time generateSchedule() runs
+
+    // Which scheduler produced season.schedule — 'roundRobin' (default/
+    // legacy, every existing season implicitly means this) or 'groupStage'
+    // (Revision — Group Stage format). Every reader of season.schedule
+    // (getScheduleState, getTeamStatistics, getStreamerStatistics,
+    // recordMatchResult, playoffs) works identically regardless of this
+    // value — it only matters to the schedule UI (which display/generate
+    // flow to show) and to recordMatchResult's Round-1-lock guard below.
+    scheduleFormat: null, // null until a schedule is generated; 'roundRobin' | 'groupStage'
+
+    // Group Stage-only bookkeeping — null for a Round Robin season (or any
+    // season before a schedule is generated). Never read by anything
+    // outside the Group Stage generation/display code; the actual games
+    // always live in `schedule` above, in the exact same Matchup shape
+    // Round Robin uses, so every other system (standings, streamers,
+    // playoffs, financial) is unaffected by whichever format produced them.
+    //   groups: { A: [participantId x4], B: [...], C: [...], D: [...] } —
+    //     Round 1's group assignment, frozen at generation time.
+    //   stage: 1 | 2 — which stage is currently in play / most recently generated.
+    //   round1Standings: null until Round 2 is generated, then
+    //     { A: [participantId x4 in finish order 1st..4th], B: [...], ... } —
+    //     frozen the moment Round 2 is generated. Informational/audit only
+    //     (Revision — Manual Online-Roulette Assignment: Round 2 group
+    //     membership is no longer derived from this) — it records what
+    //     Round 1 standings looked like at the moment the commissioner ran
+    //     the roulette and generated Round 2, nothing more.
+    //   round2Groups: null until Round 2 is generated, then the same shape
+    //     as `groups` above, but holding the commissioner's manually
+    //     entered Round 2 assignment (the external roulette result) —
+    //     never computed by this app from round1Standings.
+    groupStageState: null,
 
     // Reserved for Phase 8 (e.g. precomputed standings snapshots).
     // Completed matchups already carry their full result inline in
@@ -999,6 +1035,83 @@ function generateRoundRobinRounds(teamIds) {
   return rounds;
 }
 
+// ─── Group Stage (legacy 16-team / 4-group format) ─────────────────────────
+//
+// Reuses generateRoundRobinRounds() unchanged for each group's mini
+// round-robin (4 teams -> exactly 3 rounds, 2 games/round, never an odd
+// count so the BYE path in generateRoundRobinRounds never triggers) —
+// nothing about pairing/rotation logic is duplicated. This file's ONLY new
+// scheduling logic is how four separate mini-round-robins get interleaved
+// into shared "global" rounds. Round 2 groups are entered manually by the
+// commissioner (Revision — Manual Online-Roulette Assignment) rather than
+// computed here.
+
+const GROUP_NAMES = ["A", "B", "C", "D"];
+
+/**
+ * Builds one stage's worth of Group Stage rounds: runs a mini round-robin
+ * (via the existing generateRoundRobinRounds) independently for each of
+ * the 4 groups, then interleaves them so global round N contains every
+ * group's Nth mini-round — this is what lets the existing round-tabs
+ * admin/public UI display Group Stage exactly like Round Robin (one tab
+ * per global round, every team appearing at most once per tab).
+ *
+ * groups: { A: [id,id,id,id], B: [...], C: [...], D: [...] } — each array
+ * must have exactly 4 entries (validated by the caller, not here — this
+ * is a pure function with no throwing/validation of its own, matching
+ * generateRoundRobinRounds' own contract).
+ *
+ * Returns `schedule`-shaped rounds: [{ round, matchups }], with `round`
+ * numbers starting at roundOffset + 1, and every matchup tagged with
+ * { stage, group }.
+ */
+function generateGroupStageRounds(groups, stageNumber, roundOffset) {
+  const perGroup = GROUP_NAMES.map((g) => ({
+    group: g,
+    rounds: generateRoundRobinRounds(groups[g]),
+  }));
+  const numMiniRounds = perGroup[0].rounds.length; // 3 for 4 teams, always
+  const combined = [];
+  for (let i = 0; i < numMiniRounds; i++) {
+    const matchups = [];
+    for (const { group, rounds } of perGroup) {
+      for (const m of rounds[i].matchups) {
+        matchups.push({ ...m, stage: stageNumber, group });
+      }
+    }
+    combined.push({ round: roundOffset + i + 1, matchups });
+  }
+  return combined;
+}
+
+/**
+ * Checks a proposed Round 2 groups object against the ACTUAL Round 1
+ * matchups already played (never assumed, per the "add validation for
+ * this rather than assuming" requirement — this matters even more now
+ * that Round 2 groups are entered manually, since a roulette result could
+ * legitimately produce a rematch). Returns an array of
+ * { teamA, teamB, group } for every Round 2 pairing that already played
+ * in Round 1 — empty array means clean.
+ */
+function findGroupStageRematches(round1Matchups, round2Groups) {
+  const playedPairs = new Set(
+    round1Matchups.map((m) => [m.teamA, m.teamB].sort().join("::"))
+  );
+  const rematches = [];
+  for (const group of GROUP_NAMES) {
+    const teams = round2Groups[group];
+    for (let i = 0; i < teams.length; i++) {
+      for (let j = i + 1; j < teams.length; j++) {
+        const key = [teams[i], teams[j]].sort().join("::");
+        if (playedPairs.has(key)) {
+          rematches.push({ teamA: teams[i], teamB: teams[j], group });
+        }
+      }
+    }
+  }
+  return rematches;
+}
+
 // ── Phase 9: Playoffs ──────────────────────────────────────────────────────
 //
 // Confirmed bracket structure (nothing here is inferred beyond what was
@@ -1474,6 +1587,74 @@ function generateId(prefix = "id") {
 // These functions are safe to call from public-facing pages.
 // They never write to storage.
 
+/**
+ * Shared standings computation — used by both LeagueData.getTeamStatistics
+ * (the whole season, every matchup) and LeagueData.getGroupStageStandings
+ * (one group, one stage's matchups only). Pure function: does not read
+ * season state itself, so it can never accidentally use the wrong scope
+ * of matchups.
+ *
+ * Ranking rule (the only one this league defines): sort by winPct
+ * descending; if winPct is equal, sort by pointDifferential descending.
+ * No other tie-breaker exists — equal winPct AND equal pointDifferential
+ * rows are left in their relative order (stable sort), never arbitrarily
+ * separated.
+ */
+function computeTeamStandings(teamIds, matchups, participants, nbaTeamAssignments) {
+  const completedReal = matchups.filter((m) => m.teamB !== null && m.status === "completed");
+  const scheduledReal = matchups.filter((m) => m.teamB !== null && m.status !== "completed");
+
+  const stats = teamIds.map((pid) => {
+    const participant = participants[pid];
+    const nbaTeam = nbaTeamAssignments[pid] || null;
+
+    const played = completedReal.filter((m) => m.teamA === pid || m.teamB === pid);
+    const wins = played.filter((m) => m.winner === pid).length;
+    const gamesPlayed = played.length;
+    const losses = gamesPlayed - wins;
+    const winPct = gamesPlayed > 0 ? wins / gamesPlayed : 0;
+
+    let pointsFor = 0;
+    let pointsAgainst = 0;
+    for (const m of played) {
+      if (m.teamA === pid) {
+        pointsFor += m.scoreA;
+        pointsAgainst += m.scoreB;
+      } else {
+        pointsFor += m.scoreB;
+        pointsAgainst += m.scoreA;
+      }
+    }
+    const pointDifferential = pointsFor - pointsAgainst;
+
+    const gamesRemaining = scheduledReal.filter((m) => m.teamA === pid || m.teamB === pid).length;
+
+    return {
+      participantId: pid,
+      participantName: participant ? participant.name : null,
+      nbaTeam,
+      gamesPlayed,
+      wins,
+      losses,
+      winPct,
+      pointsFor,
+      pointsAgainst,
+      pointDifferential,
+      gamesRemaining,
+    };
+  });
+
+  // Array.prototype.sort is stable, so ties on BOTH remain in their
+  // existing (caller-supplied teamIds) relative order rather than being
+  // reshuffled — no additional tie-breaker is invented here.
+  stats.sort((a, b) => {
+    if (b.winPct !== a.winPct) return b.winPct - a.winPct;
+    return b.pointDifferential - a.pointDifferential;
+  });
+
+  return stats;
+}
+
 const LeagueData = {
   // All NBA teams (static, no storage needed)
   getNBATeams() {
@@ -1906,11 +2087,10 @@ const LeagueData = {
    * completed REAL matchups (BYEs and not-yet-played games are excluded
    * by construction — see the filters below).
    *
-   * Ranking rule (the only one this league defines): sort by winPct
-   * descending; if winPct is equal, sort by pointDifferential descending.
-   * No other tie-breaker exists — equal winPct AND equal pointDifferential
-   * rows are left in their relative order (stable sort), never
-   * arbitrarily separated.
+   * Format-agnostic: this simply looks at ALL of season.schedule, so for a
+   * Group Stage season, once both stages exist, this is exactly the
+   * correct combined final ranking across all 6 games/team — no special
+   * casing needed here for Group Stage at all.
    *
    * Returns [] if the season has no schedule or no assigned teams.
    */
@@ -1922,67 +2102,35 @@ const LeagueData = {
       (pid) => !!season.nbaTeamAssignments[pid]
     );
     const allMatchups = season.schedule.flatMap((r) => r.matchups);
-    const completedReal = allMatchups.filter(
-      (m) => m.teamB !== null && m.status === "completed"
-    );
-    const scheduledReal = allMatchups.filter(
-      (m) => m.teamB !== null && m.status !== "completed"
-    );
+    return computeTeamStandings(teamIds, allMatchups, season.participants, season.nbaTeamAssignments);
+  },
 
-    const stats = teamIds.map((pid) => {
-      const participant = season.participants[pid];
-      const nbaTeam = season.nbaTeamAssignments[pid] || null;
+  /**
+   * Group Stage-only: per-group standings for one stage, using the exact
+   * same computeTeamStandings ranking rule as getTeamStatistics above —
+   * this is NOT a second standings engine, just the same pure function
+   * scoped to one group's teams and one stage's matchups.
+   *
+   * Returns null if this season isn't a Group Stage season. Returns
+   * { A: [...], B: [...], C: [...], D: [...] }, each an array of 4 ranked
+   * stat rows (same shape getTeamStatistics rows have) for the requested
+   * stage (defaults to season.groupStageState.stage, i.e. whichever stage
+   * is current).
+   */
+  getGroupStageStandings(seasonId, stage) {
+    const season = this.getSeason(seasonId);
+    if (!season || !season.groupStageState) return null;
+    const targetStage = stage || season.groupStageState.stage;
+    const groups = targetStage === 1 ? season.groupStageState.groups : season.groupStageState.round2Groups;
+    if (!groups) return null;
 
-      const played = completedReal.filter(
-        (m) => m.teamA === pid || m.teamB === pid
-      );
-      const wins = played.filter((m) => m.winner === pid).length;
-      const gamesPlayed = played.length;
-      const losses = gamesPlayed - wins;
-      const winPct = gamesPlayed > 0 ? wins / gamesPlayed : 0;
-
-      let pointsFor = 0;
-      let pointsAgainst = 0;
-      for (const m of played) {
-        if (m.teamA === pid) {
-          pointsFor += m.scoreA;
-          pointsAgainst += m.scoreB;
-        } else {
-          pointsFor += m.scoreB;
-          pointsAgainst += m.scoreA;
-        }
-      }
-      const pointDifferential = pointsFor - pointsAgainst;
-
-      const gamesRemaining = scheduledReal.filter(
-        (m) => m.teamA === pid || m.teamB === pid
-      ).length;
-
-      return {
-        participantId: pid,
-        participantName: participant ? participant.name : null,
-        nbaTeam,
-        gamesPlayed,
-        wins,
-        losses,
-        winPct,
-        pointsFor,
-        pointsAgainst,
-        pointDifferential,
-        gamesRemaining,
-      };
-    });
-
-    // Sort by the one established ranking rule: winPct desc, then PD desc.
-    // Array.prototype.sort is stable, so ties on BOTH remain in their
-    // existing (teamAssignmentOrder) relative order rather than being
-    // reshuffled — no additional tie-breaker is invented here.
-    stats.sort((a, b) => {
-      if (b.winPct !== a.winPct) return b.winPct - a.winPct;
-      return b.pointDifferential - a.pointDifferential;
-    });
-
-    return stats;
+    const allMatchups = season.schedule.flatMap((r) => r.matchups);
+    const result = {};
+    for (const g of GROUP_NAMES) {
+      const stageMatchups = allMatchups.filter((m) => m.stage === targetStage && m.group === g);
+      result[g] = computeTeamStandings(groups[g], stageMatchups, season.participants, season.nbaTeamAssignments);
+    }
+    return result;
   },
 
   /**
@@ -2548,6 +2696,186 @@ const LeagueData = {
       })
       .filter((e) => e.player && e.ownPickNumber != null && e.ownPickNumber >= 1 && e.ownPickNumber <= 10);
   },
+
+  /**
+   * Revision 3 — Validate Rosters: a pure, read-only diagnostic over EVERY
+   * participant's currentRosters for a season. Never mutates season data —
+   * no saveData() call anywhere in this function or anything it calls.
+   *
+   * Reuses the exact same rule functions the normal (non-manual) write
+   * paths already enforce — validateRatingCap, countPositionsForRoster/
+   * CORE_POSITIONS, validateBlueComposition, validateMinimumRating,
+   * MAX_PLAYERS_PER_POSITION, MAX_ROSTER_SIZE, getOriginalPickInfo — so
+   * this never invents a second copy of any roster rule. "Available" is
+   * still derived from currentRosters membership only (see
+   * getSwapEligibleReplacements) — there is no second available-player
+   * list for this to conflict with, so no separate "pool integrity" check
+   * is needed beyond the duplicate-ownership check below.
+   *
+   * Returns:
+   *   {
+   *     valid,          // true iff errors.length === 0
+   *     teamsChecked,   // actual participant count this season (never hard-coded)
+   *     errors:   [{ teamId, teamName, type, message }],  // teamId is null for a league-wide (cross-team) finding
+   *     warnings: [{ teamId, teamName, type, message }],
+   *   }
+   */
+  validateAllRosters(seasonId) {
+    const season = this.getSeason(seasonId);
+    if (!season) {
+      return {
+        valid: false,
+        teamsChecked: 0,
+        errors: [{ teamId: null, teamName: null, type: "SEASON_NOT_FOUND", message: "Season not found." }],
+        warnings: [],
+      };
+    }
+    const data = loadData();
+    const playersById = data.players;
+    const cap = season.ratingCap ?? 875;
+    const currentRosters = season.currentRosters || {};
+
+    // Same ordering/fallback logic as getRosterSummary, so "teams checked"
+    // matches what the admin roster grid itself shows.
+    const orderedIds = [...(season.playerDraftOrder || [])];
+    const orderedSet = new Set(orderedIds);
+    const fallbackIds = Object.keys(season.participants)
+      .filter((id) => !orderedSet.has(id))
+      .sort();
+    const participantIds = [...orderedIds, ...fallbackIds].filter((id) => season.participants[id]);
+
+    const errors = [];
+    const warnings = [];
+    const teamName = (teamId) => (teamId ? season.participants[teamId]?.name || teamId : null);
+    const addError = (teamId, type, message) => errors.push({ teamId, teamName: teamName(teamId), type, message });
+    const addWarning = (teamId, type, message) => warnings.push({ teamId, teamName: teamName(teamId), type, message });
+
+    const ownerTeamsByPlayerId = {}; // playerId -> [participantId, ...] across the whole league
+
+    for (const participantId of participantIds) {
+      const roster = currentRosters[participantId] || [];
+      const filledEntries = roster.filter((e) => e.source !== "empty" && e.playerId);
+
+      // 7/8: duplicate roster entries + invalid/missing player records
+      const seenOnThisRoster = new Set();
+      for (const entry of filledEntries) {
+        if (seenOnThisRoster.has(entry.playerId)) {
+          addError(participantId, "DUPLICATE_ROSTER_ENTRY",
+            `${playersById[entry.playerId]?.name || entry.playerId} appears more than once on this roster.`);
+        }
+        seenOnThisRoster.add(entry.playerId);
+
+        if (!playersById[entry.playerId]) {
+          addError(participantId, "INVALID_PLAYER",
+            `Roster entry references an unknown/invalid player ID (${entry.playerId}).`);
+        }
+
+        (ownerTeamsByPlayerId[entry.playerId] ||= []).push(participantId);
+      }
+
+      // Only players that actually resolve can be safely fed into the
+      // rating/position/pool rule functions below (they all key off
+      // playersById internally too, but skipping here keeps totals from
+      // being silently computed against a missing player as 0 OVR).
+      const resolvableEntries = filledEntries.filter((e) => playersById[e.playerId]);
+
+      // 1. Rating cap
+      const capCheck = validateRatingCap(resolvableEntries, playersById, cap);
+      if (!capCheck.valid) {
+        const total = resolvableEntries.reduce((sum, e) => sum + (playersById[e.playerId]?.overall ?? 0), 0);
+        addError(participantId, "RATING_CAP",
+          `Rating cap exceeded — total ${total} OVR, limit ${cap}, over by ${total - cap}.`);
+      }
+
+      // 2. Position requirements — missing core positions and any position
+      // over the max-per-position rule, both using each entry's EFFECTIVE
+      // position (Joker-aware) exactly like the normal write paths do.
+      const posCounts = countPositionsForRoster(resolvableEntries, playersById);
+      for (const pos of CORE_POSITIONS) {
+        if (!posCounts[pos]) addError(participantId, "MISSING_POSITION", `Missing ${pos}.`);
+      }
+      for (const pos of Object.keys(posCounts)) {
+        if (posCounts[pos] > MAX_PLAYERS_PER_POSITION) {
+          addError(participantId, "POSITION_OVER_MAX",
+            `${posCounts[pos]} players at ${pos} (max ${MAX_PLAYERS_PER_POSITION}).`);
+        }
+      }
+
+      // 3. Blue/Green composition
+      const blueCheck = validateBlueComposition(resolvableEntries, playersById);
+      if (!blueCheck.valid) addError(participantId, "BLUE_COMPOSITION", blueCheck.reason);
+
+      // 4. Minimum rating
+      for (const entry of resolvableEntries) {
+        const minCheck = validateMinimumRating(playersById[entry.playerId]);
+        if (!minCheck.valid) addError(participantId, "MINIMUM_RATING", minCheck.reason);
+      }
+
+      // 5. Roster size — the existing configured maximum (never hard-coded).
+      if (resolvableEntries.length > MAX_ROSTER_SIZE) {
+        addError(participantId, "ROSTER_SIZE",
+          `Roster has ${resolvableEntries.length} players (max ${MAX_ROSTER_SIZE}).`);
+      }
+
+      // 9. Draft slot integrity — report only, never repair.
+      for (const entry of roster) {
+        if (entry.draftSlot != null && (!Number.isInteger(entry.draftSlot) || entry.draftSlot < 1)) {
+          addError(participantId, "DRAFT_SLOT",
+            `Invalid draft slot value (${JSON.stringify(entry.draftSlot)}) on a roster entry.`);
+        }
+      }
+
+      // 11. Joker integrity
+      const jokerEntries = roster.filter((e) => e.isJoker);
+      if (jokerEntries.length > 1) {
+        addError(participantId, "JOKER_MULTIPLE",
+          `${jokerEntries.length} players are marked as Joker on this roster — only one is allowed at a time.`);
+      }
+      for (const entry of jokerEntries) {
+        const p = entry.playerId ? playersById[entry.playerId] : null;
+        if (!entry.playerId || !p) {
+          addError(participantId, "JOKER_STATE", "A Joker-marked roster entry has no valid player.");
+          continue;
+        }
+        if (!entry.jokerPosition) {
+          addError(participantId, "JOKER_STATE", `${p.name} is marked Joker but has no jokerPosition set.`);
+        }
+        if (entry.draftSlot == null || entry.draftSlot < 1 || entry.draftSlot > 10) {
+          addError(participantId, "JOKER_ELIGIBILITY",
+            `${p.name} is marked Joker but is not on one of this participant's own picks #1-10 ` +
+            `(draftSlot: ${entry.draftSlot ?? "none"}).`);
+        }
+      }
+
+      // 12. Classification integrity — can classificationSourcePlayerId
+      // still resolve to an original draft pick? Report-only, per spec.
+      for (const entry of roster) {
+        if (entry.classificationSourcePlayerId
+          && !getOriginalPickInfo(season, entry.classificationSourcePlayerId)) {
+          addWarning(participantId, "CLASSIFICATION_SOURCE",
+            `Invalid classification source — the Red/Yellow tag for pick #${entry.draftSlot ?? "?"} ` +
+            `can no longer be traced back to an original draft pick.`);
+        }
+      }
+    }
+
+    // 6. Duplicate ownership — league-wide, across ALL teams.
+    for (const [playerId, teamIds] of Object.entries(ownerTeamsByPlayerId)) {
+      const uniqueTeamIds = [...new Set(teamIds)];
+      if (uniqueTeamIds.length > 1) {
+        addError(null, "DUPLICATE_PLAYER",
+          `${playersById[playerId]?.name || playerId} is assigned to multiple rosters: ` +
+          `${uniqueTeamIds.map((id) => teamName(id)).join(", ")}.`);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      teamsChecked: participantIds.length,
+      errors,
+      warnings,
+    };
+  },
 };
 
 // ─── Admin Write API ──────────────────────────────────────────────────────────
@@ -3089,6 +3417,38 @@ const AdminActions = {
   // ── Phase 7: Regular Season Schedule ──────────────────────────────────────
 
   /**
+   * Force-clears a season's entire schedule (both Round Robin and Group
+   * Stage), REGARDLESS of whether any games have been completed —
+   * deliberately bypasses the safety guard generateSchedule/
+   * generateGroupStageSchedule enforce. This exists purely for a
+   * commissioner clearing out test/scratch data before the real season
+   * starts; it is destructive (every recorded score, streamer credit, and
+   * derived standing for this season's games is gone the moment this
+   * runs — there is no undo) and is NOT wired to any button that fires
+   * without an explicit confirmation in the UI.
+   *
+   * Clears schedule, scheduleGeneratedAt, scheduleFormat, and
+   * groupStageState back to their fresh-season defaults, so the season
+   * lands exactly back at "no schedule generated yet" — generateSchedule/
+   * generateGroupStageSchedule can be called again immediately afterward
+   * with a clean slate. Does not touch anything else (draft, rosters,
+   * financials, playoffs) — if playoffs were already generated from this
+   * schedule's standings, season.playoffs is left as-is (stale) since
+   * this is a schedule-only reset; clear playoffs separately if needed.
+   */
+  resetSchedule(seasonId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+
+    season.schedule = [];
+    season.scheduleGeneratedAt = null;
+    season.scheduleFormat = null;
+    season.groupStageState = null;
+    saveData(data);
+  },
+
+  /**
    * Generates (or regenerates) a single round-robin schedule from the
    * season's ACTUAL NBA team assignments — never a hardcoded team count.
    *
@@ -3101,7 +3461,8 @@ const AdminActions = {
    * Regeneration safety: if a schedule already exists and ANY matchup in
    * it has been completed, this throws rather than silently discarding
    * results — call getScheduleState(seasonId).hasCompletedGames first to
-   * decide whether to offer regeneration in the UI at all.
+   * decide whether to offer regeneration in the UI at all. To force-clear
+   * anyway (e.g. test data), use resetSchedule() above first.
    */
   generateSchedule(seasonId) {
     const data = loadData();
@@ -3131,8 +3492,237 @@ const AdminActions = {
 
     season.schedule = generateRoundRobinRounds(teamIds);
     season.scheduleGeneratedAt = new Date().toISOString();
+    season.scheduleFormat = "roundRobin";
+    season.groupStageState = null;
     saveData(data);
     return season.schedule;
+  },
+
+  /**
+   * Group Stage (legacy 16-team / 4-group format), Round 1. Reuses
+   * generateRoundRobinRounds unmodified for each group's mini round-robin
+   * (see generateGroupStageRounds) — this is a second entry point into
+   * the same scheduling infrastructure generateSchedule uses, not a
+   * parallel implementation.
+   *
+   * groups: { A: [id,id,id,id], B: [...], C: [...], D: [...] } — the
+   * commissioner's chosen (or auto-generated from teamAssignmentOrder)
+   * Round 1 group assignment. Validated here before anything is written:
+   * exactly 16 distinct, currently-assigned teams, split into exactly 4
+   * groups of exactly 4.
+   *
+   * Same regeneration-safety guard as generateSchedule: refuses to
+   * overwrite a schedule that already has a completed game.
+   */
+  generateGroupStageSchedule(seasonId, groups) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+
+    if (season.schedule.length > 0) {
+      const hasCompleted = season.schedule.some((round) =>
+        round.matchups.some((m) => m.status === "completed")
+      );
+      if (hasCompleted) {
+        throw new Error(
+          "Cannot regenerate: this season already has completed games. " +
+          "Regeneration is disabled to protect existing results."
+        );
+      }
+    }
+
+    const assignedTeamIds = season.teamAssignmentOrder.filter(
+      (pid) => !!season.nbaTeamAssignments[pid]
+    );
+    if (assignedTeamIds.length !== 16) {
+      throw new Error(
+        `The legacy Group Stage format requires exactly 16 teams with an assigned NBA team ` +
+        `(this season has ${assignedTeamIds.length}). Use Round Robin instead, or adjust team assignments.`
+      );
+    }
+
+    if (!groups || GROUP_NAMES.some((g) => !Array.isArray(groups[g]))) {
+      throw new Error("All four groups (A-D) are required.");
+    }
+    for (const g of GROUP_NAMES) {
+      if (groups[g].length !== 4) {
+        throw new Error(`Group ${g} must contain exactly 4 teams (has ${groups[g].length}).`);
+      }
+    }
+    const allGroupedIds = GROUP_NAMES.flatMap((g) => groups[g]);
+    const uniqueGroupedIds = new Set(allGroupedIds);
+    if (uniqueGroupedIds.size !== 16) {
+      throw new Error("Each team must appear in exactly one group — a team is duplicated across groups.");
+    }
+    const assignedSet = new Set(assignedTeamIds);
+    for (const pid of allGroupedIds) {
+      if (!assignedSet.has(pid)) {
+        throw new Error("A team in the group assignment does not have an assigned NBA team on this roster.");
+      }
+    }
+    for (const pid of assignedTeamIds) {
+      if (!uniqueGroupedIds.has(pid)) {
+        throw new Error("Every assigned team must appear in a group — one or more teams are missing.");
+      }
+    }
+
+    const round1Rounds = generateGroupStageRounds(groups, 1, 0);
+
+    // Sanity-check the generator's own output before writing anything —
+    // belt-and-suspenders against a future edit to generateGroupStageRounds
+    // silently breaking these invariants.
+    const round1Matchups = round1Rounds.flatMap((r) => r.matchups);
+    if (round1Matchups.length !== 24) {
+      throw new Error(`Internal error: expected 24 Round 1 games, generated ${round1Matchups.length}.`);
+    }
+    for (const g of GROUP_NAMES) {
+      const gameCount = round1Matchups.filter((m) => m.group === g).length;
+      if (gameCount !== 6) {
+        throw new Error(`Internal error: Group ${g} has ${gameCount} Round 1 games, expected 6.`);
+      }
+    }
+    for (const pid of assignedTeamIds) {
+      const played = round1Matchups.filter((m) => m.teamA === pid || m.teamB === pid).length;
+      if (played !== 3) {
+        throw new Error(`Internal error: a team has ${played} Round 1 games, expected 3.`);
+      }
+    }
+
+    season.schedule = round1Rounds;
+    season.scheduleGeneratedAt = new Date().toISOString();
+    season.scheduleFormat = "groupStage";
+    season.groupStageState = {
+      groups,
+      stage: 1,
+      round1Standings: null,
+      round2Groups: null,
+    };
+    saveData(data);
+    return season.schedule;
+  },
+
+  /**
+   * Group Stage, Round 2 (Manual Online-Roulette Assignment): generates
+   * Round 2's 24 games from a commissioner-supplied group assignment,
+   * APPENDING them to the existing season.schedule (Round 1's
+   * rounds/results are never touched or replaced) — reuses
+   * generateGroupStageRounds exactly like Round 1 did.
+   *
+   * round2Groups: { A: [id,id,id,id], B: [...], C: [...], D: [...] } — the
+   * commissioner's manual assignment, entered after running the actual
+   * draw on an external online roulette. This function does NOT compute
+   * or suggest group membership itself — the roulette result, as entered
+   * by the commissioner, is the sole source of truth for Round 2 groups.
+   *
+   * Guards, in order: this must be a Group Stage season currently on
+   * stage 1; Round 1 must be fully complete (all 24 games); Round 2 must
+   * not already have been generated; round2Groups must be exactly 16
+   * distinct, currently-assigned teams split into 4 groups of 4. The
+   * rematch check validates the commissioner's actual entered groups
+   * against Round 1's real matchups (findGroupStageRematches) and BLOCKS
+   * generation on a rematch — it never rearranges the commissioner's
+   * selections to avoid one; the commissioner corrects the dropdowns
+   * (per the roulette process) and re-submits.
+   *
+   * Once this succeeds, season.groupStageState.round1Standings is frozen
+   * (Round 1's final standings at the moment Round 2 was generated —
+   * informational/audit only now, since it no longer drives group
+   * membership) and recordMatchResult refuses further edits to any
+   * Round 1 game — see that function's stage-lock guard.
+   */
+  generateGroupStageRound2(seasonId, round2Groups) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    if (season.scheduleFormat !== "groupStage" || !season.groupStageState) {
+      throw new Error("This season is not using the Group Stage format.");
+    }
+    if (season.groupStageState.stage !== 1) {
+      throw new Error("Round 2 has already been generated for this season.");
+    }
+
+    const round1Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 1);
+    const completedCount = round1Matchups.filter((m) => m.status === "completed").length;
+    if (completedCount < round1Matchups.length) {
+      throw new Error(
+        `Cannot generate Round 2: Round 1 is not yet complete ` +
+        `(${completedCount} of ${round1Matchups.length} games played).`
+      );
+    }
+
+    // Validate the commissioner's manually-entered Round 2 assignment —
+    // same shape/rigor as generateGroupStageSchedule's Round 1 validation.
+    const assignedTeamIds = season.teamAssignmentOrder.filter(
+      (pid) => !!season.nbaTeamAssignments[pid]
+    );
+    if (!round2Groups || GROUP_NAMES.some((g) => !Array.isArray(round2Groups[g]))) {
+      throw new Error("Round 2 cannot be generated: all four groups (A-D) are required.");
+    }
+    for (const g of GROUP_NAMES) {
+      const count = round2Groups[g].filter((pid) => pid != null).length;
+      if (round2Groups[g].some((pid) => pid == null)) {
+        throw new Error(
+          `Round 2 cannot be generated: Group ${g} has an empty slot — every slot needs a team assigned.`
+        );
+      }
+      if (count !== 4) {
+        throw new Error(`Round 2 cannot be generated: Group ${g} only contains ${count} team${count === 1 ? '' : 's'}, expected 4.`);
+      }
+    }
+    const allRound2Ids = GROUP_NAMES.flatMap((g) => round2Groups[g]);
+    const seen = new Set();
+    for (const pid of allRound2Ids) {
+      if (seen.has(pid)) {
+        const name = season.participants[pid]?.name || pid;
+        throw new Error(`Round 2 cannot be generated: Team "${name}" is assigned twice.`);
+      }
+      seen.add(pid);
+    }
+    const assignedSet = new Set(assignedTeamIds);
+    for (const pid of allRound2Ids) {
+      if (!assignedSet.has(pid)) {
+        throw new Error("Round 2 cannot be generated: an assigned team does not have a current NBA team assignment.");
+      }
+    }
+    const missing = assignedTeamIds.filter((pid) => !seen.has(pid));
+    if (missing.length > 0) {
+      const names = missing.map((pid) => season.participants[pid]?.name || pid).join(", ");
+      throw new Error(
+        `Round 2 cannot be generated: ${missing.length} team${missing.length === 1 ? ' has' : 's have'} not been assigned (${names}).`
+      );
+    }
+
+    const rematches = findGroupStageRematches(round1Matchups, round2Groups);
+    if (rematches.length > 0) {
+      const detail = rematches
+        .map((r) => `${season.participants[r.teamA]?.name || r.teamA} vs ${season.participants[r.teamB]?.name || r.teamB} — already played in Round 1`)
+        .join("; ");
+      throw new Error(
+        `Round 2 contains ${rematches.length} rematch${rematches.length === 1 ? '' : 'es'} from Round 1: ${detail}. ` +
+        `Adjust the group assignment and try again — groups are never automatically rearranged.`
+      );
+    }
+
+    const round1Standings = LeagueData.getGroupStageStandings(seasonId, 1);
+    const round1StandingsIds = {};
+    for (const g of GROUP_NAMES) {
+      round1StandingsIds[g] = (round1Standings[g] || []).map((row) => row.participantId);
+    }
+
+    const maxExistingRound = season.schedule.reduce((max, r) => Math.max(max, r.round), 0);
+    const round2Rounds = generateGroupStageRounds(round2Groups, 2, maxExistingRound);
+
+    const round2Matchups = round2Rounds.flatMap((r) => r.matchups);
+    if (round2Matchups.length !== 24) {
+      throw new Error(`Internal error: expected 24 Round 2 games, generated ${round2Matchups.length}.`);
+    }
+
+    season.schedule = [...season.schedule, ...round2Rounds];
+    season.groupStageState.stage = 2;
+    season.groupStageState.round1Standings = round1StandingsIds;
+    season.groupStageState.round2Groups = round2Groups;
+    saveData(data);
+    return round2Rounds;
   },
 
   /**
@@ -3164,6 +3754,17 @@ const AdminActions = {
     }
     if (!found) throw new Error("Matchup not found");
     if (found.teamB === null) throw new Error("Cannot record a result for a BYE.");
+
+    // Group Stage Round 1-lock: once Round 2 has been generated, Round 1's
+    // results are what Round 2's re-seeding was actually built from —
+    // editing them afterward would silently invalidate seeding nobody
+    // would notice happened. Round 2 results, and every Round Robin game,
+    // are unaffected by this check.
+    if (found.stage === 1 && season.groupStageState && season.groupStageState.stage === 2) {
+      throw new Error(
+        "Cannot edit a Round 1 result: Round 2 has already been generated from the Round 1 standings."
+      );
+    }
 
     const a = Number(scoreA);
     const b = Number(scoreB);
@@ -4447,8 +5048,20 @@ const AdminActions = {
    * draft history (playerDraftPicks) is untouched, and their original
    * Red/Yellow classification (picks #1-2 / #3-5) is simply overridden by
    * PINK while they remain the Joker — see getPlayerClassificationInfo.
+   *
+   * options.bypassRosterRules (Revision 3 — Manual Roster Edit coexistence,
+   * default false): when true, skips the resulting-position check below
+   * (the same "Position requirements"/"Position completion" family of
+   * normal roster rules Manual Roster Edit already bypasses in
+   * manualAddPlayerToRoster/manualReplacePlayerOnRoster). Set ONLY by
+   * js/admin/roster.js's Joker Swap entry point inside the PIN-gated
+   * manual editor. admin/trades.js's ordinary Joker tab calls this with no
+   * options, so normal Joker designation is completely unaffected. This is
+   * still the same single Joker mechanism — own-pick #1-10 eligibility
+   * below is unconditional either way; only the resulting-position check
+   * is ever bypassed.
    */
-  designateJoker(seasonId, participantId, playerId, jokerPosition) {
+  designateJoker(seasonId, participantId, playerId, jokerPosition, options = {}) {
     if (!jokerPosition) throw new Error("A Joker requires an assigned roster position.");
     const data = loadData();
     const season = data.seasons[seasonId];
@@ -4478,8 +5091,10 @@ const AdminActions = {
         ? { ...e, isJoker: true, jokerPosition }
         : { ...e, isJoker: false, jokerPosition: undefined }
     );
-    const posCheck = validateResultingPositions(roster, afterEntries, data.players);
-    if (!posCheck.valid) throw new Error(posCheck.reason);
+    if (!options.bypassRosterRules) {
+      const posCheck = validateResultingPositions(roster, afterEntries, data.players);
+      if (!posCheck.valid) throw new Error(posCheck.reason);
+    }
 
     season.currentRosters[participantId] = afterEntries;
 
@@ -4508,25 +5123,42 @@ const AdminActions = {
     saveData(data);
   },
 
-  // ── Revision 2: Manual Roster Edit ──────────────────────────────────────
+  // ── Revision 2/3: Manual Roster Edit — commissioner override mode ───────
   //
   // A restricted, PIN-gated administrative capability (see
   // js/admin/roster.js — reuses the same _DELETE_ALL_PLAYERS_PIN check
   // js/admin/players.js's Delete All Players already uses, rather than a
   // second PIN) for correcting roster assignments without the full Phase 5
-  // trade/swap workflow. All three operations below reuse the exact same
-  // player-identity, ownership, and roster-rule validators Phase 5
-  // trades/swaps already enforce (validateResultingPositions,
-  // validateBlueComposition, validateMinimumRating, validateRatingCap,
-  // findCurrentRosterEntry) so a manual edit can never create a roster
-  // that a normal trade/swap couldn't also have produced. "Available" is
-  // never a separately stored list — exactly like getSwapEligibleReplacements
-  // already does for Phase 5, a player is available the instant they are
-  // absent from every entry of every season.currentRosters[*] array, and
-  // unavailable the instant they're present in one. Player ID (never
-  // name) is the identity used throughout, so this works unchanged for
-  // Green, Blue, Classics, All-Time, or any future imported pool — pool
-  // membership/size is never hard-coded here.
+  // trade/swap workflow.
+  //
+  // Revision 3 — Override normal roster/game rules: manualAddPlayerToRoster
+  // and manualReplacePlayerOnRoster are reachable ONLY from the PIN-gated
+  // Manual Roster Edit UI (js/admin/roster.js — no other call site exists),
+  // so they intentionally do NOT run the normal Phase 5 roster/game-rule
+  // validators (validateResultingPositions, validateBlueComposition,
+  // validateMinimumRating, validateRatingCap). The commissioner is meant to
+  // be able to write a roster state that a normal trade/swap/draft pick
+  // could NOT have produced, in order to correct a bad roster. Normal
+  // drafting (makeDraftPick), trades/swaps (commitTrade/commitSwap/
+  // evaluateSwap), and Joker designation from the ordinary Joker tab
+  // (designateJoker with no options) are untouched and still enforce every
+  // rule exactly as before — only these two manual-edit entry points bypass
+  // them.
+  //
+  // What is NEVER bypassed, in any of the three operations below, because
+  // it is basic data integrity rather than a league/game rule:
+  //   - duplicate ownership (findCurrentRosterEntry — a player can't be
+  //     assigned to two different teams at once)
+  //   - player identity (the playerId must resolve to a real player record)
+  //   - Firestore/document structure, auth, and the PIN gate itself
+  // "Available" is never a separately stored list — exactly like
+  // getSwapEligibleReplacements already does for Phase 5, a player is
+  // available the instant they are absent from every entry of every
+  // season.currentRosters[*] array, and unavailable the instant they're
+  // present in one. Player ID (never name) is the identity used
+  // throughout, so this works unchanged for Green, Blue, Classics,
+  // All-Time, or any future imported pool — pool membership/size is never
+  // hard-coded here.
 
   /**
    * Manually assigns a currently-unowned player onto a participant's
@@ -4582,15 +5214,13 @@ const AdminActions = {
       afterEntries = [...roster, { playerId, source: "manual", draftSlot: null }];
     }
 
-    const posCheck = validateResultingPositions(roster, afterEntries, data.players);
-    if (!posCheck.valid) throw new Error(posCheck.reason);
-    const blueCheck = validateBlueComposition(afterEntries, data.players);
-    if (!blueCheck.valid) throw new Error(blueCheck.reason);
-    const minCheck = validateMinimumRating(player);
-    if (!minCheck.valid) throw new Error(minCheck.reason);
-    const cap = season.ratingCap ?? 875;
-    const capCheck = validateRatingCap(afterEntries, data.players, cap);
-    if (!capCheck.valid) throw new Error(capCheck.reason);
+    // Revision 3 — Manual Override: normal roster/game rules (position
+    // requirements, Blue/Green composition, minimum rating, rating cap)
+    // are intentionally NOT enforced here — see the Revision 2/3 header
+    // comment above. Duplicate-ownership was already rejected above via
+    // findCurrentRosterEntry, and `player` above already confirms the
+    // playerId resolves to a real record — both are data integrity, not a
+    // game rule, and remain enforced unconditionally.
 
     season.currentRosters[participantId] = afterEntries;
 
@@ -4749,15 +5379,13 @@ const AdminActions = {
       playerId: incomingPlayerId, source: "manual", draftSlot: preservedDraftSlot, classificationSourcePlayerId,
     };
 
-    const posCheck = validateResultingPositions(roster, afterEntries, data.players);
-    if (!posCheck.valid) throw new Error(posCheck.reason);
-    const blueCheck = validateBlueComposition(afterEntries, data.players);
-    if (!blueCheck.valid) throw new Error(blueCheck.reason);
-    const minCheck = validateMinimumRating(incomingPlayer);
-    if (!minCheck.valid) throw new Error(minCheck.reason);
-    const cap = season.ratingCap ?? 875;
-    const capCheck = validateRatingCap(afterEntries, data.players, cap);
-    if (!capCheck.valid) throw new Error(capCheck.reason);
+    // Revision 3 — Manual Override: normal roster/game rules (position
+    // requirements, Blue/Green composition, minimum rating, rating cap)
+    // are intentionally NOT enforced here — see the Revision 2/3 header
+    // comment above. Duplicate-ownership was already rejected above via
+    // findCurrentRosterEntry, and `incomingPlayer` above already confirms
+    // the playerId resolves to a real record — both are data integrity,
+    // not a game rule, and remain enforced unconditionally.
 
     season.currentRosters[participantId] = afterEntries;
 
