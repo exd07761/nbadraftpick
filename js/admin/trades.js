@@ -264,11 +264,23 @@ const AdminTradesView = {
    * UI-layer only: takes the EXISTING eligible-replacement list exactly as
    * returned by LeagueData.getSwapEligibleReplacements(seasonId, '') — no
    * change to that data-layer call or the availability rule it enforces —
-   * and narrows/groups/sorts it for display:
+   * and groups/sorts it for display:
    *
-   *   existing eligible players → same position as outgoing → exclude the
-   *   outgoing player itself → split by pool → sort each pool by
-   *   overall DESC (name ASC tiebreak)
+   *   existing eligible players → exclude the outgoing player itself →
+   *   split by pool → sort each pool by overall DESC (name ASC tiebreak)
+   *
+   * Revision — Loosen Swap Pool Eligibility: this used to also narrow the
+   * list to players at the outgoing player's exact position ("position
+   * duplication" restriction). That filter was a roster-composition
+   * convenience, not one of the three restrictions the Swap Pool is
+   * required to enforce (Overrating/Rating Cap, Minimum Rating, Season
+   * Day) — none of which this method ever applied anyway; Season Day is
+   * checked before this list is built (see the rostersInitialized/day
+   * gating in render()/_renderSwapTab), and Rating Cap/Minimum Rating are
+   * enforced by evaluateSwap/commitSwap at Preview/Confirm time, same as
+   * before this revision. Removing the position filter only changes which
+   * players the admin can pick from; it does not change what a "Preview
+   * Swap" click validates or what commitSwap will accept.
    *
    * Does not touch AdminActions/evaluateSwap/commitSwap in any way — this
    * only decides what the replacement list looks like before the admin
@@ -281,13 +293,12 @@ const AdminTradesView = {
     const position = outgoingEntry.player.position;
     const currentPlayerId = outgoingEntry.playerId;
 
-    const samePosition = allEligible.filter((p) => p.position === position);
     // Belt-and-suspenders: getSwapEligibleReplacements already excludes every
     // currently-rostered player (including this one, since he's on his own
     // team's roster right now), so this filter should never actually remove
     // anyone in practice — kept explicit per the requirement so the UI is
     // still correct even if that upstream rule ever changes.
-    const filtered = samePosition.filter((p) => p.id !== currentPlayerId);
+    const filtered = allEligible.filter((p) => p.id !== currentPlayerId);
 
     const sortByOvrThenName = (a, b) => (b.overall - a.overall) || a.name.localeCompare(b.name);
     const green = filtered.filter((p) => p.pool === 'green').sort(sortByOvrThenName);
@@ -352,11 +363,11 @@ const AdminTradesView = {
     const replacementSection = !outgoingEntry ? `
       <p class="helper-text">Select an outgoing player above to see eligible replacements.</p>` : `
       <div class="swap-replacement-panel">
-        <div class="swap-replacement-header">${escapeHtml(groups.position)} PLAYERS ONLY · ${groups.total} AVAILABLE</div>
+        <div class="swap-replacement-header">${groups.total} ELIGIBLE REPLACEMENT${groups.total === 1 ? '' : 'S'} · OUTGOING WAS ${escapeHtml(groups.position)}</div>
         ${groups.total === 0 ? `
           <div class="swap-empty-state">
-            <p class="swap-empty-title">NO AVAILABLE ${escapeHtml(groups.position)} PLAYERS</p>
-            <p>There are currently no eligible ${escapeHtml(groups.position)} players available for this swap.</p>
+            <p class="swap-empty-title">NO ELIGIBLE REPLACEMENTS</p>
+            <p>There are currently no eligible replacement players available for this swap.</p>
           </div>` : `
           ${this._renderReplacementPoolSection('GREEN POOL', 'pool-heading-green', groups.green)}
           ${this._renderReplacementPoolSection('BLUE POOL', 'pool-heading-blue', groups.blue)}
@@ -413,10 +424,10 @@ const AdminTradesView = {
     };
     body.querySelector('#swapOutgoingSelect').onchange = (e) => {
       this._swapOutgoing = e.target.value;
-      // The replacement list is position-specific, so a previously selected
-      // replacement (for a different outgoing player's position) is no
-      // longer valid — clear it rather than leaving a stale, invisible
-      // selection behind.
+      // Changing the outgoing player rebuilds the replacement list (it
+      // excludes whichever player is currently selected as outgoing), so a
+      // previously selected replacement may no longer be present — clear it
+      // rather than leaving a stale, invisible selection behind.
       this._swapIncomingId = '';
       this._swapPreview = null;
       this._renderSwapTab(body, season);
