@@ -82,8 +82,7 @@ const ScheduleView = {
     }
 
     const isCompleted = m.status === 'completed';
-    const aWins = m.winner === m.teamA;
-    const bWins = m.winner === m.teamB;
+    const { leftId, rightId, leftScore, rightScore, leftIsWinner, rightIsWinner, hasHomeCourt } = matchupHomeAway(m);
 
     return `
       <div class="matchup-card ${isCompleted ? 'is-completed' : ''}">
@@ -95,16 +94,16 @@ const ScheduleView = {
           ${isCompleted ? `<span class="matchup-card-streamer">🎥 ${escapeHtml(m.streamer)}</span>` : ''}
         </div>
         <div class="matchup-card-body">
-          <div class="matchup-side ${aWins ? 'winner' : ''}">
-            ${teamBadge(abbrFor(m.teamA), { size: 'md' })}
-            <span class="matchup-side-name">${nameFor(m.teamA)}</span>
-            ${isCompleted ? `<span class="matchup-side-score">${m.scoreA}</span>` : ''}
+          <div class="matchup-side ${leftIsWinner ? 'winner' : ''}">
+            ${teamBadge(abbrFor(leftId), { size: 'md' })}
+            <span class="matchup-side-name">${hasHomeCourt ? '🏠 ' : ''}${nameFor(leftId)}</span>
+            ${isCompleted ? `<span class="matchup-side-score">${leftScore}</span>` : ''}
           </div>
           <span class="matchup-vs-divider">${isCompleted ? '–' : 'VS'}</span>
-          <div class="matchup-side reverse ${bWins ? 'winner' : ''}">
-            ${isCompleted ? `<span class="matchup-side-score">${m.scoreB}</span>` : ''}
-            <span class="matchup-side-name">${nameFor(m.teamB)}</span>
-            ${teamBadge(abbrFor(m.teamB), { size: 'md' })}
+          <div class="matchup-side reverse ${rightIsWinner ? 'winner' : ''}">
+            ${isCompleted ? `<span class="matchup-side-score">${rightScore}</span>` : ''}
+            <span class="matchup-side-name">${nameFor(rightId)}</span>
+            ${teamBadge(abbrFor(rightId), { size: 'md' })}
           </div>
         </div>
       </div>`;

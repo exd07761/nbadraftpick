@@ -501,17 +501,18 @@ const AdminScheduleView = {
     const isCompleted = m.status === 'completed';
     const round1Locked = m.stage === 1 && season.groupStageState && season.groupStageState.stage === 2;
     const groupBadge = m.group ? `<span class="status-chip" style="margin-right:0.5rem;">Group ${m.group}</span>` : '';
+    const { leftId, rightId, leftScore, rightScore, leftIsWinner, rightIsWinner, hasHomeCourt } = matchupHomeAway(m);
     return `
       <div class="matchup-row ${isCompleted ? 'completed' : ''}">
         ${groupBadge}
         <div class="matchup-teams">
-          <span class="${m.winner === m.teamA ? 'winner' : ''}">${nameFor(m.teamA)}</span>
+          <span class="${leftIsWinner ? 'winner' : ''}">${hasHomeCourt ? '🏠 ' : ''}${nameFor(leftId)}</span>
           <span class="matchup-vs">vs</span>
-          <span class="${m.winner === m.teamB ? 'winner' : ''}">${nameFor(m.teamB)}</span>
+          <span class="${rightIsWinner ? 'winner' : ''}">${nameFor(rightId)}</span>
         </div>
         ${isCompleted ? `
           <div class="matchup-result">
-            <span class="matchup-score">${m.scoreA} – ${m.scoreB}</span>
+            <span class="matchup-score">${leftScore} – ${rightScore}</span>
             <span class="matchup-streamer">🎥 ${escapeHtml(m.streamer)}</span>
           </div>
           ${round1Locked
@@ -529,18 +530,20 @@ const AdminScheduleView = {
     if (!found) return;
     const { matchup: m } = found;
     const nameFor = (pid) => season.participants[pid]?.name || '—';
+    const hasHomeCourt = m.home != null && m.away != null;
+    const tagFor = (pid) => hasHomeCourt ? (pid === m.home ? ' (Home)' : ' (Away)') : '';
 
     const panel = container.querySelector('#scorePanel');
     panel.classList.remove('hidden');
     panel.innerHTML = `
-      <h4>${escapeHtml(nameFor(m.teamA))} vs ${escapeHtml(nameFor(m.teamB))}</h4>
+      <h4>${escapeHtml(nameFor(m.teamA))}${escapeHtml(tagFor(m.teamA))} vs ${escapeHtml(nameFor(m.teamB))}${escapeHtml(tagFor(m.teamB))}</h4>
       <div class="score-entry-row">
         <div class="form-group">
-          <label>${escapeHtml(nameFor(m.teamA))} Score</label>
+          <label>${escapeHtml(nameFor(m.teamA))}${escapeHtml(tagFor(m.teamA))} Score</label>
           <input type="number" min="0" step="1" class="input" id="scoreAInput" value="${m.scoreA ?? ''}">
         </div>
         <div class="form-group">
-          <label>${escapeHtml(nameFor(m.teamB))} Score</label>
+          <label>${escapeHtml(nameFor(m.teamB))}${escapeHtml(tagFor(m.teamB))} Score</label>
           <input type="number" min="0" step="1" class="input" id="scoreBInput" value="${m.scoreB ?? ''}">
         </div>
       </div>

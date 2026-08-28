@@ -221,15 +221,16 @@ const HomeView = {
         </div>`;
     }
     const isCompleted = m.status === 'completed';
+    const { leftId, rightId, leftScore, rightScore, hasHomeCourt } = matchupHomeAway(m);
     return `
       <div class="mini-schedule-row">
         <span class="mini-schedule-teams">
-          ${teamBadge(abbrFor(m.teamA), { size: 'sm' })}<span>${nameFor(m.teamA)}</span>
+          ${teamBadge(abbrFor(leftId), { size: 'sm' })}<span>${hasHomeCourt ? '🏠 ' : ''}${nameFor(leftId)}</span>
           <span class="matchup-vs-divider">vs</span>
-          ${teamBadge(abbrFor(m.teamB), { size: 'sm' })}<span>${nameFor(m.teamB)}</span>
+          ${teamBadge(abbrFor(rightId), { size: 'sm' })}<span>${nameFor(rightId)}</span>
         </span>
         ${isCompleted
-          ? `<span class="matchup-score">${m.scoreA}–${m.scoreB}</span>`
+          ? `<span class="matchup-score">${leftScore}–${rightScore}</span>`
           : `<span class="status-chip status-scheduled">Scheduled</span>`}
       </div>`;
   },

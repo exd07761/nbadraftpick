@@ -213,6 +213,38 @@ function _positionPoolRow(entry, rank, mode) {
     </div>`;
 }
 
+/**
+ * matchupHomeAway(m) — resolves display order for a non-BYE matchup,
+ * honoring the Group Stage home-court rule (Revision — Home Court Rule).
+ *
+ * If the matchup carries explicit `home`/`away` participantIds (Group
+ * Stage Round 1 & Round 2 — see data.js assignRound1HomeCourt/
+ * assignRound2HomeCourt), the home team is always returned as `leftId`,
+ * per the "HOME must always be displayed on the LEFT" requirement — never
+ * assumed from teamA/teamB order. Matchups with no home/away fields
+ * (Round Robin, and BYEs, which are handled separately by every caller)
+ * keep the original teamA/teamB order and report hasHomeCourt: false, so
+ * nothing about their display changes.
+ *
+ * Also resolves each side's score/winner-state against teamA/teamB,
+ * since home/away is a display concern only — scoreA/scoreB/winner stay
+ * tied to teamA/teamB exactly as recordMatchResult wrote them.
+ */
+function matchupHomeAway(m) {
+  const hasHomeCourt = m.home != null && m.away != null;
+  const leftId = hasHomeCourt ? m.home : m.teamA;
+  const rightId = hasHomeCourt ? m.away : m.teamB;
+  return {
+    leftId,
+    rightId,
+    leftScore: leftId === m.teamA ? m.scoreA : m.scoreB,
+    rightScore: rightId === m.teamA ? m.scoreA : m.scoreB,
+    leftIsWinner: m.winner != null && m.winner === leftId,
+    rightIsWinner: m.winner != null && m.winner === rightId,
+    hasHomeCourt,
+  };
+}
+
 function showToast(message, type = 'info') {
   const existing = document.getElementById('toast');
   if (existing) existing.remove();

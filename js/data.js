@@ -204,6 +204,12 @@ function createSeason(id, name) {
     //                            // so nothing that reads a Matchup needs to
     //                            // change for Round Robin to keep working.
     //                            // stage: 1 | 2. group: 'A'|'B'|'C'|'D'.
+    //   home, away,              // Group Stage only — explicit home/away
+    //                            // participantIds (see assignRound1HomeCourt/
+    //                            // assignRound2HomeCourt below). Absent on
+    //                            // every Round Robin matchup and on BYEs —
+    //                            // the existing Round Robin format has no
+    //                            // home-court concept and is untouched.
     // }
     // NBA team abbreviation is intentionally NOT stored here — look it up via
     // season.nbaTeamAssignments[participantId] (single source of truth,
@@ -1110,6 +1116,83 @@ function findGroupStageRematches(round1Matchups, round2Groups) {
     }
   }
   return rematches;
+}
+
+// ─── Group Stage home-court rule (Revision — Home Court Rule) ──────────────
+//
+// Two DIFFERENT rules, one per round — neither is the Round Robin format's
+// business (Round Robin has no home-court concept at all and is untouched):
+//
+//   Round 1: home court goes to the team with the HIGHER original
+//     team-assignment pick number (season.teamAssignmentOrder is the
+//     "DuckRace #2" order participants picked their NBA team in — position
+//     0 = pick #1). Pick numbers are unique per team, so this never ties.
+//
+//   Round 2: home court goes to the team with the better (higher) Round 1
+//     point differential. Tied point differential falls back to total
+//     Round 1 points scored (pointsFor) — higher wins home court. In the
+//     effectively-impossible event BOTH are tied, this falls back to the
+//     same unique pick number Round 1 uses, purely so home court is always
+//     determined rather than left undefined; it is never a league-facing
+//     tie-break rule.
+//
+// Both helpers mutate each non-BYE matchup in place, adding explicit
+// `home`/`away` participantId fields — never inferred later from teamA/
+// teamB order at render time, per the "commissioner should NOT manually
+// choose, and nothing should assume left==home" requirement.
+
+/**
+ * Round 1: assigns home/away by comparing pickNumberOf(teamA) vs
+ * pickNumberOf(teamB) — higher pick number is HOME.
+ */
+function assignRound1HomeCourt(matchups, pickNumberOf) {
+  for (const m of matchups) {
+    if (m.teamB === null) continue; // BYE — no opponent to compare against
+    const pickA = pickNumberOf(m.teamA);
+    const pickB = pickNumberOf(m.teamB);
+    if (pickA === pickB) {
+      // teamAssignmentOrder positions are unique per team — this should be
+      // unreachable. Fail loudly rather than silently guessing a side.
+      throw new Error("Internal error: two teams share the same original pick number.");
+    }
+    if (pickA > pickB) {
+      m.home = m.teamA;
+      m.away = m.teamB;
+    } else {
+      m.home = m.teamB;
+      m.away = m.teamA;
+    }
+  }
+}
+
+/**
+ * Round 2: assigns home/away by comparing each team's Round 1 stat line
+ * (statsOf(pid) -> { pointDifferential, pointsFor }, from
+ * getGroupStageStandings(seasonId, 1)). Better pointDifferential is HOME;
+ * a tie falls back to pointsFor; a further tie falls back to
+ * pickNumberOf (see module-level comment above).
+ */
+function assignRound2HomeCourt(matchups, statsOf, pickNumberOf) {
+  for (const m of matchups) {
+    if (m.teamB === null) continue; // BYE — no opponent to compare against
+    const a = statsOf(m.teamA);
+    const b = statsOf(m.teamB);
+    let aIsHome;
+    if (a.pointDifferential !== b.pointDifferential) {
+      aIsHome = a.pointDifferential > b.pointDifferential;
+    } else if (a.pointsFor !== b.pointsFor) {
+      aIsHome = a.pointsFor > b.pointsFor;
+    } else {
+      aIsHome = pickNumberOf(m.teamA) > pickNumberOf(m.teamB);
+    }
+    if (aIsHome) {
+      m.home = m.teamA;
+      m.away = m.teamB;
+    } else {
+      m.home = m.teamB;
+      m.away = m.teamA;
+    }
+  }
 }
 
 // ── Phase 9: Playoffs ──────────────────────────────────────────────────────
@@ -3567,11 +3650,18 @@ const AdminActions = {
     }
 
     const round1Rounds = generateGroupStageRounds(groups, 1, 0);
+    const round1Matchups = round1Rounds.flatMap((r) => r.matchups);
+
+    // Home Court Rule — Round 1: higher original team-assignment pick
+    // number (season.teamAssignmentOrder position) gets home court. Mutates
+    // round1Matchups (the same objects referenced inside round1Rounds) in
+    // place before anything is written.
+    const pickNumberOf = (pid) => season.teamAssignmentOrder.indexOf(pid) + 1;
+    assignRound1HomeCourt(round1Matchups, pickNumberOf);
 
     // Sanity-check the generator's own output before writing anything —
     // belt-and-suspenders against a future edit to generateGroupStageRounds
     // silently breaking these invariants.
-    const round1Matchups = round1Rounds.flatMap((r) => r.matchups);
     if (round1Matchups.length !== 24) {
       throw new Error(`Internal error: expected 24 Round 1 games, generated ${round1Matchups.length}.`);
     }
@@ -3716,6 +3806,19 @@ const AdminActions = {
     if (round2Matchups.length !== 24) {
       throw new Error(`Internal error: expected 24 Round 2 games, generated ${round2Matchups.length}.`);
     }
+
+    // Home Court Rule — Round 2: better (higher) Round 1 point differential
+    // gets home court, tied on total Round 1 points scored, then on the
+    // same unique pick number Round 1 uses (see assignRound2HomeCourt).
+    const round1StatsByParticipant = {};
+    for (const g of GROUP_NAMES) {
+      for (const row of round1Standings[g] || []) {
+        round1StatsByParticipant[row.participantId] = row;
+      }
+    }
+    const statsOf = (pid) => round1StatsByParticipant[pid];
+    const pickNumberOf = (pid) => season.teamAssignmentOrder.indexOf(pid) + 1;
+    assignRound2HomeCourt(round2Matchups, statsOf, pickNumberOf);
 
     season.schedule = [...season.schedule, ...round2Rounds];
     season.groupStageState.stage = 2;
