@@ -371,3 +371,52 @@
   .nba2k-promo-row .input { max-width: none; flex: 1 1 100%; }
   .nba2k-promo-confirm-row { flex-direction: column; gap: 0.15rem; }
 }
+
+/* ─── Phase 7: NBA 2K27 pool-selection summary bar ───────────────────────── */
+.nba2k27-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 1.1rem;
+  margin: 0.6rem 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--nb-r, var(--r));
+  background: var(--nb-surface, var(--bg-hover));
+  border: 1px solid var(--nb-surface-border, var(--border));
+  font-size: 0.8rem;
+}
+.nba2k27-summary-title {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nb-primary, var(--accent));
+}
+.nba2k27-summary-stat { color: var(--nb-text-dim, var(--text-dim)); }
+.nba2k27-summary-stat strong { color: var(--nb-text, var(--text)); }
+
+/* ─── Phase 7: 2K27 selection status pill (table row) — independent of the
+   Phase 3 "In Draft Pool" pill; a row can show either, both, or neither. */
+.nba2k27-status-pill {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  vertical-align: middle;
+  border: 1px solid currentColor;
+}
+.nba2k27-status-pill-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); color: var(--pool-green, #34d17c); }
+.nba2k27-status-pill-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); color: var(--pool-blue, #4d9bf5); }
+.nba2k27-status-pill-none  { background: var(--nb-surface-border, var(--border)); color: var(--nb-text-muted, var(--text-muted)); }
+
+/* ─── Phase 7: "2K27 Pool" section in the detail modal — reuses the Phase
+   3/5 .nba2k-promo / .nba2k-promo-row / .nba2k-promo-pool-locked /
+   .nba2k-promo-confirm-card styling above for visual consistency, since
+   it is functionally the same kind of "locked pool + confirm" pattern. */
+.nba2k27-section { border-top-style: dashed; }
+
+@media (max-width: 700px) {
+  .nba2k27-summary { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
+}
