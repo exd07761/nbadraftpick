@@ -201,6 +201,28 @@
 .nba2k-promo-radios { display: flex; gap: 1rem; }
 .nba2k-promo-radios label { display: flex; align-items: center; gap: 0.35rem; font-weight: 500; min-width: 0; }
 
+/* ─── Phase 5: locked/read-only pool display (replaces the Phase 3 radios
+   for the promotion form itself — the radios rule above is now unused by
+   any Phase 5 markup but is left in place harmlessly in case anything
+   else references it) ───────────────────────────────────────────────── */
+.nba2k-promo-pool-locked {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--nb-r, var(--r));
+  font-size: 0.85rem;
+}
+.nba2k-promo-pool-locked-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); }
+.nba2k-promo-pool-locked-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); }
+.nba2k-promo-pool-dot { font-size: 1.1rem; line-height: 1; }
+.nba2k-promo-pool-sublabel {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--nb-text-muted, var(--text-muted));
+}
+
 .nba2k-promo-status {
   padding: 0.9rem 1rem;
   border-radius: var(--nb-r, var(--r));
