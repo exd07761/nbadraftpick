@@ -68,6 +68,21 @@
 .status-regular_season   { background: rgba(52,152,219,0.12); color: #2471a3; }
 .status-playoffs         { background: rgba(231,76,60,0.12); color: #c0392b; }
 .status-complete         { background: rgba(31,169,113,0.12); color: var(--nb-positive); }
+
+/* Revision — Display Original Pick Color: RED/YELLOW/PINK classification
+   badge for the public roster tables — same darkened-tint pill pattern as
+   .status-chip above. */
+.pick-color-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+.pick-color-red    { background: rgba(231,76,60,0.12);  color: #c0392b; }
+.pick-color-yellow { background: rgba(241,196,15,0.15); color: #8a6d00; }
+.pick-color-pink   { background: rgba(255,105,180,0.15); color: #c2185b; }
 .status-scheduled        { background: var(--nb-primary-dim); color: var(--nb-primary); }
 .status-bye              { background: var(--nb-surface); color: var(--nb-text-dim); }
 

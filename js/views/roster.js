@@ -88,7 +88,7 @@ const PublicRosterView = {
         <table class="roster-table roster-card-table">
           <thead>
             <tr>
-              <th>Pick #</th><th>Player</th><th>Pool</th><th>Pos</th><th>OVR</th><th>Source</th>
+              <th>Pick #</th><th>Player</th><th>Pool</th><th>Color</th><th>Pos</th><th>OVR</th><th>Source</th>
             </tr>
           </thead>
           <tbody>
@@ -99,7 +99,7 @@ const PublicRosterView = {
                 return `
                   <tr class="roster-row-empty">
                     <td>${slotLabel}</td>
-                    <td colspan="5" class="muted"><em>EMPTY — draft slot vacated</em></td>
+                    <td colspan="6" class="muted"><em>EMPTY — draft slot vacated</em></td>
                   </tr>`;
               }
               return `
@@ -107,6 +107,7 @@ const PublicRosterView = {
                   <td>${slotLabel}</td>
                   <td>${p ? escapeHtml(p.name) : '<span class="muted">(removed)</span>'}</td>
                   <td>${p ? (p.pool === 'green' ? 'Green' : p.pool === 'blue' ? 'Blue' : '—') : '—'}</td>
+                  <td>${classificationBadge(e.isJoker ? 'PINK' : e.classification)}</td>
                   <td>${p ? escapeHtml(e.effectivePosition || p.position || '—') : '—'}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
                   <td class="ovr">${p ? p.overall : '—'}</td>
                   <td class="roster-card-source">${escapeHtml(e.source || '—')}</td>

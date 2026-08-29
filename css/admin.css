@@ -1283,3 +1283,19 @@ select.input { cursor: pointer; }
 .backup-result-success strong { color: var(--green); display: block; margin-bottom: 0.25rem; }
 .backup-result-error { background: rgba(240, 90, 90, 0.1); border: 1px solid var(--red); color: var(--text); }
 .backup-result-error strong { color: var(--red); display: block; margin-bottom: 0.25rem; }
+
+/* Revision — Display Original Pick Color: RED/YELLOW/PINK classification
+   badge for the roster tables, same darkened-tint pill style used
+   elsewhere in this file (see .backup-result-success/.backup-result-error
+   above) rather than solid fills. */
+.pick-color-badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+}
+.pick-color-red    { background: rgba(231, 76, 60, 0.12);  color: var(--red, #c0392b); }
+.pick-color-yellow { background: rgba(241, 196, 15, 0.15); color: #8a6d00; }
+.pick-color-pink   { background: rgba(255, 105, 180, 0.15); color: #c2185b; }

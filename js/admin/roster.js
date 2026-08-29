@@ -183,6 +183,15 @@ const AdminRosterView = {
     </div>`;
   },
 
+  /**
+   * Classification badge for the roster tables — thin wrapper around the
+   * shared classificationBadge() in shared-utils.js so both admin and
+   * public roster views render RED/YELLOW/PINK identically.
+   */
+  _classificationBadge(classification) {
+    return classificationBadge(classification);
+  },
+
   _renderRosterCard(summary, cap, abbr, seasonId) {
     const { participant, rosterEntries, totalRating, remaining, isOverCap } = summary;
     const pct = cap > 0 ? Math.min(100, (totalRating / cap) * 100) : 0;
@@ -204,7 +213,7 @@ const AdminRosterView = {
             return `
               <tr class="roster-row-empty">
                 <td class="roster-pick-num">${slotLabel}</td>
-                <td colspan="4" class="muted"><em>EMPTY — draft slot vacated</em></td>
+                <td colspan="5" class="muted"><em>EMPTY — draft slot vacated</em></td>
                 ${editing ? `<td class="roster-manual-actions">
                   <button type="button" class="btn btn-ghost" style="padding:0.15rem 0.5rem;font-size:0.75rem;" data-manual-action="fillSlot" data-participant-id="${participant.id}" data-draft-slot="${e.draftSlot}">+ Fill Slot</button>
                 </td>` : '<td></td>'}
@@ -216,6 +225,7 @@ const AdminRosterView = {
               <td class="roster-pick-num">${slotLabel}</td>
               <td>${p ? escapeHtml(p.name) : '<span class="muted">(removed)</span>'}</td>
               <td>${p ? (p.pool === 'green' ? 'Green' : p.pool === 'blue' ? 'Blue' : '—') : '—'}</td>
+              <td>${this._classificationBadge(e.isJoker ? 'PINK' : e.classification)}</td>
               <td>${p ? escapeHtml(e.effectivePosition || p.position || '—') : '—'}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
               <td class="ovr">${p ? p.overall : '—'}</td>
               <td class="muted" style="font-size:0.75rem">${escapeHtml(e.source)}</td>
@@ -228,7 +238,7 @@ const AdminRosterView = {
               </td>` : ''}
             </tr>`;
         }).join('')
-      : `<tr><td colspan="${editing ? 7 : 6}" class="muted" style="padding:0.75rem">No players.</td></tr>`;
+      : `<tr><td colspan="${editing ? 8 : 7}" class="muted" style="padding:0.75rem">No players.</td></tr>`;
 
     const showPicker = editing && this._manualAddTarget === participant.id;
     const showJokerPicker = editing && this._manualJokerFor
@@ -264,7 +274,7 @@ const AdminRosterView = {
         <div class="table-scroll">
         <table class="roster-table">
           <thead>
-            <tr><th>Pick #</th><th>Player</th><th>Pool</th><th>Pos</th><th>OVR</th><th>Source</th>${editing ? '<th></th>' : ''}</tr>
+            <tr><th>Pick #</th><th>Player</th><th>Pool</th><th>Color</th><th>Pos</th><th>OVR</th><th>Source</th>${editing ? '<th></th>' : ''}</tr>
           </thead>
           <tbody>${playerRows}</tbody>
         </table>

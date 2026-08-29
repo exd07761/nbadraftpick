@@ -1935,6 +1935,16 @@ const LeagueData = {
           // player's card-native position, exactly like getRosterForTransactions
           // already did for the Trades page.
           effectivePosition: player ? getEffectivePosition(entry, player) : null,
+          // Revision — Display Original Pick Color: classification
+          // (RED/YELLOW/PINK) was already being computed and correctly
+          // preserved through Manual Roster Edit (see
+          // getPlayerClassificationInfo's classificationSourcePlayerId
+          // chaining) — it just wasn't exposed here, so neither roster
+          // table could show it, even though the Trade/Swap picker
+          // (getRosterForTransactions) already displays it today. An
+          // 'empty' vacancy entry has no playerId, so it has no
+          // classification either.
+          classification: player ? getPlayerClassificationInfo(season, entry.playerId).classification : null,
         };
       });
     }
@@ -1954,6 +1964,11 @@ const LeagueData = {
           player,
           effectivePosition: player ? player.position : null,
           draftSlot: i + 1,
+          // No Joker exists pre-initialization, and every pre-init entry is
+          // an actual original pick (never manually replaced), so this is
+          // simply the pick-number classification directly — no need for
+          // getPlayerClassificationInfo's manual-replace chaining here.
+          classification: player ? classifyPickNumber(i + 1) : null,
         };
       });
   },
@@ -4989,7 +5004,29 @@ const AdminActions = {
   /**
    * Runs every Swap validation check (rule set §17 / swap workflow).
    * isJokerSwap=true uses the ₱300 Joker fee and, on commit, makes
-   * incomingPlayerId the participant's new Joker at jokerPosition.
+   * incomingPlayerId the participant's new Joker at jokerPosition —
+   * regardless of whether outgoingPlayerId was previously the Joker (see
+   * "Fix Joker Swap" revision below). Any other Joker already on that
+   * roster is cleared in the same commit, since only one Joker per
+   * participant is ever allowed at a time.
+   *
+   * Revision — Loosen Swap Validation: a NORMAL swap (isJokerSwap falsy)
+   * only enforces Rating Cap, Minimum Rating, and Season Day, plus basic
+   * data integrity (Ownership, Replacement eligibility — a real player,
+   * not already owned elsewhere). Position limit and Blue restrictions are
+   * roster-composition rules, not part of that required set, and are
+   * bypassed for a normal swap. A dedicated Joker Swap (isJokerSwap ===
+   * true) is unaffected by this revision — it still runs every check
+   * exactly as before, including Position limit and Blue restrictions.
+   *
+   * Revision — Fix Joker Swap: outgoing player / new Joker logic. A Joker
+   * Swap no longer requires outgoingPlayerId to already be the current
+   * Joker — the Swap UI never communicated or enforced that (the outgoing
+   * picker lists every roster player, Joker or not), and its "Assigned
+   * position for new Joker" field makes the actual intent explicit:
+   * OUTGOING PLAYER leaves → INCOMING PLAYER arrives AND becomes the new
+   * Joker, unconditionally. See afterEntries below for how an existing,
+   * different Joker gets cleared in the same transaction.
    */
   evaluateSwap(seasonId, { participantId, outgoingPlayerId, incomingPlayerId, isJokerSwap, jokerPosition }) {
     const data = loadData();
@@ -5013,10 +5050,6 @@ const AdminActions = {
       return { valid: false, checks, fee: 0 };
     }
     pass("Ownership");
-
-    if (isJokerSwap && !outgoingEntry.isJoker) {
-      fail("Joker", "A Joker swap must select the participant's current Joker as the outgoing player.");
-    }
 
     const day = season.currentSeasonDay ?? 1;
     if (isTransactionsLockedDay(day)) {
@@ -5058,20 +5091,41 @@ const AdminActions = {
       fail("Joker position", "A Joker swap must specify the assigned roster position.");
     }
 
+    // Revision — Fix Joker Swap: outgoing player / new Joker logic. A
+    // Joker Swap no longer requires the OUTGOING player to already be the
+    // participant's current Joker — the UI never communicated or enforced
+    // that (the outgoing-player picker lists every roster player,
+    // regardless of Joker status), and its own "Assigned position for new
+    // Joker" field makes the intent explicit: whichever player comes IN
+    // becomes the Joker, unconditionally. If the participant already had a
+    // DIFFERENT designated Joker, that designation is cleared here — same
+    // "only one Joker per participant at a time, designating a new one
+    // clears the old one" invariant designateJoker already enforces — so a
+    // Joker Swap can never leave two Joker-flagged entries on one roster.
     const afterEntries = [
-      ...roster.filter((e) => e.playerId !== outgoingPlayerId),
+      ...roster
+        .filter((e) => e.playerId !== outgoingPlayerId)
+        .map((e) => (isJokerSwap && e.isJoker ? { ...e, isJoker: false, jokerPosition: undefined } : e)),
       isJokerSwap
         ? { playerId: incomingPlayerId, source: "swap", isJoker: true, jokerPosition }
         : { playerId: incomingPlayerId, source: "swap" },
     ];
 
-    const posCheck = validateResultingPositions(roster, afterEntries, data.players);
-    if (!posCheck.valid) fail("Position limit", posCheck.reason);
-    else pass("Position limit");
+    // Revision — Loosen Swap Validation: Position limit and Blue
+    // restrictions are roster-COMPOSITION rules, not among the three
+    // restrictions a normal swap is required to enforce (Rating Cap,
+    // Minimum Rating, Season Day). Bypassed entirely for a normal swap
+    // (isJokerSwap falsy) — still run, unchanged, for the dedicated Joker
+    // Swap path (isJokerSwap === true), which this revision does not touch.
+    if (isJokerSwap) {
+      const posCheck = validateResultingPositions(roster, afterEntries, data.players);
+      if (!posCheck.valid) fail("Position limit", posCheck.reason);
+      else pass("Position limit");
 
-    const blueCheck = validateBlueComposition(afterEntries, data.players);
-    if (!blueCheck.valid) fail("Blue restrictions", blueCheck.reason);
-    else pass("Blue restrictions");
+      const blueCheck = validateBlueComposition(afterEntries, data.players);
+      if (!blueCheck.valid) fail("Blue restrictions", blueCheck.reason);
+      else pass("Blue restrictions");
+    }
 
     const cap = season.ratingCap ?? 875;
     const capCheck = validateRatingCap(afterEntries, data.players, cap);
@@ -5097,12 +5151,19 @@ const AdminActions = {
     const season = data.seasons[seasonId];
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
     const roster = season.currentRosters[participantId];
+    const outgoingEntry = roster.find((e) => e.playerId === outgoingPlayerId);
     const newEntry = isJokerSwap
       ? { playerId: incomingPlayerId, source: "swap", isJoker: true, jokerPosition }
       : { playerId: incomingPlayerId, source: "swap" };
 
+    // Revision — Fix Joker Swap: mirrors evaluateSwap's afterEntries — if
+    // the participant already had a DIFFERENT designated Joker (i.e. one
+    // other than whoever's leaving via outgoingPlayerId), that Joker flag
+    // is cleared here so the new incoming Joker is always the only one.
     season.currentRosters[participantId] = [
-      ...roster.filter((e) => e.playerId !== outgoingPlayerId),
+      ...roster
+        .filter((e) => e.playerId !== outgoingPlayerId)
+        .map((e) => (isJokerSwap && e.isJoker ? { ...e, isJoker: false, jokerPosition: undefined } : e)),
       newEntry,
     ];
     season.pot = (season.pot || 0) + evaluation.fee;
@@ -5118,8 +5179,12 @@ const AdminActions = {
       teamA: participantId,
       teamB: null,
       playersOut: [{
+        // Revision — Fix Joker Swap: the outgoing player is only actually
+        // "the Joker" if their own roster entry says so — no longer
+        // inferred from isJokerSwap, since a Joker Swap can now swap out
+        // ANY player, not only the participant's current Joker.
         playerId: outgoingPlayerId, name: outPlayer?.name, overall: outPlayer?.overall,
-        pool: outPlayer?.pool, isJoker: !!isJokerSwap,
+        pool: outPlayer?.pool, isJoker: !!(outgoingEntry && outgoingEntry.isJoker),
       }],
       playersIn: [{
         playerId: incomingPlayerId, name: inPlayer?.name, overall: inPlayer?.overall,

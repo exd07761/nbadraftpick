@@ -245,6 +245,23 @@ function matchupHomeAway(m) {
   };
 }
 
+/**
+ * Renders a classification badge (RED/YELLOW/PINK) for roster tables, or a
+ * neutral dash when the entry has none. Shared by the admin and public
+ * roster views (Revision — Display Original Pick Color) so both use
+ * identical markup/classes for the same three classifications the
+ * Trade/Swap picker's [TAG] suffix already exposes (see _playerLabel in
+ * admin/trades.js).
+ */
+function classificationBadge(classification) {
+  if (!classification) return '<span class="muted">—</span>';
+  const cls = classification === 'RED' ? 'pick-color-red'
+    : classification === 'YELLOW' ? 'pick-color-yellow'
+    : classification === 'PINK' ? 'pick-color-pink'
+    : '';
+  return `<span class="pick-color-badge ${cls}">${escapeHtml(classification)}</span>`;
+}
+
 function showToast(message, type = 'info') {
   const existing = document.getElementById('toast');
   if (existing) existing.remove();

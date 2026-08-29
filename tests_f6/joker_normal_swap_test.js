@@ -2,20 +2,26 @@
 /**
  * Revision — Bypass Joker Status for Normal Swaps — regression tests.
  *
- * AUDIT FINDING (see the accompanying report): as written, evaluateSwap's
- * only Joker-related check is
+ * AUDIT FINDING (see the accompanying report): as originally written,
+ * evaluateSwap's only Joker-related check was
  *
  *   if (isJokerSwap && !outgoingEntry.isJoker) fail("Joker", ...);
  *
- * which is gated behind isJokerSwap === true — i.e. it belongs exclusively
- * to the dedicated Joker Swap path (the "This is a Joker swap" checkbox in
- * admin/trades.js) and never fires for a normal swap (isJokerSwap falsy).
- * No other function in the normal-swap path (getSwapEligibleReplacements,
- * AdminTradesView._buildReplacementGroups, the outgoing-player <select>,
- * or evaluateSwap/commitSwap's other checks) reads isJoker at all. There
- * was therefore no existing restriction to remove — this file exists to
- * lock that (already-correct) behavior in place as a regression guard, per
- * the revision's own Phase 10 testing requirement.
+ * which was gated behind isJokerSwap === true — i.e. it belonged
+ * exclusively to the dedicated Joker Swap path (the "This is a Joker
+ * swap" checkbox in admin/trades.js) and never fired for a normal swap
+ * (isJokerSwap falsy). No other function in the normal-swap path
+ * (getSwapEligibleReplacements, AdminTradesView._buildReplacementGroups,
+ * the outgoing-player <select>, or evaluateSwap/commitSwap's other
+ * checks) read isJoker at all. There was therefore no existing
+ * restriction to remove for normal swaps — this file exists to lock that
+ * (already-correct) behavior in place as a regression guard, per the
+ * revision's own Phase 10 testing requirement.
+ *
+ * NOTE: the check quoted above was later removed entirely by the "Fix
+ * Joker Swap" revision (it no longer requires the outgoing player to be
+ * the current Joker even for a real Joker Swap) — see Test 7/7b below and
+ * loosen_swap_validation_test.js for that revision's own coverage.
  *
  * Same VM-sandbox convention as tests_f6/swap_pool_eligibility_test.js.
  */
@@ -233,24 +239,26 @@ check('Test 6: Season Day still blocks a normal swap involving the Joker, for th
   AdminActions.setSeasonDay(scenario.seasonId, 1); // reset for subsequent tests
 });
 
-// ── Test 7 — the dedicated Joker Swap path is completely unaffected ────────
+// ── Test 7 — Revision: "Fix Joker Swap" superseded this test's original ────
+//    premise. A Joker Swap no longer requires the outgoing player to
+//    already be the current Joker — see loosen_swap_validation_test.js's
+//    "Fix Joker Swap" coverage for the full before/after behavior. Kept
+//    here (updated) so this file's Joker Swap coverage stays accurate.
 
-check('Test 7: a real Joker Swap (isJokerSwap=true) with a non-Joker outgoing player is still rejected', () => {
+check('Test 7: a Joker Swap with a NON-Joker outgoing player is now accepted (Fix Joker Swap revision)', () => {
   const roster = sandbox.LeagueData.getRosterForTransactions(scenario.seasonId, scenario.pA.id);
   const nonJokerEntry = roster.find((e) => e.playerId !== scenario.jokerPlayer.id);
   const result = AdminActions.evaluateSwap(scenario.seasonId, {
     participantId: scenario.pA.id,
-    outgoingPlayerId: nonJokerEntry.playerId, // NOT the current Joker
+    outgoingPlayerId: nonJokerEntry.playerId, // NOT the current Joker — now allowed
     incomingPlayerId: scenario.validReplacement.id,
     isJokerSwap: true,
     jokerPosition: 'SF',
   });
-  assertTrue(!result.valid, 'a Joker Swap must still require the outgoing player to be the current Joker');
-  const jokerCheck = result.checks.find((c) => c.label === 'Joker');
-  assertTrue(jokerCheck && !jokerCheck.valid, 'expected the dedicated Joker Swap check to fail, unchanged');
+  assertTrue(result.valid, `expected a valid Joker Swap regardless of outgoing Joker status, checks: ${JSON.stringify(result.checks)}`);
 });
 
-check('Test 7b: a real Joker Swap with the ACTUAL Joker as outgoing still evaluates valid and commits as isJoker on the incoming player', () => {
+check('Test 7b: a Joker Swap with the ACTUAL Joker as outgoing still evaluates valid and commits as isJoker on the incoming player', () => {
   const result = AdminActions.evaluateSwap(scenario.seasonId, {
     participantId: scenario.pA.id,
     outgoingPlayerId: scenario.jokerPlayer.id,

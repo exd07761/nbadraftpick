@@ -31,6 +31,7 @@ const AdminTradesView = {
   _swapTeam: '',
   _swapOutgoing: '',
   _swapIncomingId: '',
+  _swapReplacementSearch: '',
   _swapIsJoker: false,
   _swapJokerPosition: '',
   _swapPreview: null,
@@ -285,8 +286,14 @@ const AdminTradesView = {
    * Does not touch AdminActions/evaluateSwap/commitSwap in any way — this
    * only decides what the replacement list looks like before the admin
    * picks one and clicks Preview Swap, same as the old <select> did.
+   *
+   * @param searchQuery — optional free-text filter (name or position,
+   *   case-insensitive substring), applied before the pool split. Purely
+   *   a display convenience, same as _applyFilter in admin/players.js —
+   *   never changes which players are eligible, only which of them are
+   *   currently shown.
    */
-  _buildReplacementGroups(allEligible, outgoingEntry) {
+  _buildReplacementGroups(allEligible, outgoingEntry, searchQuery) {
     if (!outgoingEntry || !outgoingEntry.player) {
       return { position: null, green: [], blue: [], other: [], total: 0 };
     }
@@ -298,7 +305,14 @@ const AdminTradesView = {
     // team's roster right now), so this filter should never actually remove
     // anyone in practice — kept explicit per the requirement so the UI is
     // still correct even if that upstream rule ever changes.
-    const filtered = allEligible.filter((p) => p.id !== currentPlayerId);
+    let filtered = allEligible.filter((p) => p.id !== currentPlayerId);
+
+    const q = (searchQuery || '').trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter((p) =>
+        p.name.toLowerCase().includes(q) || (p.position || '').toLowerCase().includes(q)
+      );
+    }
 
     const sortByOvrThenName = (a, b) => (b.overall - a.overall) || a.name.localeCompare(b.name);
     const green = filtered.filter((p) => p.pool === 'green').sort(sortByOvrThenName);
@@ -335,14 +349,76 @@ const AdminTradesView = {
       </div>`;
   },
 
+  /**
+   * Renders the search box + result groups for whichever outgoing player
+   * is currently selected. Shared by _renderSwapTab (first paint) and
+   * _refreshSwapReplacements (every keystroke in the search box) so typing
+   * a search query only replaces #swapReplacementResults, never the
+   * search <input> itself — re-rendering the input on every keystroke
+   * would reset the cursor position and drop focus mid-type.
+   */
+  _renderReplacementSection(season, outgoingEntry) {
+    if (!outgoingEntry) {
+      return `<p class="helper-text">Select an outgoing player above to see eligible replacements.</p>`;
+    }
+    const allEligible = LeagueData.getSwapEligibleReplacements(season.id, '');
+    const groups = this._buildReplacementGroups(allEligible, outgoingEntry, this._swapReplacementSearch);
+    const searching = !!this._swapReplacementSearch.trim();
+
+    return `
+      <div class="swap-replacement-panel">
+        <div class="form-group">
+          <input type="text" id="swapReplacementSearch" class="input search-input"
+            placeholder="Search replacements by name or position…"
+            value="${escapeHtml(this._swapReplacementSearch)}" style="width:100%;">
+        </div>
+        <div id="swapReplacementResults">
+          ${this._renderReplacementResults(groups, searching)}
+        </div>
+      </div>`;
+  },
+
+  _renderReplacementResults(groups, searching) {
+    const outgoingPosLabel = groups.position ? ` · OUTGOING WAS ${escapeHtml(groups.position)}` : '';
+    return `
+      <div class="swap-replacement-header">${groups.total} ELIGIBLE REPLACEMENT${groups.total === 1 ? '' : 'S'}${outgoingPosLabel}</div>
+      ${groups.total === 0 ? `
+        <div class="swap-empty-state">
+          <p class="swap-empty-title">NO ELIGIBLE REPLACEMENTS</p>
+          <p>${searching
+            ? 'No eligible players match your search.'
+            : 'There are currently no eligible replacement players available for this swap.'}</p>
+        </div>` : `
+        ${this._renderReplacementPoolSection('GREEN POOL', 'pool-heading-green', groups.green)}
+        ${this._renderReplacementPoolSection('BLUE POOL', 'pool-heading-blue', groups.blue)}
+        ${this._renderReplacementPoolSection('UNASSIGNED POOL', '', groups.other)}
+      `}`;
+  },
+
+  /**
+   * Called on every search-box keystroke: recomputes the eligible/grouped
+   * list and replaces only #swapReplacementResults, then rebinds the
+   * SELECT buttons inside it (the previous ones were just destroyed by
+   * the innerHTML replacement). Leaves the search <input> itself alone.
+   */
+  _refreshSwapReplacements(body, season, outgoingEntry) {
+    const allEligible = LeagueData.getSwapEligibleReplacements(season.id, '');
+    const groups = this._buildReplacementGroups(allEligible, outgoingEntry, this._swapReplacementSearch);
+    const searching = !!this._swapReplacementSearch.trim();
+    const results = body.querySelector('#swapReplacementResults');
+    results.innerHTML = this._renderReplacementResults(groups, searching);
+    results.querySelectorAll('[data-select-replacement]').forEach((el) => {
+      el.onclick = () => {
+        this._swapIncomingId = el.getAttribute('data-select-replacement');
+        this._swapPreview = null;
+        this._renderSwapTab(body, season);
+      };
+    });
+  },
+
   _renderSwapTab(body, season) {
     const roster = this._swapTeam ? LeagueData.getRosterForTransactions(season.id, this._swapTeam) : [];
     const outgoingEntry = roster.find((e) => e.playerId === this._swapOutgoing);
-
-    // Existing eligibility rule — untouched. UI-side grouping/filtering
-    // happens only in _buildReplacementGroups, below.
-    const allEligible = LeagueData.getSwapEligibleReplacements(season.id, '');
-    const groups = this._buildReplacementGroups(allEligible, outgoingEntry);
 
     const currentPlayerCard = outgoingEntry && outgoingEntry.player ? `
       <div class="swap-current-block">
@@ -360,20 +436,7 @@ const AdminTradesView = {
         </div>
       </div>` : '';
 
-    const replacementSection = !outgoingEntry ? `
-      <p class="helper-text">Select an outgoing player above to see eligible replacements.</p>` : `
-      <div class="swap-replacement-panel">
-        <div class="swap-replacement-header">${groups.total} ELIGIBLE REPLACEMENT${groups.total === 1 ? '' : 'S'} · OUTGOING WAS ${escapeHtml(groups.position)}</div>
-        ${groups.total === 0 ? `
-          <div class="swap-empty-state">
-            <p class="swap-empty-title">NO ELIGIBLE REPLACEMENTS</p>
-            <p>There are currently no eligible replacement players available for this swap.</p>
-          </div>` : `
-          ${this._renderReplacementPoolSection('GREEN POOL', 'pool-heading-green', groups.green)}
-          ${this._renderReplacementPoolSection('BLUE POOL', 'pool-heading-blue', groups.blue)}
-          ${this._renderReplacementPoolSection('UNASSIGNED POOL', '', groups.other)}
-        `}
-      </div>`;
+    const replacementSection = this._renderReplacementSection(season, outgoingEntry);
 
     body.innerHTML = `
       <div class="card-form">
@@ -419,6 +482,7 @@ const AdminTradesView = {
       this._swapTeam = e.target.value;
       this._swapOutgoing = '';
       this._swapIncomingId = '';
+      this._swapReplacementSearch = '';
       this._swapPreview = null;
       this._renderSwapTab(body, season);
     };
@@ -427,11 +491,23 @@ const AdminTradesView = {
       // Changing the outgoing player rebuilds the replacement list (it
       // excludes whichever player is currently selected as outgoing), so a
       // previously selected replacement may no longer be present — clear it
-      // rather than leaving a stale, invisible selection behind.
+      // rather than leaving a stale, invisible selection behind. Also
+      // clear any search text left over from the previous outgoing player.
       this._swapIncomingId = '';
+      this._swapReplacementSearch = '';
       this._swapPreview = null;
       this._renderSwapTab(body, season);
     };
+    const searchInput = body.querySelector('#swapReplacementSearch');
+    if (searchInput) {
+      // Partial refresh only (see _refreshSwapReplacements) — re-rendering
+      // the whole tab here would rebuild this very input on every
+      // keystroke and drop focus/cursor position mid-type.
+      searchInput.oninput = (e) => {
+        this._swapReplacementSearch = e.target.value;
+        this._refreshSwapReplacements(body, season, outgoingEntry);
+      };
+    }
     body.querySelectorAll('[data-select-replacement]').forEach((el) => {
       el.onclick = () => {
         this._swapIncomingId = el.getAttribute('data-select-replacement');
