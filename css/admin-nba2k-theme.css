@@ -1,6 +1,7 @@
 /**
  * admin-nba2k-theme.css — NBA 2K26 Player Database Browser.
  * Phase 2: browse/search/filter/detail. Phase 3: promotion controls.
+ * Phase 6: position management editor (reuses most Phase 3 classes).
  *
  * Scoped entirely to classes rendered only by js/admin/nba2k-database.js
  * (all prefixed `.nba2k-`, plus the new `.nba2k-table`/`.nba2k-db`
@@ -256,6 +257,55 @@
 }
 .nba2k-promo-confirm-row:last-of-type { border-bottom: none; }
 .nba2k-promo-confirm-row span { color: var(--nb-text-muted, var(--text-muted)); }
+
+/* ─── Phase 6: "Position Management" section in the detail modal ────────── */
+/* Reuses `.nba2k-promo` (border-top/spacing) and `.nba2k-promo h4` for the
+   section wrapper/heading, plus `.nba2k-promo-confirm-card`,
+   `.nba2k-promo-eyebrow`, and `.nba2k-promo-confirm-row` (all Phase 3
+   rules above) for the Save/Cancel diff card — only the checkbox grid and
+   status/quality lines below are new. */
+.nba2k-posedit-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.82rem;
+  padding: 0.25rem 0;
+}
+.nba2k-posedit-status-row span { color: var(--nb-text-muted, var(--text-muted)); }
+
+.nba2k-posedit-quality {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin: 0.35rem 0 0.5rem;
+}
+.nba2k-posedit-quality-ok   { color: var(--nb-positive, var(--green)); }
+.nba2k-posedit-quality-warn { color: var(--nb-warning, #d9a441); }
+
+.nba2k-posedit-hint { margin: 0 0 0.75rem; }
+
+.nba2k-posedit-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.9rem;
+}
+.nba2k-posedit-check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+  min-width: 0;
+}
+.nba2k-posedit-check input[type="checkbox"] {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--nb-primary, var(--accent));
+}
+
+.nba2k-posedit-result:empty { margin: 0; }
+.nba2k-posedit-result { margin-top: 0.25rem; }
 
 /* ─── Phase 4: category tabs (All / Current / Classics / All-Time) ──────── */
 .nba2k-category-tabs {

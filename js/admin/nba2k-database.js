@@ -98,6 +98,50 @@
  * to the pool decision, never rewritten, and no `pool` field is ever
  * added to a source document (pool lives only on the promoted
  * `league/main` player, exactly as in Phase 3).
+ *
+ * SCOPE (Phase 6 -- new)
+ * Admin-only POSITION MANAGEMENT: the commissioner can now manually
+ * correct `nba2k_players/<slug>.positions` directly from the existing
+ * player detail modal, BEFORE promoting a player into the Draft Pool.
+ * - New "Position Management" section in the detail modal: five
+ *   checkboxes (PG/SG/SF/PF/C), pre-checked to the player's current
+ *   normalized source positions, a data-quality line (check = complete,
+ *   warning = missing), and a Save Positions button.
+ * - `normalizeNba2kPositions()` is the single source of truth for
+ *   validating + deduping + canonically ordering a position selection --
+ *   used both to normalize what's shown/saved here and to normalize
+ *   whatever is already stored on a source doc when comparing against it
+ *   (some pre-Phase-6 records may not already be in canonical order).
+ *   Invalid values (anything outside PG/SG/SF/PF/C) are silently dropped
+ *   by this function rather than ever written to Firestore.
+ * - Saving writes ONLY `nba2k_players/<slug>.positions` via `.update()`
+ *   -- never a full-document `.set()` -- so every other field on the
+ *   source record (attributes, badges, overall, images, physicals, team,
+ *   teamType, lastUpdated, etc.) is completely untouched by this phase.
+ * - Before writing, the source doc is re-read and its (normalized)
+ *   `positions` compared against the value this editor session started
+ *   from; a mismatch means another admin session changed it first, so
+ *   the write is aborted with an explicit "updated elsewhere" message
+ *   instead of silently overwriting a newer edit. This is a best-effort
+ *   check, not a lock.
+ * - A selection identical (after normalization) to what's already stored
+ *   performs zero Firestore writes and shows "No position changes to
+ *   save." instead.
+ * - This phase NEVER writes to `league/main`, never promotes a player,
+ *   and never touches an already-promoted Draft Pool player's `position`
+ *   -- an existing promotion's position is historical commissioner data
+ *   and is left exactly as it was, even after the NBA2K source positions
+ *   it was originally chosen from are later corrected. The existing
+ *   Phase 3/5 promotion section (`_renderPromotionSection` /
+ *   `_bindPromotionEvents`, both otherwise unchanged) reads
+ *   `player.positions` from the same in-memory cache entry this phase
+ *   updates in place after a successful save, so any *future* promotion
+ *   of that player automatically offers the corrected positions with no
+ *   separate wiring required -- but still always requires the
+ *   commissioner to explicitly pick one, exactly as before.
+ * - No bulk editing, no history/audit log, and no automatic/inferred
+ *   position correction of any kind -- this is intentionally a manual,
+ *   one-player-at-a-time data-cleanup tool.
  */
 
 // Human-readable labels for the source teamType, plus which Draft Pool
@@ -128,6 +172,56 @@ function nba2kPoolForTeamType(teamType) {
   if (teamType === 'curr') return 'green';
   if (teamType === 'class' || teamType === 'allt') return 'blue';
   return null;
+}
+
+// Phase 6: the ONLY five position values this app ever accepts, in the
+// authoritative canonical order (confirmed by commissioner correction
+// after Phase 6's initial ship): PG, SG, SF, PF, C. This single order is
+// used both for the checkbox render order in the editor UI AND for
+// normalized STORAGE order — the two are intentionally the same list.
+//
+// NOTE — historical note on a since-corrected discrepancy: the original
+// Phase 6 brief's worked examples (e.g. ["PF","C","PF"] -> ["C","PF"])
+// implied C sorting before PF, contradicting that same brief's stated
+// canonical-order list. The commissioner has since confirmed the stated
+// list (PF before C) is authoritative and the worked examples were
+// wrong. This implementation now follows PG/SG/SF/PF/C throughout.
+const NBA2K_VALID_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
+
+// Single source of truth for turning an arbitrary (possibly messy,
+// possibly attacker-supplied) list of position strings into a clean
+// array: invalid values dropped, duplicates collapsed, canonical order
+// enforced. Never throws — an empty/garbage input simply normalizes to
+// `[]`, and callers are responsible for rejecting an empty result where
+// "at least one position" is required (this function's job is shaping,
+// not that policy). Pure and side-effect-free so it's usable both to
+// normalize a UI selection and to normalize whatever a Firestore read
+// returns, without ever needing the DOM or a network call.
+function normalizeNba2kPositions(positions) {
+  const input = Array.isArray(positions) ? positions : [];
+  const present = new Set(input.filter(p => NBA2K_VALID_POSITIONS.includes(p)));
+  return NBA2K_VALID_POSITIONS.filter(p => present.has(p));
+}
+
+// Compares two position lists for equality AFTER normalizing both sides
+// — so a stored `["PF", "C", "PF"]` and a freshly-selected `["C", "PF"]`
+// are correctly treated as "no change" even though the raw arrays differ.
+function nba2kPositionsEqual(a, b) {
+  const na = normalizeNba2kPositions(a);
+  const nb = normalizeNba2kPositions(b);
+  return na.length === nb.length && na.every((p, i) => p === nb[i]);
+}
+
+// Phase 6 "optional data quality indicator" — deliberately only ever
+// reports whether position data exists at all. It NEVER infers anything
+// from overall/attributes/badges/height/weight/team/name: the
+// commissioner remains the sole authority on whether a position is
+// *correct*, this only flags whether one is *present*.
+function nba2kPositionStatus(positions) {
+  const normalized = normalizeNba2kPositions(positions);
+  return normalized.length > 0
+    ? { icon: '\u2713', label: 'Position data complete', cls: 'ok' }
+    : { icon: '\u26A0', label: 'Position missing', cls: 'warn' };
 }
 
 // Attribute display metadata: source field name -> label, grouped into
@@ -539,6 +633,8 @@ const Nba2kDatabaseView = {
             </div>
           </div>
 
+          ${this._renderPositionEditor(player)}
+
           ${this._renderPromotionSection(player)}
         </div>
       </div>`;
@@ -549,7 +645,162 @@ const Nba2kDatabaseView = {
       if (e.target.id === 'nba2kDetailOverlay') close();
     });
 
+    this._bindPositionEditorEvents(container, mount, player);
     this._bindPromotionEvents(container, mount, player);
+  },
+
+  // ── Phase 6: "Position Management" section ────────────────────────────
+  // Admin-only manual correction of `nba2k_players/<slug>.positions`.
+  // Rendered above the Phase 3/5 promotion section so the commissioner
+  // naturally corrects source data before promoting. Never auto-selects,
+  // auto-corrects, or infers a position from any other field — see the
+  // Phase 6 file-header note.
+  _renderPositionEditor(player) {
+    const current = normalizeNba2kPositions(player.positions);
+    const status = nba2kPositionStatus(player.positions);
+    const promoted = this._findPromotedEntry(player.id);
+
+    return `
+      <div class="nba2k-promo nba2k-posedit">
+        <h4>Position Management</h4>
+
+        <div class="nba2k-posedit-status-row">
+          <span>NBA2K Source Positions</span>
+          <strong>${current.length ? escapeHtml(current.join(' / ')) : '—'}</strong>
+        </div>
+        <div class="nba2k-posedit-status-row">
+          <span>Draft Pool Position</span>
+          <strong>${promoted ? escapeHtml(promoted.position || '—') : 'Not yet promoted'}</strong>
+        </div>
+        <div class="nba2k-posedit-quality nba2k-posedit-quality-${status.cls}">${status.icon} ${escapeHtml(status.label)}</div>
+
+        <p class="helper-text nba2k-posedit-hint">
+          Correct this NBA2K player's source positions. This never changes an
+          existing Draft Pool player — only future promotions use the
+          corrected positions.
+        </p>
+
+        <div class="nba2k-posedit-checks">
+          ${NBA2K_VALID_POSITIONS.map(pos => `
+            <label class="nba2k-posedit-check">
+              <input type="checkbox" value="${pos}" ${current.includes(pos) ? 'checked' : ''}>
+              <span>${pos}</span>
+            </label>
+          `).join('')}
+        </div>
+
+        <button type="button" class="btn btn-primary" id="nba2kPosSaveBtn">Save Positions</button>
+
+        <div id="nba2kPosResult" class="nba2k-posedit-result"></div>
+      </div>`;
+  },
+
+  _bindPositionEditorEvents(container, mount, player) {
+    const root = mount.querySelector('.nba2k-posedit');
+    if (!root) return;
+
+    const checks = Array.from(root.querySelectorAll('input[type="checkbox"]'));
+    const saveBtn = root.querySelector('#nba2kPosSaveBtn');
+    const resultEl = root.querySelector('#nba2kPosResult');
+
+    // Snapshot taken when this editor opened — used both as the "current"
+    // side of the diff/no-change comparison and as the expected-previous
+    // value for the concurrent-edit check right before the write.
+    const openedPositions = normalizeNba2kPositions(player.positions);
+
+    saveBtn.onclick = () => {
+      resultEl.innerHTML = '';
+
+      const selected = checks.filter(c => c.checked).map(c => c.value);
+      const normalized = normalizeNba2kPositions(selected);
+
+      if (normalized.length === 0) {
+        resultEl.innerHTML = `<div class="backup-result backup-result-error">You must select at least one position.</div>`;
+        return;
+      }
+      if (nba2kPositionsEqual(normalized, openedPositions)) {
+        resultEl.innerHTML = `<p class="helper-text">No position changes to save.</p>`;
+        return;
+      }
+
+      resultEl.innerHTML = `
+        <div class="nba2k-promo-confirm-card">
+          <div class="nba2k-promo-eyebrow">Position Change</div>
+          <div class="nba2k-promo-confirm-row"><span>Player</span><strong>${escapeHtml(player.name)}</strong></div>
+          <div class="nba2k-promo-confirm-row"><span>Current</span><strong>${openedPositions.length ? escapeHtml(openedPositions.join(', ')) : '—'}</strong></div>
+          <div class="nba2k-promo-confirm-row"><span>New</span><strong>${escapeHtml(normalized.join(', '))}</strong></div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-primary" id="nba2kPosConfirmBtn">Save Positions</button>
+            <button type="button" class="btn btn-ghost" id="nba2kPosCancelBtn">Cancel</button>
+          </div>
+        </div>`;
+
+      resultEl.querySelector('#nba2kPosCancelBtn').onclick = () => {
+        resultEl.innerHTML = '';
+      };
+
+      resultEl.querySelector('#nba2kPosConfirmBtn').onclick = async () => {
+        const confirmBtn = resultEl.querySelector('#nba2kPosConfirmBtn');
+        const cancelBtn = resultEl.querySelector('#nba2kPosCancelBtn');
+        confirmBtn.disabled = true;
+        cancelBtn.disabled = true;
+        confirmBtn.textContent = 'Saving…';
+
+        try {
+          AuthBoundary.requireAuth();
+          await this._savePositions(player.id, normalized, openedPositions);
+
+          // Update the in-memory cache entry in place — the same object
+          // every row render, filter, and the Phase 3/5 promotion section
+          // read from — so everything reflects this instantly with zero
+          // extra Firestore reads and no page reload.
+          player.positions = normalized;
+
+          showToast('Positions updated', 'success');
+          this._openDetail(container, player.id);
+          this._refreshList(container);
+        } catch (err) {
+          resultEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(err.message || 'Unable to save positions. Please try again.')}</div>`;
+        }
+      };
+    };
+  },
+
+  // Writes ONLY the `positions` field of `nba2k_players/<slug>` via
+  // `.update()` — never `.set()`, so every other field on the document is
+  // guaranteed untouched. Re-reads the document first and compares its
+  // (normalized) `positions` against `expectedPrevious` (the value this
+  // editor session started from); a mismatch means another admin session
+  // changed it first, so the write is aborted rather than silently
+  // clobbering a newer edit. Never surfaces a raw Firebase error message.
+  async _savePositions(slug, normalized, expectedPrevious) {
+    const ref = firebase.firestore().collection('nba2k_players').doc(slug);
+
+    let snap;
+    try {
+      snap = await ref.get();
+    } catch (err) {
+      throw new Error(err && err.code === 'permission-denied'
+        ? "You don't have permission to save positions."
+        : 'Unable to save positions. Please try again.');
+    }
+
+    if (!snap.exists) {
+      throw new Error('This NBA2K player could not be found.');
+    }
+
+    const serverPositions = normalizeNba2kPositions(snap.data().positions);
+    if (!nba2kPositionsEqual(serverPositions, expectedPrevious)) {
+      throw new Error('This player was updated elsewhere. Please reload the player before saving.');
+    }
+
+    try {
+      await ref.update({ positions: normalized });
+    } catch (err) {
+      throw new Error(err && err.code === 'permission-denied'
+        ? "You don't have permission to save positions."
+        : 'Unable to save positions. Please try again.');
+    }
   },
 
   // ── Phase 3/5: "Add to Draft Pool" section ─────────────────────────────
