@@ -1409,11 +1409,182 @@ const Nba2kDatabaseView = {
  * answering slightly different questions, and neither was changed to
  * match the other.
  */
+
+/**
+ * Nba2k27PoolValidator — Phase 9: NBA 2K27 Pool Validation & Readiness.
+ *
+ * PURPOSE
+ * Answers "is the currently-selected nba2k27_pool ready for the future
+ * 2K27 season?" by classifying every already-joined row (as produced by
+ * `Nba2k27PoolView._buildRows()`, which itself performs no Firestore
+ * access) against the existing, already-shipped rules elsewhere in this
+ * app. This object is pure and read-only by construction: every method
+ * here takes plain data in and returns plain data out — no Firestore
+ * calls, no DOM access, no mutation of its input. It reports problems;
+ * it never repairs, deletes, or rewrites anything.
+ *
+ * RULES REUSED (NOT REINVENTED) — see the Phase 9 final report for the
+ * repository inspection that established each of these:
+ *   - Position validity: the existing Phase 6 `NBA2K_VALID_POSITIONS`
+ *     whitelist and `normalizeNba2kPositions()` (this file, above).
+ *   - Pool derivation: the existing Phase 5 `nba2kPoolForTeamType()`
+ *     (this file, above) — curr→green, class/allt→blue, else null.
+ *   - Required source fields (name / team / a numeric overall): the
+ *     exact required-field checks already enforced at import time in
+ *     `js/admin/nba2k-import.js` `_validateAndPreview()`. This validator
+ *     does NOT reuse the "overall must be 40–99" rule from
+ *     `js/admin/players.js` — that is a Season-4 Draft Pool (`league/
+ *     main`) add/edit-player form rule for manually-entered players,
+ *     not a rule this repository applies to the `nba2k_players` source
+ *     database (whose own import-time check only requires a numeric,
+ *     non-NaN `overall`, with no min/max — confirmed by inspecting
+ *     `nba2k-import.js` before writing this). Reusing the Draft Pool's
+ *     40–99 rule here would be inventing a new rule for a collection
+ *     that has never had it, so it was deliberately left out.
+ *
+ * ONE RULE EXTENDED, NOT INVENTED FROM SCRATCH
+ * Phase 6's own `nba2kPositionStatus()` only checks "does at least one
+ * valid position survive normalization" — that would let a stored
+ * `["PG", "XYZ"]` pass as fine, since `normalizeNba2kPositions()` (by
+ * design, for the Phase 6 editor's own purposes) silently drops `XYZ`
+ * and keeps `PG`. Phase 9 additionally needs to surface that `XYZ`
+ * itself is garbage data, so `_positionIssue()` below also checks the
+ * RAW stored array against the existing `NBA2K_VALID_POSITIONS`
+ * whitelist directly. This reuses the existing whitelist constant; it
+ * does not define a new one or a new canonical order.
+ *
+ * CLASSIFICATION (see `classify()`) — six independent boolean flags per
+ * row, `{ orphaned, unknownPoolEligibility, invalidStoredPool,
+ * poolMismatch, positionIssue, dataIssue }`, plus `ready` (true only
+ * when every flag is false). `positionIssue` and `dataIssue` are each
+ * independent of the other flags and of each other — a row can be both
+ * at once (Phase 9 test #16). The three pool-related flags
+ * (`unknownPoolEligibility` / `invalidStoredPool` / `poolMismatch`),
+ * however, are mutually exclusive BY CONSTRUCTION: they are three
+ * different answers to the single question "does the stored pool match
+ * what it should be", evaluated in this fixed priority —
+ *   1. teamType doesn't resolve to a pool at all -> unknownPoolEligibility
+ *      (nothing to compare the stored value against, so a look at the
+ *      stored value's own validity is skipped for this row)
+ *   2. else the stored pool value isn't 'green'/'blue' -> invalidStoredPool
+ *   3. else stored !== derived -> poolMismatch
+ *   4. else no pool problem.
+ * This priority order (rather than trying to raise more than one
+ * pool-related flag on the same row) is what's documented here per the
+ * Phase 9 "document the counting behavior" requirement.
+ *
+ * SUMMARY COUNTING (`summarize()`): UNIQUE PLAYERS PER CATEGORY, per the
+ * Phase 9 requirement — each of the returned counters independently
+ * counts "how many selected rows have this particular flag true", not a
+ * mutually-exclusive bucket partition of the whole selection. A row with
+ * both `positionIssue` and `dataIssue` increments both `positionIssues`
+ * and `dataIssues` by exactly one each (never twice within the same
+ * counter — each counter is a single pass incrementing by at most 1 per
+ * row). `ready` and the six issue counters together can therefore sum to
+ * MORE than `total` when rows have multiple simultaneous issues; that is
+ * expected and is why `total - ready` (not a sum of the issue counters)
+ * is the correct "Issues" figure for the overall status line.
+ */
+const Nba2k27PoolValidator = {
+  // Reuses the exact required-field checks already enforced at
+  // nba2k_players import time (see file header) — never invents a new
+  // required-field list for this collection.
+  _dataIssue(p) {
+    const hasName = typeof p.name === 'string' && p.name.trim().length > 0;
+    const hasTeam = typeof p.team === 'string' && p.team.trim().length > 0;
+    const overallNum = Number(p.overall);
+    const hasValidOvr = p.overall !== undefined && p.overall !== null && !isNaN(overallNum);
+    return !hasName || !hasTeam || !hasValidOvr;
+  },
+
+  // Reuses NBA2K_VALID_POSITIONS + normalizeNba2kPositions (Phase 6) —
+  // see file header "ONE RULE EXTENDED, NOT INVENTED FROM SCRATCH" for
+  // why the raw-array whitelist check is also needed here.
+  _positionIssue(p) {
+    const raw = Array.isArray(p.positions) ? p.positions : [];
+    const normalized = normalizeNba2kPositions(p.positions);
+    const hasInvalidValue = raw.some(v => !NBA2K_VALID_POSITIONS.includes(v));
+    return normalized.length === 0 || hasInvalidValue;
+  },
+
+  // Classifies one row from `Nba2k27PoolView._buildRows()`. Never
+  // mutates `row`; returns a new object (`row` spread, plus `issues`,
+  // `ready`, `expectedPool`).
+  classify(row) {
+    const issues = {
+      orphaned: false,
+      unknownPoolEligibility: false,
+      invalidStoredPool: false,
+      poolMismatch: false,
+      positionIssue: false,
+      dataIssue: false,
+    };
+
+    if (row.orphan || !row.player) {
+      issues.orphaned = true;
+      return { ...row, issues, ready: false, expectedPool: null };
+    }
+
+    const p = row.player;
+    issues.dataIssue = this._dataIssue(p);
+    issues.positionIssue = this._positionIssue(p);
+
+    // Pool validation — see file header for the fixed priority order.
+    const derivedPool = nba2kPoolForTeamType(p.teamType);
+    let expectedPool = derivedPool;
+    if (!derivedPool) {
+      issues.unknownPoolEligibility = true;
+    } else if (!row.poolValid) {
+      issues.invalidStoredPool = true;
+    } else if (row.poolValue !== derivedPool) {
+      issues.poolMismatch = true;
+    }
+
+    const ready = !Object.values(issues).some(Boolean);
+    return { ...row, issues, ready, expectedPool };
+  },
+
+  classifyAll(rows) {
+    return rows.map(r => this.classify(r));
+  },
+
+  // See file header "SUMMARY COUNTING" for exactly what these count.
+  summarize(classifiedRows) {
+    const counts = {
+      total: classifiedRows.length,
+      ready: 0,
+      positionIssues: 0,
+      dataIssues: 0,
+      poolMismatches: 0,
+      orphaned: 0,
+      invalidPool: 0,
+      unknownPoolEligibility: 0,
+    };
+    for (const r of classifiedRows) {
+      if (r.ready) counts.ready++;
+      if (r.issues.positionIssue) counts.positionIssues++;
+      if (r.issues.dataIssue) counts.dataIssues++;
+      if (r.issues.poolMismatch) counts.poolMismatches++;
+      if (r.issues.orphaned) counts.orphaned++;
+      if (r.issues.invalidStoredPool) counts.invalidPool++;
+      if (r.issues.unknownPoolEligibility) counts.unknownPoolEligibility++;
+    }
+    return counts;
+  },
+};
+
 const Nba2k27PoolView = {
   _search: '',
   _filterCategory: '', // '' = All, else 'curr' | 'class' | 'allt'
   _filterPool: '',     // '' = All Pools, else 'green' | 'blue'
   _sortMode: 'ovr-desc',
+
+  // Phase 9: last computed validation report (null until "Validate 2K27
+  // Pool" is clicked, or after a pool-changing write invalidates it —
+  // see `_onPool27Changed` below). `{ classified, summary }`, both plain
+  // data produced by `Nba2k27PoolValidator` — never persisted anywhere.
+  _validation: null,
+  _issueFilter: '', // '' = All, 'ready', or an `issues` key from the validator
 
   async render(container) {
     if (!Nba2kDatabaseView._players) {
@@ -1568,6 +1739,11 @@ const Nba2k27PoolView = {
           ${issueCount > 0 ? `<span class="nba2k27-summary-stat nba2k27mgmt-summary-warn">⚠ Data issues: <strong>${issueCount}</strong></span>` : ''}
         </div>
 
+        <div class="nba2k27val-panel">
+          <button type="button" class="btn btn-primary" id="nba2k27ValidateBtn">Validate 2K27 Pool</button>
+          <div id="nba2k27ValResult"></div>
+        </div>
+
         <div class="nba2k-category-tabs" role="tablist" aria-label="Filter by category">
           ${categoryTabs.map(t => `
             <button type="button" class="btn ${this._filterCategory === t.value ? 'btn-primary' : 'btn-ghost'} btn-sm nba2k27mgmt-category-tab"
@@ -1606,6 +1782,7 @@ const Nba2k27PoolView = {
     container.querySelector('#nba2k27mgmtSearch').oninput = e => { this._search = e.target.value; this._refreshList(container); };
     container.querySelector('#nba2k27mgmtPoolFilter').onchange = e => { this._filterPool = e.target.value; this._refreshList(container); };
     container.querySelector('#nba2k27mgmtSort').onchange = e => { this._sortMode = e.target.value; this._refreshList(container); };
+    container.querySelector('#nba2k27ValidateBtn').onclick = () => this._runValidation(container);
 
     // Whenever the shared detail modal's own 2K27 Add/Remove buttons
     // (Phase 7, `Nba2kDatabaseView._bind2k27Events`) write to
@@ -1614,10 +1791,24 @@ const Nba2k27PoolView = {
     // `document.body.contains(container)` in case this view has since
     // been navigated away from while its modal was still open.
     Nba2kDatabaseView._onPool27Changed = () => {
-      if (document.body.contains(container)) this._refreshList(container);
+      if (!document.body.contains(container)) return;
+      this._refreshList(container);
+      // Phase 9: the selection set just changed underneath a previously
+      // computed validation report — that report is now stale data, not
+      // a re-derivable view, so it is discarded rather than silently
+      // left on screen. The commissioner must explicitly re-validate.
+      if (this._validation) {
+        this._validation = null;
+        this._issueFilter = '';
+        const resultEl = container.querySelector('#nba2k27ValResult');
+        if (resultEl) {
+          resultEl.innerHTML = `<p class="helper-text">Pool selections changed — click "Validate 2K27 Pool" again to refresh this report.</p>`;
+        }
+      }
     };
 
     this._refreshList(container);
+    this._renderValidationResult(container);
   },
 
   _refreshList(container) {
@@ -1766,6 +1957,16 @@ const Nba2k27PoolView = {
         confirmEl.classList.add('hidden');
         confirmEl.innerHTML = '';
         this._refreshList(container);
+        // Phase 9: this removal changed the selection set too — same
+        // staleness reasoning as the `_onPool27Changed` hook above.
+        if (this._validation) {
+          this._validation = null;
+          this._issueFilter = '';
+          const resultEl = container.querySelector('#nba2k27ValResult');
+          if (resultEl) {
+            resultEl.innerHTML = `<p class="helper-text">Pool selections changed — click "Validate 2K27 Pool" again to refresh this report.</p>`;
+          }
+        }
       } catch (err) {
         confirmBtn.disabled = false;
         const msg = err && err.code === 'permission-denied'
@@ -1774,5 +1975,185 @@ const Nba2k27PoolView = {
         confirmEl.innerHTML += `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
       }
     };
+  },
+
+  // ── Phase 9: NBA 2K27 Pool Validation & Readiness ───────────────────
+  // Everything below reads `this._buildRows()` (already-cached data,
+  // zero Firestore access) and `Nba2k27PoolValidator` (pure functions,
+  // zero Firestore access). Nothing in this section ever calls `.set()`,
+  // `.update()`, `.delete()`, or `.add()` on any collection — see the
+  // `Nba2k27PoolValidator` file header for the full read-only rationale.
+
+  _runValidation(container) {
+    const rows = this._buildRows();
+    const classified = Nba2k27PoolValidator.classifyAll(rows);
+    const summary = Nba2k27PoolValidator.summarize(classified);
+    this._validation = { classified, summary };
+    this._issueFilter = '';
+    this._renderValidationResult(container);
+  },
+
+  _renderValidationResult(container) {
+    const resultEl = container.querySelector('#nba2k27ValResult');
+    if (!resultEl) return;
+
+    if (!this._validation) {
+      resultEl.innerHTML = '';
+      return;
+    }
+
+    const { summary } = this._validation;
+    const overallReady = summary.total > 0 && summary.ready === summary.total;
+
+    const filterDefs = [
+      { value: '', label: `All (${summary.total})` },
+      { value: 'ready', label: `✅ Ready (${summary.ready})` },
+      { value: 'positionIssue', label: `⚠️ Position Issues (${summary.positionIssues})` },
+      { value: 'dataIssue', label: `⚠️ Data Issues (${summary.dataIssues})` },
+      { value: 'poolMismatch', label: `❌ Pool Mismatch (${summary.poolMismatches})` },
+      { value: 'invalidStoredPool', label: `❌ Invalid Pool (${summary.invalidPool})` },
+      { value: 'unknownPoolEligibility', label: `❌ Unknown Eligibility (${summary.unknownPoolEligibility})` },
+      { value: 'orphaned', label: `❌ Orphaned (${summary.orphaned})` },
+    ];
+
+    resultEl.innerHTML = `
+      <div class="nba2k27val-summary-card">
+        <div class="nba2k27val-status ${overallReady ? 'nba2k27val-status-ready' : 'nba2k27val-status-not-ready'}">
+          ${overallReady ? '✅ READY' : '⚠️ NOT READY'}
+        </div>
+        <div class="nba2k27val-stats">
+          <span>Selected Players: <strong>${summary.total}</strong></span>
+          <span>Ready: <strong>${summary.ready}</strong></span>
+          <span>Issues: <strong>${summary.total - summary.ready}</strong></span>
+        </div>
+        <div class="nba2k27val-breakdown">
+          <div>⚠️ Position Issues <strong>${summary.positionIssues}</strong></div>
+          <div>⚠️ Data Issues <strong>${summary.dataIssues}</strong></div>
+          <div>❌ Pool Mismatches <strong>${summary.poolMismatches}</strong></div>
+          <div>❌ Invalid Stored Pool <strong>${summary.invalidPool}</strong></div>
+          <div>❌ Unknown Pool Eligibility <strong>${summary.unknownPoolEligibility}</strong></div>
+          <div>❌ Orphaned Selections <strong>${summary.orphaned}</strong></div>
+        </div>
+      </div>
+
+      <div class="nba2k-category-tabs" role="tablist" aria-label="Filter by validation issue">
+        ${filterDefs.map(f => `
+          <button type="button" class="btn ${this._issueFilter === f.value ? 'btn-primary' : 'btn-ghost'} btn-sm nba2k27val-issue-tab"
+            data-issue="${escapeHtml(f.value)}">${escapeHtml(f.label)}</button>
+        `).join('')}
+      </div>
+
+      <div id="nba2k27ValIssueListWrap"></div>`;
+
+    resultEl.querySelectorAll('.nba2k27val-issue-tab').forEach(btn => {
+      btn.onclick = () => { this._issueFilter = btn.dataset.issue; this._refreshIssueList(container); };
+    });
+
+    this._refreshIssueList(container);
+  },
+
+  // '' = all rows in the last report; 'ready' = only ready rows; any
+  // other value = rows whose `issues[value]` flag is true.
+  _getFilteredClassified() {
+    if (!this._validation) return [];
+    const { classified } = this._validation;
+    if (!this._issueFilter) return classified;
+    if (this._issueFilter === 'ready') return classified.filter(r => r.ready);
+    return classified.filter(r => r.issues[this._issueFilter]);
+  },
+
+  _issueLabels(row) {
+    if (row.ready) return 'Ready';
+    const labels = [];
+    if (row.issues.orphaned) labels.push('Orphaned');
+    if (row.issues.unknownPoolEligibility) labels.push('Unknown Pool Eligibility');
+    if (row.issues.invalidStoredPool) labels.push('Invalid Stored Pool');
+    if (row.issues.poolMismatch) labels.push('Pool Mismatch');
+    if (row.issues.positionIssue) labels.push('Position Issue');
+    if (row.issues.dataIssue) labels.push('Data Issue');
+    return labels.join(', ');
+  },
+
+  _renderIssueRow(row) {
+    const storedPoolLabel = row.poolValid
+      ? (row.poolValue === 'green' ? 'Green' : 'Blue')
+      : (row.poolValue ? `Invalid (${row.poolValue})` : '—');
+    const expectedPoolLabel = row.expectedPool ? (row.expectedPool === 'green' ? 'Green' : 'Blue') : '—';
+
+    if (row.orphan) {
+      return `
+        <tr>
+          <td data-label="Player"><code>${escapeHtml(row.slug)}</code></td>
+          <td data-label="OVR">—</td>
+          <td data-label="Position">—</td>
+          <td data-label="NBA Team">—</td>
+          <td data-label="Category">—</td>
+          <td data-label="Stored Pool">${escapeHtml(storedPoolLabel)}</td>
+          <td data-label="Expected Pool">—</td>
+          <td data-label="Issue">${escapeHtml(this._issueLabels(row))}</td>
+          <td data-label="Action">—</td>
+        </tr>`;
+    }
+
+    const p = row.player;
+    const overallValid = p.overall !== undefined && p.overall !== null && !isNaN(Number(p.overall));
+    const ovrDisplay = overallValid ? Number(p.overall) : (p.overall === undefined || p.overall === null ? '—' : escapeHtml(String(p.overall)));
+    const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';
+    const categoryLabel = p.teamType ? nba2kCategoryLabel(p.teamType) : '—';
+
+    return `
+      <tr>
+        <td data-label="Player">${escapeHtml(p.name || row.slug)}</td>
+        <td data-label="OVR">${ovrDisplay}</td>
+        <td data-label="Position">${escapeHtml(positions)}</td>
+        <td data-label="NBA Team">${escapeHtml(p.team || '—')}</td>
+        <td data-label="Category">${escapeHtml(categoryLabel)}</td>
+        <td data-label="Stored Pool">${escapeHtml(storedPoolLabel)}</td>
+        <td data-label="Expected Pool">${escapeHtml(expectedPoolLabel)}</td>
+        <td data-label="Issue">${escapeHtml(this._issueLabels(row))}</td>
+        <td data-label="Action">
+          ${row.ready
+            ? '—'
+            : `<button type="button" class="btn btn-ghost btn-sm nba2k27val-review-btn" data-slug="${escapeHtml(row.slug)}">Review</button>`}
+        </td>
+      </tr>`;
+  },
+
+  _refreshIssueList(container) {
+    const wrap = container.querySelector('#nba2k27ValIssueListWrap');
+    if (!wrap) return;
+
+    const rows = this._getFilteredClassified();
+    if (!rows.length) {
+      wrap.innerHTML = `<p class="backup-muted">No players match this filter.</p>`;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table class="admin-table nba2k27mgmt-table">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>OVR</th>
+            <th>Position</th>
+            <th>NBA Team</th>
+            <th>Category</th>
+            <th>Stored Pool</th>
+            <th>Expected Pool</th>
+            <th>Issue</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => this._renderIssueRow(r)).join('')}
+        </tbody>
+      </table>`;
+
+    // Reuses the existing shared detail modal (Phase 2/6/7, untouched)
+    // so the commissioner corrects positions through the one existing
+    // Position Management editor — this view never creates a second one.
+    wrap.querySelectorAll('.nba2k27val-review-btn').forEach(btn => {
+      btn.onclick = () => Nba2kDatabaseView._openDetail(container, btn.dataset.slug);
+    });
   },
 };

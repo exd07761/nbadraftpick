@@ -490,4 +490,55 @@
   .nba2k27mgmt-table td[data-label="Pool"] { order: 6; }
   .nba2k27mgmt-table td[data-label="Action"] { order: 7; flex: 1 1 100%; margin-top: 0.35rem; }
   .nba2k27mgmt-table td[data-label="Position"]::before { content: "· "; }
+
+  /* Phase 9's issue-list table reuses .nba2k27mgmt-table (same stacked-
+     card behavior) but has three extra columns of its own — Stored Pool/
+     Expected Pool/Issue don't exist on the Phase 8 browse table, so they
+     need their own order here rather than falling back to source order. */
+  .nba2k27mgmt-table td[data-label="Stored Pool"] { order: 6; }
+  .nba2k27mgmt-table td[data-label="Expected Pool"] { order: 6; }
+  .nba2k27mgmt-table td[data-label="Issue"] { order: 7; flex: 1 1 100%; font-weight: 600; }
+}
+
+/* ─── Phase 9: NBA 2K27 Pool Validation & Readiness ──────────────────────
+   Reuses .nba2k-category-tabs (issue filter row) and .nba2k27mgmt-table
+   (issue list) unmodified from Phase 8 above. Only the summary/status
+   card is new. */
+
+.nba2k27val-panel { margin: 0.9rem 0 1.1rem; }
+
+.nba2k27val-summary-card {
+  margin-top: 0.75rem;
+  padding: 1rem;
+  border-radius: var(--nb-r, var(--r, 10px));
+  border: 1px solid var(--nb-surface-border, var(--border));
+  background: var(--nb-surface, var(--bg-hover));
+}
+
+.nba2k27val-status { font-size: 1.05rem; font-weight: 900; margin-bottom: 0.6rem; }
+.nba2k27val-status-ready { color: var(--nb-positive, var(--green, #34d17c)); }
+.nba2k27val-status-not-ready { color: var(--nb-warning, #d9a441); }
+
+.nba2k27val-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  color: var(--nb-text-dim, var(--text-dim, var(--text-muted)));
+}
+.nba2k27val-stats strong { color: var(--nb-text, var(--text)); }
+
+.nba2k27val-breakdown {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0.4rem 1rem;
+  font-size: 0.82rem;
+  color: var(--nb-text-muted, var(--text-muted));
+}
+.nba2k27val-breakdown strong { color: var(--nb-text, var(--text)); margin-left: 0.3rem; }
+
+@media (max-width: 700px) {
+  .nba2k27val-breakdown { grid-template-columns: 1fr; }
+  .nba2k27val-stats { flex-direction: column; gap: 0.2rem; }
 }
