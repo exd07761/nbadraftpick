@@ -149,7 +149,7 @@ function assertTruthy(actual, msg) {
 // built by hand here so each classification test is self-contained and
 // doesn't depend on the join logic already covered by tests_p8.
 function makeRow(slug, player, poolValue) {
-  const poolValid = poolValue === 'green' || poolValue === 'blue';
+  const poolValid = poolValue === 'green' || poolValue === 'blue' || poolValue === 'white';
   return {
     slug,
     entry: { nba2kRef: slug, pool: poolValue },
@@ -241,8 +241,8 @@ console.log('Phase 9 tests');
     const c = V.classify(makeRow('p9', basePlayer({ teamType: 'curr' }), 'green'));
     assertTruthy(c.ready);
   });
-  await check('10. correct Classic player (class->blue) -> READY', () => {
-    const c = V.classify(makeRow('p10', basePlayer({ teamType: 'class' }), 'blue'));
+  await check('10. correct Classic player (class->white, Phase 10 mapping) -> READY', () => {
+    const c = V.classify(makeRow('p10', basePlayer({ teamType: 'class' }), 'white'));
     assertTruthy(c.ready);
   });
   await check('11. correct All-Time player (allt->blue) -> READY', () => {
@@ -256,10 +256,10 @@ console.log('Phase 9 tests');
   const { sandbox } = makeSandbox();
   const V = sandbox.Nba2k27PoolValidator;
 
-  await check('12. stored Green for a Classic player -> POOL MISMATCH', () => {
+  await check('12. stored Green for a Classic player -> POOL MISMATCH (expected White, Phase 10 mapping)', () => {
     const c = V.classify(makeRow('p12', basePlayer({ teamType: 'class' }), 'green'));
     assertTruthy(c.issues.poolMismatch);
-    assertEqual(c.expectedPool, 'blue');
+    assertEqual(c.expectedPool, 'white');
   });
   await check('13. stored Blue for a Current player -> POOL MISMATCH', () => {
     const c = V.classify(makeRow('p13', basePlayer({ teamType: 'curr' }), 'blue'));
@@ -308,7 +308,7 @@ console.log('Phase 9 tests');
   const V = sandbox.Nba2k27PoolValidator;
   const rows = [
     makeRow('a', basePlayer({ teamType: 'curr' }), 'green'),               // ready
-    makeRow('b', basePlayer({ teamType: 'class', positions: [] }), 'blue'), // position issue only
+    makeRow('b', basePlayer({ teamType: 'class', positions: [] }), 'white'), // position issue only (Phase 10: class -> white)
     makeRow('c', null, 'green'),                                           // orphaned
   ];
   const classified = V.classifyAll(rows);
@@ -337,7 +337,7 @@ console.log('Phase 9 tests');
   });
   Object.assign(nba2k27Docs, {
     'ready-1': { nba2kRef: 'ready-1', pool: 'green' },
-    'mismatch-1': { nba2kRef: 'mismatch-1', pool: 'green' }, // class expects blue
+    'mismatch-1': { nba2kRef: 'mismatch-1', pool: 'green' }, // class expects white (Phase 10)
     'ghost-1': { nba2kRef: 'ghost-1', pool: 'blue' },        // orphan
   });
   const view = sandbox.Nba2k27PoolView;

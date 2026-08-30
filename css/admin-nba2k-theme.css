@@ -216,6 +216,7 @@
 }
 .nba2k-promo-pool-locked-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); }
 .nba2k-promo-pool-locked-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); }
+.nba2k-promo-pool-locked-white { background: var(--pool-white-dim, rgba(215,218,224,0.14)); }
 .nba2k-promo-pool-dot { font-size: 1.1rem; line-height: 1; }
 .nba2k-promo-pool-sublabel {
   display: block;
@@ -409,6 +410,7 @@
 }
 .nba2k27-status-pill-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); color: var(--pool-green, #34d17c); }
 .nba2k27-status-pill-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); color: var(--pool-blue, #4d9bf5); }
+.nba2k27-status-pill-white { background: var(--pool-white-dim, rgba(215,218,224,0.14)); color: var(--pool-white, #d7dae0); }
 .nba2k27-status-pill-none  { background: var(--nb-surface-border, var(--border)); color: var(--nb-text-muted, var(--text-muted)); }
 
 /* ─── Phase 7: "2K27 Pool" section in the detail modal — reuses the Phase
@@ -442,6 +444,7 @@
 }
 .nba2k27mgmt-pool-green   { color: var(--pool-green, #34d17c); }
 .nba2k27mgmt-pool-blue    { color: var(--pool-blue, #4d9bf5); }
+.nba2k27mgmt-pool-white   { color: var(--pool-white, #d7dae0); }
 .nba2k27mgmt-pool-invalid { color: var(--nb-warning, #d9a441); }
 
 .nba2k27mgmt-row { cursor: pointer; }
@@ -542,3 +545,19 @@
   .nba2k27val-breakdown { grid-template-columns: 1fr; }
   .nba2k27val-stats { flex-direction: column; gap: 0.2rem; }
 }
+
+/* ─── Phase 10: bulk "Initialize 2K27 Pool" ──────────────────────────────
+   Reuses .nba2k-promo-confirm-card (confirmation) and .nba2k27val-
+   summary-card/-status/-stats/-breakdown (result, from Phase 9 above)
+   unmodified. Only the panel wrapper and the mapping-explainer list
+   inside the confirmation card are new. */
+
+.nba2k27init-panel { margin: 0.9rem 0 1.1rem; }
+
+.nba2k27init-mapping {
+  margin: 0.5rem 0 0.85rem;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: var(--nb-text-muted, var(--text-muted));
+}
+.nba2k27init-mapping li { margin: 0.2rem 0; }

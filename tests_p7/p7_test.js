@@ -306,16 +306,17 @@ console.log('Phase 7 tests');
   view._bind2k27Events(container, detailMount, player);
   detailMount.querySelector('#nba2k27AddBtn').onclick();
 
-  // ...but the underlying source record changes to 'class' (blue) before
-  // the commissioner clicks the confirm button — e.g. corrected via
-  // Phase 6 import tooling in another tab.
+  // ...but the underlying source record changes to 'class' (white, under
+  // the Phase 10 NBA 2K27 mapping) before the commissioner clicks the
+  // confirm button — e.g. corrected via Phase 6 import tooling in
+  // another tab.
   view._players[0] = { ...player, teamType: 'class' };
 
   await detailMount.querySelector('#nba2k27ConfirmAddBtn').onclick();
   await tick();
 
   await check('write uses the freshest teamType, not the one captured when the card opened', () => {
-    assertEqual(nba2k27Docs['swingman'].pool, 'blue', 'stale green must not be written once source flips to class/blue');
+    assertEqual(nba2k27Docs['swingman'].pool, 'white', 'stale green must not be written once source flips to class/white');
   });
 })();
 
