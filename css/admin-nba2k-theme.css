@@ -420,3 +420,74 @@
 @media (max-width: 700px) {
   .nba2k27-summary { flex-direction: column; align-items: flex-start; gap: 0.3rem; }
 }
+
+/* ─── Phase 8: NBA 2K27 Pool Management view ─────────────────────────────
+   Reuses (unmodified) the Phase 4/7 primitives above: .nba2k-db-subtitle,
+   .nba2k27-summary(-title|-stat), .nba2k-category-tabs, .nba2k-controls,
+   .nba2k-category-chip, .pos-ovr(-elite|-good|-role), plus the Phase 3
+   .nba2k-promo-confirm-card/-eyebrow/-confirm-row for the remove-
+   confirmation card. Only the elements unique to this view's own table
+   and pool/orphan states are new, all prefixed `.nba2k27mgmt-` to avoid
+   ever colliding with an existing Phase 2–7 selector. */
+
+.nba2k27mgmt-summary-warn { color: var(--nb-warning, #d9a441); }
+
+.nba2k27mgmt-cell-player { font-weight: 700; }
+
+.nba2k27mgmt-pool {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.nba2k27mgmt-pool-green   { color: var(--pool-green, #34d17c); }
+.nba2k27mgmt-pool-blue    { color: var(--pool-blue, #4d9bf5); }
+.nba2k27mgmt-pool-invalid { color: var(--nb-warning, #d9a441); }
+
+.nba2k27mgmt-row { cursor: pointer; }
+.nba2k27mgmt-row:hover { background: var(--nb-primary-dim, var(--bg-hover)); }
+.nba2k27mgmt-row:focus-visible { outline: 2px solid var(--nb-primary, var(--accent)); outline-offset: -2px; }
+.nba2k27mgmt-row-orphan { cursor: default; }
+.nba2k27mgmt-row-orphan:hover { background: none; }
+
+.nba2k27mgmt-orphan-warning {
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--nb-warning, #d9a441);
+}
+
+.nba2k27mgmt-remove-caveats {
+  margin: 0.4rem 0 0.85rem;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--nb-text-muted, var(--text-muted));
+}
+.nba2k27mgmt-remove-caveats li { margin: 0.15rem 0; }
+.nba2k27mgmt-remove-caveats code { font-size: 0.78rem; }
+
+/* ─── Mobile: same "rows become stacked cards" pattern as .nba2k-table,
+   re-implemented for this table's own column set (Player/OVR/Position/
+   NBA Team/Category/Pool/Action — different data-label values than the
+   Phase 2 table, so that table's media-query rules don't apply here). */
+@media (max-width: 700px) {
+  .nba2k27mgmt-table thead { display: none; }
+  .nba2k27mgmt-table, .nba2k27mgmt-table tbody { display: block; width: 100%; }
+  .nba2k27mgmt-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    padding: 0.75rem 0.25rem;
+    border-bottom: 1px solid var(--nb-surface-border, var(--border));
+  }
+  .nba2k27mgmt-table td { border: none; padding: 0; white-space: normal; }
+  .nba2k27mgmt-cell-player { flex: 1 1 100%; order: 1; font-size: 0.95rem; }
+  .nba2k27mgmt-table td[data-label="OVR"] { order: 2; }
+  .nba2k27mgmt-table td[data-label="Position"] { order: 3; font-size: 0.78rem; color: var(--nb-text-muted, var(--text-muted)); }
+  .nba2k27mgmt-table td[data-label="NBA Team"] { order: 4; font-size: 0.78rem; color: var(--nb-text-muted, var(--text-muted)); }
+  .nba2k27mgmt-table td[data-label="Category"] { order: 5; }
+  .nba2k27mgmt-table td[data-label="Pool"] { order: 6; }
+  .nba2k27mgmt-table td[data-label="Action"] { order: 7; flex: 1 1 100%; margin-top: 0.35rem; }
+  .nba2k27mgmt-table td[data-label="Position"]::before { content: "· "; }
+}

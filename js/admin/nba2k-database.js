@@ -364,6 +364,20 @@ const Nba2kDatabaseView = {
   // locally after every add/remove; never re-fetched afterward.
   _pool27: null,
 
+  // Phase 8: optional callback set by Nba2k27PoolView (js/admin/
+  // nba2k-database.js, same file) while its page is open. Invoked after
+  // every successful `nba2k27_pool` write made through THIS file's own
+  // add/remove handlers below (`_bind2k27Events`), so the separate NBA
+  // 2K27 Pool Management view — which reads the exact same `_pool27`/
+  // `_players` cache rather than holding its own copy — can re-render
+  // without polling or re-fetching. `null` whenever that view isn't the
+  // one currently on screen (including throughout every Phase 7 test in
+  // tests_p7/, which never sets this), so this is always a guarded
+  // no-op unless that view opted in. This is the ONLY Phase 8 change
+  // inside the Phase 7 add/remove write paths — no existing write,
+  // read, validation, or UI output changes.
+  _onPool27Changed: null,
+
   _search: '',
   _filterPos: '',
   _filterTeam: '',
@@ -386,7 +400,15 @@ const Nba2kDatabaseView = {
     }
   },
 
-  async _load(container) {
+  // Phase 8: the fetch itself, pulled out of `_load()` unchanged so
+  // `Nba2k27PoolView` (below) can await the exact same load — same
+  // in-flight promise if one is already running, same "never re-fetch
+  // once `_players` is populated" guarantee — without needing a
+  // `container` of its own. `_load()` below is now a thin wrapper of
+  // this plus its container-specific render call; nothing about the
+  // fetch, its caching, or its error handling changed.
+  _ensureLoaded() {
+    if (this._players) return Promise.resolve(); // already loaded this session — never re-fetch
     if (!this._loadPromise) {
       // Phase 7: load `nba2k27_pool` alongside `nba2k_players` in the same
       // pass — one read per collection, both cached for the admin session.
@@ -411,7 +433,11 @@ const Nba2kDatabaseView = {
         })
         .finally(() => { this._loadPromise = null; });
     }
-    await this._loadPromise;
+    return this._loadPromise;
+  },
+
+  async _load(container) {
+    await this._ensureLoaded();
     // The admin may have navigated to a different view while this was
     // in flight — only render if this view's container is still live.
     if (document.body.contains(container)) {
@@ -1066,6 +1092,9 @@ const Nba2kDatabaseView = {
             showToast(`${player.name} added to the 2K27 ${writePool === 'green' ? 'Green' : 'Blue'} Pool.`, 'success');
             this._openDetail(container, player.id);
             this._refreshList(container);
+            // Phase 8: let the NBA 2K27 Pool Management view (if open) know
+            // this cache changed — see `_onPool27Changed` declaration above.
+            if (this._onPool27Changed) this._onPool27Changed();
           } catch (err) {
             confirmAddBtn.disabled = false;
             const msg = err && err.code === 'permission-denied'
@@ -1108,6 +1137,9 @@ const Nba2kDatabaseView = {
             showToast(`${player.name} removed from the 2K27 pool.`, 'success');
             this._openDetail(container, player.id);
             this._refreshList(container);
+            // Phase 8: let the NBA 2K27 Pool Management view (if open) know
+            // this cache changed — see `_onPool27Changed` declaration above.
+            if (this._onPool27Changed) this._onPool27Changed();
           } catch (err) {
             confirmRemoveBtn.disabled = false;
             const msg = err && err.code === 'permission-denied'
@@ -1297,6 +1329,450 @@ const Nba2kDatabaseView = {
         this._openDetail(container, player.id);
         this._refreshList(container);
       };
+    };
+  },
+};
+
+/**
+ * Nba2k27PoolView — Phase 8: NBA 2K27 Pool Management
+ *
+ * PURPOSE
+ * A dedicated, browse-only-except-for-removal admin view answering
+ * "which players have I selected for NBA 2K27, which pool are they in,
+ * and who is still available?" — over the SELECTIONS already created by
+ * the Phase 7 "Add to 2K27 Pool" flow above. This view creates none of
+ * those selections itself; it only lists, filters, sorts, inspects, and
+ * removes them.
+ *
+ * DATA SOURCE — NO SEPARATE LOAD
+ * This view holds no player/selection data of its own and issues no
+ * Firestore reads directly. It reads `Nba2kDatabaseView._players` and
+ * `Nba2kDatabaseView._pool27` — the exact same session-level cache
+ * Phase 7 already populates from `nba2k_players` + `nba2k27_pool` — via
+ * `Nba2kDatabaseView._ensureLoaded()` (see that file section for the
+ * extraction; the underlying fetch/caching/error-handling is completely
+ * unchanged from Phase 7). Whichever of the two views (NBA 2K26 Database
+ * or NBA 2K27 Pool) the admin opens first triggers the one-time load;
+ * the other reuses it with zero additional reads. The join itself
+ * (`nba2kRef === slug`) happens at render time in `_buildRows()` below —
+ * `nba2k27_pool` documents are never enriched with copied player fields.
+ *
+ * WRITES — REMOVAL ONLY, SAME SHAPE AS PHASE 7
+ * The only write this view performs is
+ *   firebase.firestore().collection('nba2k27_pool').doc(slug).delete()
+ * after an explicit confirmation — identical in shape to the Phase 7
+ * remove path, targeting only `nba2k27_pool/<slug>`. It never writes to
+ * `nba2k_players`, never calls `AdminActions.addPlayer()`, and never
+ * writes to `league/main`. Clicking a (non-orphaned) row opens the
+ * existing shared NBA2K detail modal (`Nba2kDatabaseView._openDetail()`)
+ * unmodified — same Position Management / 2K27 Pool / Add to Draft Pool
+ * sections as everywhere else in the app — so "Add to 2K27 Pool" and the
+ * fuller per-player editing tools stay exactly where Phase 6/7 put them;
+ * this view is a management/browse layer on top, not a second copy of
+ * them. When that shared modal's own 2K27 Add/Remove buttons write,
+ * `Nba2kDatabaseView._onPool27Changed()` (set below, while this view is
+ * open) refreshes this view's list from the same already-updated cache —
+ * no re-fetch, no polling.
+ *
+ * DATA INTEGRITY (Phase 8, new)
+ * Two data-quality states are surfaced, never auto-corrected:
+ *   - Orphaned selection: an `nba2k27_pool/<slug>` doc whose
+ *     `nba2k_players/<slug>` no longer exists. Shown with a "Source
+ *     player not found" warning; never guessed at, never auto-deleted.
+ *     It can still be manually removed via the same confirmed delete —
+ *     that is an explicit admin action, not automatic cleanup.
+ *   - Invalid pool value: a stored `pool` that is neither `'green'` nor
+ *     `'blue'`. Shown as "Invalid Pool" — never silently coerced to a
+ *     derived value — and excluded from the Green/Blue pool filter and
+ *     summary counts (it still counts toward Total Selected, since it
+ *     IS a selection, just one with corrupted pool metadata).
+ * Note on scope: this integrity handling lives in THIS view's own
+ * rendering only. The shared detail modal's existing 2K27 section
+ * (`Nba2kDatabaseView._render2k27Section`, Phase 7, untouched) has its
+ * own, different, already-shipped display rule for an unrecognized
+ * stored pool value (falls back to the teamType-derived pool rather
+ * than labeling it "Invalid Pool") — changing that fallback was not
+ * required to build this view and risked altering tested Phase 7
+ * behavior for a case Phase 7 was never asked to validate, so it was
+ * left exactly as-is. See the Phase 8 final report for this note.
+ *
+ * COUNTS
+ * `_computeCounts()` below is intentionally independent from the Phase 7
+ * header widget's own `Nba2kDatabaseView._computePool27Counts()` — that
+ * one only tallies entries with a MATCHING source player and an exactly
+ * valid pool value (by construction, since it loops over `_players` and
+ * looks up an entry per player). This view's "Total Selected" is meant
+ * to answer "how many nba2k27_pool documents exist", which must include
+ * orphans and invalid-pool entries too (that's the whole point of
+ * surfacing them) — so it loops over `_pool27` itself instead. Both
+ * counters are correct for what they each measure; they are simply
+ * answering slightly different questions, and neither was changed to
+ * match the other.
+ */
+const Nba2k27PoolView = {
+  _search: '',
+  _filterCategory: '', // '' = All, else 'curr' | 'class' | 'allt'
+  _filterPool: '',     // '' = All Pools, else 'green' | 'blue'
+  _sortMode: 'ovr-desc',
+
+  async render(container) {
+    if (!Nba2kDatabaseView._players) {
+      container.innerHTML = `
+        <div class="admin-section">
+          <div class="admin-section-header"><h2>NBA 2K27 Pool</h2></div>
+          <p class="backup-muted">Loading NBA 2K27 pool…</p>
+        </div>`;
+      await Nba2kDatabaseView._ensureLoaded();
+      // The admin may have navigated to a different view while this was
+      // in flight — only render if this view's container is still live.
+      if (!document.body.contains(container)) return;
+    }
+    this._renderShell(container);
+  },
+
+  // Joins `nba2k27_pool` entries to their `nba2k_players` source record
+  // by `nba2kRef === slug` (slug is the doc id on both sides). Never
+  // mutates either cache; never copies player fields into a pool27
+  // object — the join is recomputed fresh on every render.
+  _buildRows() {
+    const pool27 = Nba2kDatabaseView._pool27 || {};
+    const playersById = new Map((Nba2kDatabaseView._players || []).map(p => [p.id, p]));
+    return Object.keys(pool27).map(slug => {
+      const entry = pool27[slug] || {};
+      const player = playersById.get(slug) || null;
+      const poolValid = entry.pool === 'green' || entry.pool === 'blue';
+      return {
+        slug,
+        entry,
+        player,
+        orphan: !player,
+        poolValue: entry.pool,
+        poolValid,
+        category: player ? player.teamType : null,
+      };
+    });
+  },
+
+  // All counts are derived fresh from the current caches on every call —
+  // never hardcoded, never stored as separate persisted state.
+  _computeCounts(rows, totalSourcePlayers) {
+    let green = 0, blue = 0;
+    const categoryCounts = { curr: 0, class: 0, allt: 0 };
+    for (const r of rows) {
+      if (r.poolValue === 'green') green++;
+      else if (r.poolValue === 'blue') blue++;
+      if (r.category && Object.prototype.hasOwnProperty.call(categoryCounts, r.category)) {
+        categoryCounts[r.category]++;
+      }
+    }
+    const total = rows.length;
+    return {
+      total,
+      green,
+      blue,
+      // "Available" = source players not yet selected for 2K27.
+      available: Math.max(0, totalSourcePlayers - total),
+      categoryCounts,
+    };
+  },
+
+  // Category + Pool filters, then search (player name / NBA team), then
+  // sort — every filter combines via the same AND chain, matching the
+  // existing NBA2K Database view's filtering pattern.
+  _getVisibleRows(rows) {
+    const q = this._search.trim().toLowerCase();
+
+    let list = rows.filter(r => {
+      if (this._filterCategory && r.category !== this._filterCategory) return false;
+      if (this._filterPool) {
+        // Never reinterpret an invalid stored pool as a match for a
+        // specific pool filter — see file header, "Data integrity".
+        if (!r.poolValid || r.poolValue !== this._filterPool) return false;
+      }
+      if (q) {
+        // Orphaned entries have no source name/team to search against.
+        if (!r.player) return false;
+        const hay = `${r.player.name || ''} ${r.player.team || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    list = list.slice().sort((a, b) => {
+      // Rows with no matched source player have nothing to sort by —
+      // push them to the end regardless of direction, rather than
+      // letting a missing value silently win or lose a comparison.
+      if (!a.player && !b.player) return 0;
+      if (!a.player) return 1;
+      if (!b.player) return -1;
+      switch (this._sortMode) {
+        case 'ovr-asc': return (a.player.overall ?? 0) - (b.player.overall ?? 0);
+        case 'name-asc': return (a.player.name || '').localeCompare(b.player.name || '');
+        case 'name-desc': return (b.player.name || '').localeCompare(a.player.name || '');
+        case 'team-asc': return (a.player.team || '').localeCompare(b.player.team || '');
+        case 'team-desc': return (b.player.team || '').localeCompare(a.player.team || '');
+        case 'ovr-desc':
+        default: return (b.player.overall ?? 0) - (a.player.overall ?? 0);
+      }
+    });
+
+    return list;
+  },
+
+  _renderShell(container) {
+    if (Nba2kDatabaseView._loadError) {
+      container.innerHTML = `
+        <div class="admin-section">
+          <div class="admin-section-header"><h2>NBA 2K27 Pool</h2></div>
+          <div class="backup-result backup-result-error">${escapeHtml(Nba2kDatabaseView._loadError)}</div>
+        </div>`;
+      return;
+    }
+
+    const players = Nba2kDatabaseView._players || [];
+    const rows = this._buildRows();
+
+    if (rows.length === 0) {
+      container.innerHTML = `
+        <div class="admin-section nba2k-db">
+          <div class="admin-section-header"><h2>NBA 2K27 Pool</h2></div>
+          <p class="backup-muted">
+            No NBA 2K27 players selected yet.<br>
+            Select players from the NBA2K Database to build your NBA 2K27 pool.
+          </p>
+        </div>`;
+      return;
+    }
+
+    const counts = this._computeCounts(rows, players.length);
+    const issueCount = rows.filter(r => r.orphan || !r.poolValid).length;
+
+    const categoryTabs = [
+      { value: '', label: `All (${counts.total})` },
+      { value: 'curr', label: `Current (${counts.categoryCounts.curr})` },
+      { value: 'class', label: `Classics (${counts.categoryCounts.class})` },
+      { value: 'allt', label: `All-Time (${counts.categoryCounts.allt})` },
+    ].filter(t => t.value === '' || counts.categoryCounts[t.value] > 0);
+
+    container.innerHTML = `
+      <div class="admin-section nba2k-db">
+        <div class="admin-section-header"><h2>NBA 2K27 Pool</h2></div>
+        <p class="nba2k-db-subtitle">Preparation pool for the future NBA 2K27 season</p>
+
+        <div class="nba2k27-summary">
+          <span class="nba2k27-summary-title">NBA 2K27 Pool</span>
+          <span class="nba2k27-summary-stat">Total Selected: <strong>${counts.total}</strong></span>
+          <span class="nba2k27-summary-stat">🟢 Green: <strong>${counts.green}</strong></span>
+          <span class="nba2k27-summary-stat">🔵 Blue: <strong>${counts.blue}</strong></span>
+          <span class="nba2k27-summary-stat">Available: <strong>${counts.available}</strong></span>
+          ${issueCount > 0 ? `<span class="nba2k27-summary-stat nba2k27mgmt-summary-warn">⚠ Data issues: <strong>${issueCount}</strong></span>` : ''}
+        </div>
+
+        <div class="nba2k-category-tabs" role="tablist" aria-label="Filter by category">
+          ${categoryTabs.map(t => `
+            <button type="button" class="btn ${this._filterCategory === t.value ? 'btn-primary' : 'btn-ghost'} btn-sm nba2k27mgmt-category-tab"
+              data-category="${escapeHtml(t.value)}" aria-pressed="${this._filterCategory === t.value}">${escapeHtml(t.label)}</button>
+          `).join('')}
+        </div>
+
+        <div class="table-controls nba2k-controls">
+          <input type="text" id="nba2k27mgmtSearch" class="input search-input"
+            placeholder="Search by player or team…" value="${escapeHtml(this._search)}">
+
+          <select id="nba2k27mgmtPoolFilter" class="input">
+            <option value="" ${this._filterPool === '' ? 'selected' : ''}>All Pools</option>
+            <option value="green" ${this._filterPool === 'green' ? 'selected' : ''}>🟢 Green</option>
+            <option value="blue" ${this._filterPool === 'blue' ? 'selected' : ''}>🔵 Blue</option>
+          </select>
+
+          <select id="nba2k27mgmtSort" class="input" style="max-width:220px;">
+            <option value="ovr-desc" ${this._sortMode === 'ovr-desc' ? 'selected' : ''}>Sort: OVR (High–Low)</option>
+            <option value="ovr-asc" ${this._sortMode === 'ovr-asc' ? 'selected' : ''}>Sort: OVR (Low–High)</option>
+            <option value="name-asc" ${this._sortMode === 'name-asc' ? 'selected' : ''}>Sort: Name (A–Z)</option>
+            <option value="name-desc" ${this._sortMode === 'name-desc' ? 'selected' : ''}>Sort: Name (Z–A)</option>
+            <option value="team-asc" ${this._sortMode === 'team-asc' ? 'selected' : ''}>Sort: Team (A–Z)</option>
+            <option value="team-desc" ${this._sortMode === 'team-desc' ? 'selected' : ''}>Sort: Team (Z–A)</option>
+          </select>
+        </div>
+
+        <div id="nba2k27mgmtConfirm" class="hidden"></div>
+        <div id="nba2k27mgmtListWrap"></div>
+      </div>
+      <div id="nba2kDetailMount"></div>`;
+
+    container.querySelectorAll('.nba2k27mgmt-category-tab').forEach(btn => {
+      btn.onclick = () => { this._filterCategory = btn.dataset.category; this._renderShell(container); };
+    });
+    container.querySelector('#nba2k27mgmtSearch').oninput = e => { this._search = e.target.value; this._refreshList(container); };
+    container.querySelector('#nba2k27mgmtPoolFilter').onchange = e => { this._filterPool = e.target.value; this._refreshList(container); };
+    container.querySelector('#nba2k27mgmtSort').onchange = e => { this._sortMode = e.target.value; this._refreshList(container); };
+
+    // Whenever the shared detail modal's own 2K27 Add/Remove buttons
+    // (Phase 7, `Nba2kDatabaseView._bind2k27Events`) write to
+    // `nba2k27_pool`, refresh this view too — same cache, no re-fetch.
+    // Overwritten harmlessly on every render of this view; guarded by
+    // `document.body.contains(container)` in case this view has since
+    // been navigated away from while its modal was still open.
+    Nba2kDatabaseView._onPool27Changed = () => {
+      if (document.body.contains(container)) this._refreshList(container);
+    };
+
+    this._refreshList(container);
+  },
+
+  _refreshList(container) {
+    const wrap = container.querySelector('#nba2k27mgmtListWrap');
+    if (!wrap) return;
+
+    const rows = this._buildRows();
+    const visible = this._getVisibleRows(rows);
+
+    if (!visible.length) {
+      wrap.innerHTML = `<p class="backup-muted">No players match these filters.</p>`;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table class="admin-table nba2k27mgmt-table">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>OVR</th>
+            <th>Position</th>
+            <th>NBA Team</th>
+            <th>Category</th>
+            <th>Pool</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${visible.map(r => this._renderRow(r)).join('')}
+        </tbody>
+      </table>`;
+
+    wrap.querySelectorAll('.nba2k27mgmt-row').forEach(row => {
+      const slug = row.dataset.slug;
+      const rowData = visible.find(r => r.slug === slug);
+      if (!rowData || rowData.orphan) return; // no source record to show a detail modal for
+      const open = () => Nba2kDatabaseView._openDetail(container, slug);
+      row.addEventListener('click', e => {
+        if (e.target.closest('.nba2k27mgmt-remove-btn')) return;
+        open();
+      });
+      row.addEventListener('keydown', e => {
+        if (e.target.closest('.nba2k27mgmt-remove-btn')) return;
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      });
+    });
+
+    wrap.querySelectorAll('.nba2k27mgmt-remove-btn').forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        const slug = btn.dataset.slug;
+        const rowData = this._buildRows().find(r => r.slug === slug);
+        if (rowData) this._showRemoveConfirm(container, rowData);
+      };
+    });
+  },
+
+  _renderPoolCell(row) {
+    if (row.poolValid) {
+      const label = row.poolValue === 'green' ? 'GREEN' : 'BLUE';
+      const dot = row.poolValue === 'green' ? '🟢' : '🔵';
+      return `<span class="nba2k27mgmt-pool nba2k27mgmt-pool-${row.poolValue}">${dot} ${label}</span>`;
+    }
+    // Never silently converted/guessed — see file header, "Data integrity".
+    return `<span class="nba2k27mgmt-pool nba2k27mgmt-pool-invalid">⚠ Invalid Pool</span>`;
+  },
+
+  _renderRow(row) {
+    if (row.orphan) {
+      return `
+        <tr class="nba2k27mgmt-row nba2k27mgmt-row-orphan" data-slug="${escapeHtml(row.slug)}">
+          <td data-label="Player" class="nba2k27mgmt-cell-player">
+            <code>${escapeHtml(row.slug)}</code>
+            <div class="nba2k27mgmt-orphan-warning">⚠ Source player not found</div>
+          </td>
+          <td data-label="OVR">—</td>
+          <td data-label="Position">—</td>
+          <td data-label="NBA Team">—</td>
+          <td data-label="Category">—</td>
+          <td data-label="Pool">${this._renderPoolCell(row)}</td>
+          <td data-label="Action">
+            <button type="button" class="btn btn-ghost btn-sm nba2k27mgmt-remove-btn" data-slug="${escapeHtml(row.slug)}">Remove</button>
+          </td>
+        </tr>`;
+    }
+
+    const p = row.player;
+    const ovr = Number(p.overall) || 0;
+    const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';
+    const categoryLabel = nba2kCategoryLabel(p.teamType);
+    return `
+      <tr class="nba2k27mgmt-row" data-slug="${escapeHtml(row.slug)}" tabindex="0" role="button" aria-label="View ${escapeHtml(p.name)} details">
+        <td data-label="Player" class="nba2k27mgmt-cell-player">${escapeHtml(p.name)}</td>
+        <td data-label="OVR"><span class="pos-ovr ${nba2kOvrTierClass(ovr)}">${ovr}</span></td>
+        <td data-label="Position">${escapeHtml(positions)}</td>
+        <td data-label="NBA Team">${escapeHtml(p.team || '—')}</td>
+        <td data-label="Category"><span class="nba2k-category-chip nba2k-category-chip-${escapeHtml(p.teamType || 'other')}">${escapeHtml(categoryLabel.toUpperCase())}</span></td>
+        <td data-label="Pool">${this._renderPoolCell(row)}</td>
+        <td data-label="Action">
+          <button type="button" class="btn btn-ghost btn-sm nba2k27mgmt-remove-btn" data-slug="${escapeHtml(row.slug)}">Remove</button>
+        </td>
+      </tr>`;
+  },
+
+  // Confirmed removal — deletes ONLY `nba2k27_pool/<slug>`. Never
+  // touches `nba2k_players`, `league/main`, or any Draft Pool player;
+  // same write shape as the Phase 7 remove path in the shared detail
+  // modal (see file header, "Writes — removal only").
+  _showRemoveConfirm(container, row) {
+    const confirmEl = container.querySelector('#nba2k27mgmtConfirm');
+    if (!confirmEl) return;
+    const label = row.player ? row.player.name : row.slug;
+
+    confirmEl.classList.remove('hidden');
+    confirmEl.innerHTML = `
+      <div class="nba2k-promo-confirm-card">
+        <div class="nba2k-promo-eyebrow">Remove from NBA 2K27 Pool?</div>
+        <div class="nba2k-promo-confirm-row"><span>Player</span><strong>${escapeHtml(label)}</strong></div>
+        <p class="helper-text">This will remove only the NBA 2K27 pool selection. It will NOT:</p>
+        <ul class="nba2k27mgmt-remove-caveats">
+          <li>delete the player from <code>nba2k_players</code></li>
+          <li>affect the Draft Pool</li>
+          <li>affect Season 4</li>
+          <li>affect <code>league/main</code></li>
+          <li>affect any roster</li>
+        </ul>
+        <div class="form-actions">
+          <button type="button" class="btn btn-danger" id="nba2k27mgmtConfirmRemoveBtn">Remove</button>
+          <button type="button" class="btn btn-ghost" id="nba2k27mgmtCancelRemoveBtn">Cancel</button>
+        </div>
+      </div>`;
+
+    confirmEl.querySelector('#nba2k27mgmtCancelRemoveBtn').onclick = () => {
+      confirmEl.classList.add('hidden');
+      confirmEl.innerHTML = '';
+    };
+
+    const confirmBtn = confirmEl.querySelector('#nba2k27mgmtConfirmRemoveBtn');
+    confirmBtn.onclick = async () => {
+      AuthBoundary.requireAuth();
+      confirmBtn.disabled = true;
+      try {
+        await firebase.firestore().collection('nba2k27_pool').doc(row.slug).delete();
+        if (Nba2kDatabaseView._pool27) delete Nba2kDatabaseView._pool27[row.slug];
+        showToast(`${label} removed from the 2K27 pool.`, 'success');
+        confirmEl.classList.add('hidden');
+        confirmEl.innerHTML = '';
+        this._refreshList(container);
+      } catch (err) {
+        confirmBtn.disabled = false;
+        const msg = err && err.code === 'permission-denied'
+          ? "You don't have permission to update the 2K27 pool."
+          : 'Could not remove this player from the 2K27 pool — please try again.';
+        confirmEl.innerHTML += `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
+      }
     };
   },
 };

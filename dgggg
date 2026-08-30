@@ -1,0 +1,263 @@
+[1mdiff --git a/css/admin-nba2k-theme.css b/css/admin-nba2k-theme.css[m
+[1mindex 82d13a4..93113e9 100644[m
+[1m--- a/css/admin-nba2k-theme.css[m
+[1m+++ b/css/admin-nba2k-theme.css[m
+[36m@@ -371,3 +371,52 @@[m
+   .nba2k-promo-row .input { max-width: none; flex: 1 1 100%; }[m
+   .nba2k-promo-confirm-row { flex-direction: column; gap: 0.15rem; }[m
+ }[m
+[32m+[m
+[32m+[m[32m/* ─── Phase 7: NBA 2K27 pool-selection summary bar ───────────────────────── */[m
+[32m+[m[32m.nba2k27-summary {[m
+[32m+[m[32m  display: flex;[m
+[32m+[m[32m  flex-wrap: wrap;[m
+[32m+[m[32m  align-items: center;[m
+[32m+[m[32m  gap: 0.4rem 1.1rem;[m
+[32m+[m[32m  margin: 0.6rem 0 1rem;[m
+[32m+[m[32m  padding: 0.6rem 0.9rem;[m
+[32m+[m[32m  border-radius: var(--nb-r, var(--r));[m
+[32m+[m[32m  background: var(--nb-surface, var(--bg-hover));[m
+[32m+[m[32m  border: 1px solid var(--nb-surface-border, var(--border));[m
+[32m+[m[32m  font-size: 0.8rem;[m
+[32m+[m[32m}[m
+[32m+[m[32m.nba2k27-summary-title {[m
+[32m+[m[32m  font-size: 0.68rem;[m
+[32m+[m[32m  font-weight: 800;[m
+[32m+[m[32m  letter-spacing: 0.08em;[m
+[32m+[m[32m  text-transform: uppercase;[m
+[32m+[m[32m  color: var(--nb-primary, var(--accent));[m
+[32m+[m[32m}[m
+[32m+[m[32m.nba2k27-summary-stat { color: var(--nb-text-dim, var(--text-dim)); }[m
+[32m+[m[32m.nba2k27-summary-stat strong { color: var(--nb-text, var(--text)); }[m
+[32m+[m
+[32m+[m[32m/* ─── Phase 7: 2K27 selection status pill (table row) — independent of the[m
+[32m+[m[32m   Phase 3 "In Draft Pool" pill; a row can show either, both, or neither. */[m
+[32m+[m[32m.nba2k27-status-pill {[m
+[32m+[m[32m  display: inline-block;[m
+[32m+[m[32m  margin-left: 0.4rem;[m
+[32m+[m[32m  padding: 0.1rem 0.55rem;[m
+[32m+[m[32m  border-radius: 999px;[m
+[32m+[m[32m  font-size: 0.68rem;[m
+[32m+[m[32m  font-weight: 700;[m
+[32m+[m[32m  vertical-align: middle;[m
+[32m+[m[32m  border: 1px solid currentColor;[m
+[32m+[m[32m}[m
+[32m+[m[32m.nba2k27-status-pill-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); color: var(--pool-green, #34d17c); }[m
+[32m+[m[32m.nba2k27-status-pill-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); color: var(--pool-blue, #4d9bf5); }[m
+[32m+[m[32m.nba2k27-status-pill-none  { background: var(--nb-surface-border, var(--border)); color: var(--nb-text-muted, var(--text-muted)); }[m
+[32m+[m
+[32m+[m[32m/* ─── Phase 7: "2K27 Pool" section in the detail modal — reuses the Phase[m
+[32m+[m[32m   3/5 .nba2k-promo / .nba2k-promo-row / .nba2k-promo-pool-locked /[m
+[32m+[m[32m   .nba2k-promo-confirm-card styling above for visual consistency, since[m
+[32m+[m[32m   it is functionally the same kind of "locked pool + confirm" pattern. */[m
+[32m+[m[32m.nba2k27-section { border-top-style: dashed; }[m
+[32m+[m
+[32m+[m[32m@media (max-width: 700px) {[m
+[32m+[m[32m  .nba2k27-summary { flex-direction: column; align-items: flex-start; gap: 0.3rem; }[m
+[32m+[m[32m}[m
+[1mdiff --git a/js/admin/nba2k-database.js b/js/admin/nba2k-database.js[m
+[1mindex d947e0f..9e4baa8 100644[m
+[1m--- a/js/admin/nba2k-database.js[m
+[1m+++ b/js/admin/nba2k-database.js[m
+[36m@@ -142,6 +142,47 @@[m
+  * - No bulk editing, no history/audit log, and no automatic/inferred[m
+  *   position correction of any kind -- this is intentionally a manual,[m
+  *   one-player-at-a-time data-cleanup tool.[m
+[32m+[m[32m *[m
+[32m+[m[32m * SCOPE (Phase 7 — new)[m
+[32m+[m[32m * A completely separate, temporary NBA 2K27 player-pool SELECTION layer,[m
+[32m+[m[32m * independent of both `nba2k_players` (untouched) and the active Season[m
+[32m+[m[32m * 4 / 2K26 Draft Pool (`league/main.players`, also untouched). This is[m
+[32m+[m[32m * NOT promotion — "Add to 2K27 Pool" never calls `AdminActions.addPlayer()`[m
+[32m+[m[32m * and never writes to `league/main`. It writes only to a new top-level[m
+[32m+[m[32m * collection, `nba2k27_pool/<slug>` (slug = the same `nba2k_players`[m
+[32m+[m[32m * document ID), holding selection/state only:[m
+[32m+[m[32m *   { nba2kRef, pool: 'green'|'blue', selectedAt, updatedAt }[m
+[32m+[m[32m * (ISO strings via `new Date().toISOString()`, matching the existing[m
+[32m+[m[32m * `createPlayer()`/`FirebaseSync` convention elsewhere in this app rather[m
+[32m+[m[32m * than `firebase.firestore.FieldValue.serverTimestamp()`.) No attributes,[m
+[32m+[m[32m * badges, physicals, or positions are ever copied into this document —[m
+[32m+[m[32m * `nba2k_players/<slug>` remains the sole source of that data, read live[m
+[32m+[m[32m * at render time, so a later Phase 6 position correction (above) is[m
+[32m+[m[32m * reflected automatically without touching the 2K27 selection — the[m
+[32m+[m[32m * Position Management section is rendered above the 2K27 Pool section in[m
+[32m+[m[32m * the detail modal for exactly this reason (correct positions first).[m
+[32m+[m[32m *[m
+[32m+[m[32m * Pool is derived via the existing `nba2kPoolForTeamType()` (Phase 5) —[m
+[32m+[m[32m * reused, not reimplemented — both when the detail view opens AND again,[m
+[32m+[m[32m * re-read from the freshest local player record, immediately before every[m
+[32m+[m[32m * write. A missing/unrecognized `teamType` blocks selection entirely,[m
+[32m+[m[32m * exactly as it blocks promotion.[m
+[32m+[m[32m *[m
+[32m+[m[32m * Identity/idempotency: the 2K27 doc ID is the NBA2K slug, so adding an[m
+[32m+[m[32m * already-selected player is a no-op overwrite, never a duplicate.[m
+[32m+[m[32m *[m
+[32m+[m[32m * Loaded once per admin session alongside `nba2k_players` (see `_load()`)[m
+[32m+[m[32m * into a plain in-memory map (`_pool27`), mutated locally after every[m
+[32m+[m[32m * add/remove — no re-fetch of the collection is ever issued after the[m
+[32m+[m[32m * initial load.[m
+[32m+[m[32m *[m
+[32m+[m[32m * Firestore rule this depends on (NOT present in this repo — firestore.[m
+[32m+[m[32m * rules is not tracked here, so it cannot be edited by this change; see[m
+[32m+[m[32m * the Phase 7 final report for the exact rule that must be added by hand,[m
+[32m+[m[32m * matching the existing `nba2k_players` rule):[m
+[32m+[m[32m *   match /nba2k27_pool/{slug} {[m
+[32m+[m[32m *     allow read, write: if request.auth != null;[m
+[32m+[m[32m *   }[m
+  */[m
+ [m
+ // Human-readable labels for the source teamType, plus which Draft Pool[m
+[36m@@ -317,11 +358,19 @@[m [mconst Nba2kDatabaseView = {[m
+   _loadPromise: null,[m
+   _loadError: null,[m
+ [m
+[32m+[m[32m  // Phase 7: 2K27 pool-selection cache — a plain object keyed by[m
+[32m+[m[32m  // nba2k_players slug -> { nba2kRef, pool, selectedAt, updatedAt }.[m
+[32m+[m[32m  // Loaded once (in `_load()`, alongside `nba2k_players`) and mutated[m
+[32m+[m[32m  // locally after every add/remove; never re-fetched afterward.[m
+[32m+[m[32m  _pool27: null,[m
+[32m+[m
+   _search: '',[m
+   _filterPos: '',[m
+   _filterTeam: '',[m
+   _filterOvr: '',[m
+   _filterCategory: '', // '' = All, else 'curr' | 'class' | 'allt'[m
+[32m+[m[32m  _filter27: '', // Phase 7: '' = All, 'selected' | 'not-selected'[m
+[32m+[m[32m  _filter27Pool: '', // Phase 7 (optional pool filter): '' | 'green' | 'blue'[m
+   _sortMode: 'ovr-desc',[m
+ [m
+   render(container) {[m
+[36m@@ -339,13 +388,22 @@[m [mconst Nba2kDatabaseView = {[m
+ [m
+   async _load(container) {[m
+     if (!this._loadPromise) {[m
+[31m-      this._loadPromise = firebase.firestore().collection('nba2k_players').get()[m
+[31m-        .then(snap => {[m
+[31m-          this._players = snap.docs.map(d => ({ id: d.id, ...d.data() }));[m
+[32m+[m[32m      // Phase 7: load `nba2k27_pool` alongside `nba2k_players` in the same[m
+[32m+[m[32m      // pass — one read per collection, both cached for the admin session.[m
+[32m+[m[32m      // This does not change the existing `nba2k_players` query at all.[m
+[32m+[m[32m      this._loadPromise = Promise.all([[m
+[32m+[m[32m        firebase.firestore().collection('nba2k_players').get(),[m
+[32m+[m[32m        firebase.firestore().collection('nba2k27_pool').get(),[m
+[32m+[m[32m      ])[m
+[32m+[m[32m        .then(([playersSnap, pool27Snap]) => {[m
+[32m+[m[32m          this._players = playersSnap.docs.map(d => ({ id: d.id, ...d.data() }));[m
+[32m+[m[32m          this._pool27 = {};[m
+[32m+[m[32m          pool27Snap.docs.forEach(d => { this._pool27[d.id] = d.data(); });[m
+           this._loadError = null;[m
+         })[m
+         .catch(err => {[m
+           this._players = null;[m
+[32m+[m[32m          this._pool27 = null;[m
+           // Never surface raw Firebase error text to the admin.[m
+           this._loadError = err && err.code === 'permission-denied'[m
+             ? "You don't have permission to access the NBA 2K26 database."[m
+[36m@@ -386,6 +444,10 @@[m [mconst Nba2kDatabaseView = {[m
+       { value: 'allt', label: `All-Time${categoryCounts.allt ? ` (${categoryCounts.allt})` : ''}` },[m
+     ].filter(t => t.value === '' || categoryCounts[t.value]); // don't show an empty category tab[m
+ [m
+[32m+[m[32m    // Phase 7: 2K27 pool summary — derived from the actual `_pool27` cache[m
+[32m+[m[32m    // and the loaded player list every render, never hardcoded.[m
+[32m+[m[32m    const pool27Counts = this._computePool27Counts(players);[m
+[32m+[m
+     container.innerHTML = `[m
+       <div class="admin-section nba2k-db">[m
+         <div class="admin-section-header">[m
+[36m@@ -396,6 +458,16 @@[m [mconst Nba2kDatabaseView = {[m
+           <span class="player-count">${players.length} Players</span>[m
+         </p>[m
+ [m
+[32m+[m[32m        ${players.length === 0 ? '' : `[m
+[32m+[m[32m          <div class="nba2k27-summary">[m
+[32m+[m[32m            <span class="nba2k27-summary-title">NBA 2K27 Pool</span>[m
+[32m+[m[32m            <span class="nba2k27-summary-stat">Total Selected: <strong>${pool27Counts.total}</strong></span>[m
+[32m+[m[32m            <span class="nba2k27-summary-stat">🟢 Green: <strong>${pool27Counts.green}</strong></span>[m
+[32m+[m[32m            <span class="nba2k27-summary-stat">🔵 Blue: <strong>${pool27Counts.blue}</strong></span>[m
+[32m+[m[32m            <span class="nba2k27-summary-stat">Not Selected: <strong>${pool27Counts.notSelected}</strong></span>[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m        `}[m
+[32m+[m
+         ${players.length === 0 ? `[m
+           <p class="backup-muted">No NBA 2K26 players found.</p>[m
+         ` : `[m
+[36m@@ -424,6 +496,18 @@[m [mconst Nba2kDatabaseView = {[m
+               ${NBA2K_OVERALL_FILTERS.map(o => `<option value="${o.value}" ${this._filterOvr === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}[m
+             </select>[m
+ [m
+[32m+[m[32m            <select id="nba2k27StatusFilter" class="input">[m
+[32m+[m[32m              <option value="" ${this._filter27 === '' ? 'selected' : ''}>2K27: All</option>[m
+[32m+[m[32m              <option value="selected" ${this._filter27 === 'selected' ? 'selected' : ''}>2K27: Selected</option>[m
+[32m+[m[32m              <option value="not-selected" ${this._filter27 === 'not-selected' ? 'selected' : ''}>2K27: Not Selected</option>[m
+[32m+[m[32m            </select>[m
+[32m+[m
+[32m+[m[32m            <select id="nba2k27PoolFilter" class="input">[m
+[32m+[m[32m              <option value="" ${this._filter27Pool === '' ? 'selected' : ''}>2K27 Pool: All</option>[m
+[32m+[m[32m              <option value="green" ${this._filter27Pool === 'green' ? 'selected' : ''}>2K27 Pool: 🟢 Green</option>[m
+[32m+[m[32m              <option value="blue" ${this._filter27Pool === 'blue' ? 'selected' : ''}>2K27 Pool: 🔵 Blue</option>[m
+[32m+[m[32m            </select>[m
+[32m+[m
+             <select id="nba2kSort" class="input" style="max-width:200px;">[m
+               <option value="ovr-desc" ${this._sortMode === 'ovr-desc' ? 'selected' : ''}>Sort: OVR (High–Low)</option>[m
+               <option value="ovr-asc" ${this._sortMode === 'ovr-asc' ? 'selected' : ''}>Sort: OVR (Low–High)</option>[m
+[36m@@ -446,6 +530,8 @@[m [mconst Nba2kDatabaseView = {[m
+     container.querySelector('#nba2kPosFilter').onchange = e => { this._filterPos = e.target.value; this._refreshList(container); };[m
+     container.querySelector('#nba2kTeamFilter').onchange = e => { this._filterTeam = e.target.value; this._refreshList(container); };[m
+     container.querySelector('#nba2kOvrFilter').onchange = e => { this._filterOvr = e.target.value; this._refreshList(container); };[m
+[32m+[m[32m    container.querySelector('#nba2k27StatusFilter').onchange = e => { this._filter27 = e.target.value; this._refreshList(container); };[m
+[32m+[m[32m    container.querySelector('#nba2k27PoolFilter').onchange = e => { this._filter27Pool = e.target.value; this._refreshList(container); };[m
+     container.querySelector('#nba2kSort').onchange = e => { this._sortMode = e.target.value; this._refreshList(container); };[m
+ [m
+     this._refreshList(container);[m
+[36m@@ -467,6 +553,18 @@[m [mconst Nba2kDatabaseView = {[m
+       }[m
+       if (this._filterTeam && p.team !== this._filterTeam) return false;[m
+       if (minOvr !== null && !(Number(p.overall) >= minOvr)) return false;[m
+[32m+[m[32m      // Phase 7 filters — 2K27 selection status and (optional) 2K27 pool,[m
+[32m+[m[32m      // combined with every existing filter above via the same AND chain.[m
+[32m+[m[32m      if (this._filter27) {[m
+[32m+[m[32m        const selected = !!this._get2k27Entry(p.id);[m
+[32m+[m[32m        if (this._filter27 === 'selected' && !selected) return false;[m
+[32m+[m[32m        if (this._filter27 === 'not-selected' && selected) return false;[m
+[32m+[m[32m      }[m
+[32m+[m[32m      if (this._filter27Pool) {[m
+[32m+[m[32m        // Derived from teamType, same as promotion — never a stored[m
+[32m+[m[32m        // eligibility field, so a `curr` player can never match 'blue'.[m
+[32m+[m[32m        if (nba2kPoolForTeamType(p.teamType) !== this._filter27Pool) return false;[m
+[32m+[m[32m      }[m
+       return true;[m
+     });[m
+ [m
+[36m@@ -530,6 +628,27 @@[m [mconst Nba2kDatabaseView = {[m
+     return LeagueData.getAllPlayers().find(p => !p.nba2kRef && normalizePlayerName(p.name) === key) || null;[m
+   },[m
+ [m
+[32m+[m[32m  // ── Phase 7: 2K27 pool-selection lookup helpers ───────────────────────[m
+[32m+[m[32m  // Reads only the local `_pool27` cache (see `_load()`/file header) —[m
+[32m+[m[32m  // never Firestore — so these are safe to call on every row/detail[m
+[32m+[m[32m  // render just like the Phase 3 lookups above.[m
+[32m+[m
+[32m+[m[32m  _get2k27Entry(slug) {[m
+[32m+[m[32m    return (this._pool27 && this._pool27[slug]) || null;[m
+[32m+[m[32m  },[m
+[32m+[m
+[32m+[m[32m  _computePool27Counts(players) {[m
+[32m+[m[32m    let green = 0, blue = 0;[m
+[32m+[m[32m    for (const p of players) {[m
+[32m+[m[32m      const entry = this._get2k27Entry(p.id);[m
+[32m+[m[32m      if (!entry) continue;[m
+[32m+[m[32m      if (entry.pool === 'green') green++;[m
+[32m+[m[32m      else if (entry.pool === 'blue') blue++;[m
+[32m+[m[32m    }[m
+[32m+[m[32m    const total = green + blue;[m
+[32m+[m[32m    return { total, green, blue, notSelected: players.length - total };[m
+[32m+[m[32m  },[m
+[32m+[m
+   _renderRow(p) {[m
+     const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';[m
+     const ovr = Number(p.overall) || 0;[m
+[36m@@ -537,10 +656,17 @@[m [mconst Nba2kDatabaseView = {[m
+     const statusHtml = promoted[m
+       ? `<span class="nba2k-status-pill nba2k-status-pill-${promoted.pool || 'none'}">In Draft Pool${promoted.pool ? ` · ${promoted.pool === 'green' ? 'Green' : 'Blue'}` : ''}</span>`[m
+       : '';[m
+[32m+[m[32m    // Phase 7: independent 2K27-selection 

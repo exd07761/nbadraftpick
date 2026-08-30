@@ -29,6 +29,7 @@ const AdminApp = {
     backup: AdminBackupView,
     nba2kImport: Nba2kImport,
     nba2kDatabase: Nba2kDatabaseView,
+    nba2k27Pool: Nba2k27PoolView,
   },
 
   renderView(viewName) {
