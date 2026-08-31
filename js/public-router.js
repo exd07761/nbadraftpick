@@ -7,10 +7,11 @@
  * IMPORTANT: This file references HomeView, ScheduleView, StandingsView,
  * PlayoffsView, PublicRosterView, PublicPlayersView (Phase 10), and
  * PublicDraftView (Phase 2 redesign — read-only spectator view of the
- * live draft; see js/views/draft.js), which are defined in js/views/*.js.
- * Only index.html loads those view files — admin.html must NOT include
- * this file, or the `routes` object below will throw a ReferenceError
- * for every view global it can't find.
+ * live draft; see js/views/draft.js), and PublicNba2k27View (Phase 11 —
+ * read-only NBA 2K27 player view; see js/views/nba2k27.js), which are
+ * defined in js/views/*.js. Only index.html loads those view files —
+ * admin.html must NOT include this file, or the `routes` object below
+ * will throw a ReferenceError for every view global it can't find.
  *
  * Depends on shared-utils.js being loaded first for escapeHtml/showToast/
  * formatStatus, but does not itself define any shared utilities — see
@@ -31,6 +32,7 @@ const routes = {
   rosters: PublicRosterView,
   players: PublicPlayersView,
   draft: PublicDraftView, // Phase 2 redesign — read-only, see js/views/draft.js
+  nba2k27: PublicNba2k27View, // Phase 11 — read-only, see js/views/nba2k27.js
 };
 
 let currentRoute = null;
