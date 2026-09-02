@@ -2207,13 +2207,30 @@ const LeagueData = {
    * Group Stage-only: per-group standings for one stage, using the exact
    * same computeTeamStandings ranking rule as getTeamStatistics above —
    * this is NOT a second standings engine, just the same pure function
-   * scoped to one group's teams and one stage's matchups.
+   * scoped to the matchups relevant to what's being displayed.
    *
-   * Returns null if this season isn't a Group Stage season. Returns
-   * { A: [...], B: [...], C: [...], D: [...] }, each an array of 4 ranked
-   * stat rows (same shape getTeamStatistics rows have) for the requested
-   * stage (defaults to season.groupStageState.stage, i.e. whichever stage
-   * is current).
+   * Stage 1 (targetStage === 1): standings are Stage-1-only, scoped to
+   * that group's own Stage 1 matchups — unchanged from before.
+   *
+   * Stage 2 (targetStage === 2): a team's Stage 2 GROUP membership comes
+   * from season.groupStageState.round2Groups (Stage 2 groups can be a
+   * complete reshuffle of Stage 1's), but the displayed RECORD is
+   * cumulative — each team's Stage 1 W/L/+/- carries forward and is
+   * added to their Stage 2 W/L/+/-. To get that, the matchups passed to
+   * computeTeamStandings for group g are: every Stage 1 matchup (any
+   * group — each team only ever played in exactly one Stage 1 group, so
+   * computeTeamStandings' own per-team filtering naturally picks up only
+   * that team's real Stage 1 games) plus this group's own Stage 2
+   * matchups. computeTeamStandings itself is untouched; this only changes
+   * which matchups are handed to it for Stage 2.
+   *
+   * Returns null if this season isn't a Group Stage season, or if the
+   * requested stage's group assignments don't exist yet (e.g. Stage 2
+   * before "Generate Round 2" has run) — nothing is ever fabricated.
+   * Returns { A: [...], B: [...], C: [...], D: [...] }, each an array of
+   * ranked stat rows (same shape getTeamStatistics rows have) for the
+   * requested stage (defaults to season.groupStageState.stage, i.e.
+   * whichever stage is current).
    */
   getGroupStageStandings(seasonId, stage) {
     const season = this.getSeason(seasonId);
@@ -2225,7 +2242,9 @@ const LeagueData = {
     const allMatchups = season.schedule.flatMap((r) => r.matchups);
     const result = {};
     for (const g of GROUP_NAMES) {
-      const stageMatchups = allMatchups.filter((m) => m.stage === targetStage && m.group === g);
+      const stageMatchups = targetStage === 1
+        ? allMatchups.filter((m) => m.stage === 1 && m.group === g)
+        : allMatchups.filter((m) => m.stage === 1 || (m.stage === 2 && m.group === g));
       result[g] = computeTeamStandings(groups[g], stageMatchups, season.participants, season.nbaTeamAssignments);
     }
     return result;

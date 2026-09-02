@@ -1,0 +1,15 @@
+{
+  "projectId": "nbadraftpick",
+  "usingEmulator": false,
+  "startedAt": "2026-08-31T23:41:41.465Z",
+  "finishedAt": "2026-08-31T23:46:24.118Z",
+  "durationMs": 282653,
+  "collectionCounts": {
+    "league": 1,
+    "nba2k27_pool": 1987,
+    "nba2k_players": 1987
+  },
+  "totalDocuments": 3975,
+  "totalCollectionPaths": 3,
+  "scriptVersion": 1
+}

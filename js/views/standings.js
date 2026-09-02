@@ -37,6 +37,13 @@ const StandingsView = {
 
     const streamers = LeagueData.getStreamerStatistics(season.id);
 
+    // Group Stage standings are scoped to Stage + Group (see
+    // _renderGroupStageSection) and must never be combined into one
+    // season-wide table — that would rank teams from different groups
+    // against each other, which this league does not define. The
+    // combined table/cards below are Round Robin only.
+    const isGroupStage = season.scheduleFormat === 'groupStage' && !!season.groupStageState;
+
     // Assign display rank: ties on BOTH Win% and PD share a rank number,
     // since no further tie-breaker exists for this league.
     let rank = 0;
@@ -53,6 +60,7 @@ const StandingsView = {
 
         ${this._renderGroupStageSection(season)}
 
+        ${isGroupStage ? '' : `
         <!-- Desktop/tablet: full table (hidden below 700px, see main.css) -->
         <div class="standings-table-wrap table-scroll">
           <table class="standings-table" id="teamStandingsTable">
@@ -101,6 +109,7 @@ const StandingsView = {
         </div>
 
         <p class="helper-text">Ranked by Win%, then Point Differential. BYEs and unplayed games are excluded from every column.</p>
+        `}
 
         ${streamers.length ? `
         <h3 class="section-title" style="margin-top:2rem">Streamer Leaderboard</h3>
@@ -117,47 +126,64 @@ const StandingsView = {
   },
 
   /**
-   * Group Stage only: shows the current stage's per-group standings above
-   * the combined final table above (which already correctly reflects the
-   * combined 6-game record once both stages exist — untouched). Returns
-   * '' for a Round Robin season, so that season's rendering is byte-for-
-   * byte what it always was.
+   * Group Stage only: renders every stage that has data (Stage 1, and
+   * Stage 2 once it's been generated) as its own row of 4 independent
+   * Group tables — Stage → Group → Team, never combined across groups
+   * or across stages. Each table's standings come straight from
+   * LeagueData.getGroupStageStandings(seasonId, stage), which already
+   * scopes matchups to that exact stage + group (see data.js) — this
+   * function does no filtering of its own.
+   *
+   * Returns '' for a Round Robin season, so that season's rendering is
+   * byte-for-byte what it always was. If Stage 2 doesn't exist yet for
+   * an existing Group Stage season, only Stage 1 is rendered — nothing
+   * is fabricated.
    */
   _renderGroupStageSection(season) {
     if (season.scheduleFormat !== 'groupStage' || !season.groupStageState) return '';
-    const gs = season.groupStageState;
-    const standings = LeagueData.getGroupStageStandings(season.id, gs.stage);
-    if (!standings) return '';
+
+    const stageSections = [1, 2].map((stageNum) => {
+      const standings = LeagueData.getGroupStageStandings(season.id, stageNum);
+      if (!standings) return '';
+
+      return `
+        <h4 class="section-title" style="font-size:0.95rem;margin:${stageNum === 1 ? '0' : '1.25rem'} 0 0.5rem;">
+          Stage ${stageNum}
+        </h4>
+        <div class="group-stage-grid" style="margin-bottom:0.5rem;">
+          ${['A', 'B', 'C', 'D'].map((g) => `
+            <div class="table-scroll">
+              <table class="standings-table">
+                <thead>
+                  <tr><th colspan="5">Group ${g}</th></tr>
+                  <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>+/-</th></tr>
+                </thead>
+                <tbody>
+                  ${(standings[g] || []).map((row, i) => `
+                    <tr>
+                      <td>${i + 1}</td>
+                      <td>${teamBadge(row.nbaTeam, { size: 'sm' })} ${escapeHtml(row.participantName || '—')}</td>
+                      <td>${row.wins}</td>
+                      <td>${row.losses}</td>
+                      <td class="${row.pointDifferential > 0 ? 'pd-pos' : row.pointDifferential < 0 ? 'pd-neg' : ''}">
+                        ${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}
+                      </td>
+                    </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>`).join('')}
+        </div>`;
+    }).join('');
+
+    if (!stageSections) return '';
 
     return `
       <h3 class="section-title" style="margin-bottom:0.5rem;">
-        Group Stage — Stage ${gs.stage} of 2
+        Group Stage Standings
       </h3>
-      <div class="standings-cards" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1.5rem;">
-        ${['A', 'B', 'C', 'D'].map((g) => `
-          <div class="standings-table-wrap table-scroll" style="min-width:220px;flex:1;">
-            <table class="standings-table">
-              <thead><tr><th colspan="4">Group ${g}</th></tr>
-                <tr><th>#</th><th>Team</th><th>W-L</th><th>PD</th></tr>
-              </thead>
-              <tbody>
-                ${(standings[g] || []).map((row, i) => `
-                  <tr>
-                    <td>${i + 1}</td>
-                    <td>${teamBadge(row.nbaTeam, { size: 'sm' })} ${escapeHtml(row.participantName || '—')}</td>
-                    <td>${row.wins}-${row.losses}</td>
-                    <td class="${row.pointDifferential > 0 ? 'pd-pos' : row.pointDifferential < 0 ? 'pd-neg' : ''}">
-                      ${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}
-                    </td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>`).join('')}
-      </div>
-      <p class="helper-text">
-        ${gs.stage === 1
-          ? 'Round 1 group standings — final position determines each team\'s seed for the Round 2 re-seeded groups.'
-          : 'Round 2 group standings (re-seeded from Round 1). The combined final standings across both stages are below.'}
+      ${stageSections}
+      <p class="helper-text" style="margin-bottom:1.5rem;">
+        Each table is scoped to its own Stage + Group — Stage 1 results never affect Stage 2, and other groups never affect a group's standings.
       </p>`;
   },
 };
