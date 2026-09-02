@@ -948,6 +948,31 @@ a:hover { color: var(--accent-hover); }
   .standings-table-wrap { display: none; }
   .standings-cards { display: flex; }
   .group-stage-grid { grid-template-columns: 1fr; }
+
+  /* Group Stage cards: tighten table padding/font and stack the team
+     cell (logo+abbr above, name below) so # / Team / W / L / +/- all
+     fit at once without a horizontal scroll cutting off W, L, or +/-.
+     .is-collapsed hides a group's body — this rule only exists in this
+     ≤700px block, so it can never apply on desktop (see the >700px
+     block below, which doesn't touch display at all — it doesn't need
+     to, since this rule simply isn't there to begin with). */
+  .group-standings-table th,
+  .group-standings-table td { padding: 0.4rem 0.4rem; font-size: 0.78rem; }
+  .group-team-cell { flex-direction: column; align-items: flex-start; gap: 0.1rem; }
+  .group-team-name { max-width: 120px; }
+  .group-card-summary { cursor: pointer; }
+  .group-card.is-collapsed .group-card-body { display: none; }
+}
+
+@media (min-width: 701px) {
+  /* Desktop keeps the pre-existing static 2-per-row look: every group's
+     table is always visible here regardless of .is-collapsed (that
+     class only means something inside the ≤700px block above — this
+     block never hides .group-card-body at all, so there's nothing for
+     .is-collapsed to override). The summary is also inert since there's
+     nothing to toggle. */
+  .group-card-summary { cursor: default; pointer-events: none; }
+  .group-card-summary::after { display: none; }
 }
 
 @media (max-width: 900px) {
@@ -1127,6 +1152,57 @@ a:hover { color: var(--accent-hover); }
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+}
+
+/* Group Stage mobile revision: each group becomes a collapsible
+   full-width card at ≤700px.
+   NOTE: an earlier version of this used native <details>/<summary> and
+   tried to force it open on desktop via `display: block !important` on
+   its children. That doesn't work — a closed <details>'s content isn't
+   simply `display:none`-able CSS, browsers suppress it at the rendering
+   level tied to the actual `open` IDL attribute, so no author CSS can
+   override it back to visible. This version uses a plain div + a class
+   toggle instead, so "always expanded on desktop" is a real CSS
+   guarantee (the collapse rule below only exists inside the ≤700px
+   media query — it has zero effect above that width, structurally,
+   not just by convention) rather than something that depends on
+   fighting native element behavior. */
+.group-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.group-card-summary {
+  padding: 0.55rem 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  background: var(--bg-hover);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.group-card-summary::after {
+  content: '▾';
+  font-size: 0.65rem;
+  transition: transform 0.15s ease;
+}
+.group-card:not(.is-collapsed) .group-card-summary::after { transform: rotate(180deg); }
+
+/* Team cell: logo/abbr + participant name. Row layout on desktop
+   (matches the old inline rendering); stacks to two lines on mobile
+   (see the 700px breakpoint below) so the Team column stays narrow
+   enough that W / L / +/- never get pushed off-screen. */
+.group-team-cell { display: flex; align-items: center; gap: 0.4rem; min-width: 0; }
+.group-team-name {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
 }
 
 .streamer-table td:last-child { font-weight: 700; }

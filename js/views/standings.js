@@ -123,6 +123,25 @@ const StandingsView = {
           </table>
         </div>` : ''}
       </div>`;
+
+    // Group Stage only: the group cards' collapse/expand toggle (mobile
+    // only — see the .is-collapsed rule, which only exists inside the
+    // ≤700px media query in css/main.css, so this click handler has no
+    // visible effect at all above that width).
+    if (isGroupStage) {
+      container.querySelectorAll('.group-card-summary').forEach((el) => {
+        el.addEventListener('click', () => this._toggleGroupCard(el));
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._toggleGroupCard(el); }
+        });
+      });
+    }
+  },
+
+  _toggleGroupCard(summaryEl) {
+    const card = summaryEl.closest('.group-card');
+    const collapsed = card.classList.toggle('is-collapsed');
+    summaryEl.setAttribute('aria-expanded', String(!collapsed));
   },
 
   /**
@@ -142,36 +161,50 @@ const StandingsView = {
   _renderGroupStageSection(season) {
     if (season.scheduleFormat !== 'groupStage' || !season.groupStageState) return '';
 
+    let hasStage2 = false;
     const stageSections = [1, 2].map((stageNum) => {
       const standings = LeagueData.getGroupStageStandings(season.id, stageNum);
       if (!standings) return '';
+      if (stageNum === 2) hasStage2 = true;
 
       return `
         <h4 class="section-title" style="font-size:0.95rem;margin:${stageNum === 1 ? '0' : '1.25rem'} 0 0.5rem;">
           Stage ${stageNum}
         </h4>
         <div class="group-stage-grid" style="margin-bottom:0.5rem;">
-          ${['A', 'B', 'C', 'D'].map((g) => `
-            <div class="table-scroll">
-              <table class="standings-table">
-                <thead>
-                  <tr><th colspan="5">Group ${g}</th></tr>
-                  <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>+/-</th></tr>
-                </thead>
-                <tbody>
-                  ${(standings[g] || []).map((row, i) => `
-                    <tr>
-                      <td>${i + 1}</td>
-                      <td>${teamBadge(row.nbaTeam, { size: 'sm' })} ${escapeHtml(row.participantName || '—')}</td>
-                      <td>${row.wins}</td>
-                      <td>${row.losses}</td>
-                      <td class="${row.pointDifferential > 0 ? 'pd-pos' : row.pointDifferential < 0 ? 'pd-neg' : ''}">
-                        ${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}
-                      </td>
-                    </tr>`).join('')}
-                </tbody>
-              </table>
-            </div>`).join('')}
+          ${['A', 'B', 'C', 'D'].map((g) => {
+            const expanded = g === 'A' || g === 'B';
+            return `
+            <div class="group-card${expanded ? '' : ' is-collapsed'}">
+              <div class="group-card-summary" role="button" tabindex="0" aria-expanded="${expanded}">Group ${g}</div>
+              <div class="group-card-body">
+                <div class="table-scroll">
+                  <table class="standings-table group-standings-table">
+                    <thead>
+                      <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>+/-</th></tr>
+                    </thead>
+                    <tbody>
+                      ${(standings[g] || []).map((row, i) => `
+                        <tr>
+                          <td>${i + 1}</td>
+                          <td>
+                            <div class="group-team-cell">
+                              ${teamBadge(row.nbaTeam, { size: 'sm' })}
+                              <span class="group-team-name">${escapeHtml(row.participantName || '—')}</span>
+                            </div>
+                          </td>
+                          <td>${row.wins}</td>
+                          <td>${row.losses}</td>
+                          <td class="${row.pointDifferential > 0 ? 'pd-pos' : row.pointDifferential < 0 ? 'pd-neg' : ''}">
+                            ${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}
+                          </td>
+                        </tr>`).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
         </div>`;
     }).join('');
 
@@ -183,7 +216,7 @@ const StandingsView = {
       </h3>
       ${stageSections}
       <p class="helper-text" style="margin-bottom:1.5rem;">
-        Each table is scoped to its own Stage + Group — Stage 1 results never affect Stage 2, and other groups never affect a group's standings.
+        Stage 1 standings reflect Stage 1 games only.${hasStage2 ? ' Stage 2 standings are cumulative — each team\'s Stage 1 record carries forward into their new Stage 2 group, so a Stage 2 row shows the combined Stage 1 + Stage 2 record.' : ''} Groups never combine with each other.
       </p>`;
   },
 };

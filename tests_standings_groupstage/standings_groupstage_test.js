@@ -33,7 +33,7 @@ function test(name, fn) {
 
 // ─── Minimal fake container (just needs to accept innerHTML) ─────────────
 function makeContainer() {
-  return { innerHTML: '' };
+  return { innerHTML: '', querySelectorAll: () => [] };
 }
 
 // ─── Fixtures ──────────────────────────────────────────────────────────
@@ -130,6 +130,137 @@ test('Group Stage with both stages renders Stage 1 AND Stage 2, each with 4 grou
   // Two-groups-per-row desktop grid, one column on mobile (css/main.css .group-stage-grid)
   const gridCount = (html.match(/class="group-stage-grid"/g) || []).length;
   assert.strictEqual(gridCount, 2, 'expected one 2-column group grid per stage (Stage 1 and Stage 2)');
+});
+
+// ─── Mobile revision: collapsible full-width group cards ──────────────
+test('Each group renders as a div.group-card with a header + body (no <details>, no leftover colspan header row)', () => {
+  const { html } = render({ scheduleFormat: 'groupStage', hasStage2: true });
+  assert(!html.includes('<details'), 'must not use native <details> — its closed content cannot be force-shown via CSS (this was the desktop bug)');
+  const cardCount = (html.match(/<div class="group-card( is-collapsed)?">/g) || []).length;
+  assert.strictEqual(cardCount, 8, 'expected 4 groups × 2 stages = 8 group cards');
+  const summaryCount = (html.match(/<div class="group-card-summary"/g) || []).length;
+  assert.strictEqual(summaryCount, 8, 'expected one summary header per group card');
+  const bodyCount = (html.match(/<div class="group-card-body">/g) || []).length;
+  assert.strictEqual(bodyCount, 8, 'expected one body wrapper per group card (this is what .is-collapsed hides, mobile-only)');
+  assert(!html.includes('colspan="5"'), 'the old colspan group-name header row should be gone now that the summary div is the header');
+});
+
+test('Groups A and B default expanded; Groups C and D default collapsed (per stage) — collapsed still renders the data, just tagged for mobile-only hiding', () => {
+  const { html } = render({ scheduleFormat: 'groupStage', hasStage2: true });
+  const cardBlocks = html.match(/<div class="group-card( is-collapsed)?">[\s\S]*?<div class="group-card-summary"[^>]*>Group (\w)<\/div>[\s\S]*?<\/div>\s*<\/div>/g) || [];
+  // Simpler, robust per-card check: pair each group-card opening tag with its aria-expanded value in document order.
+  const cardOpenTags = [...html.matchAll(/<div class="group-card( is-collapsed)?">\s*<div class="group-card-summary" role="button" tabindex="0" aria-expanded="(true|false)">Group (\w)<\/div>/g)];
+  assert.strictEqual(cardOpenTags.length, 8, 'expected to find all 8 group card headers');
+  for (const m of cardOpenTags) {
+    const [, collapsedClass, ariaExpanded, groupLetter] = m;
+    if (groupLetter === 'A' || groupLetter === 'B') {
+      assert(!collapsedClass, `Group ${groupLetter} should not have .is-collapsed`);
+      assert.strictEqual(ariaExpanded, 'true', `Group ${groupLetter} should have aria-expanded="true"`);
+    } else {
+      assert.strictEqual(collapsedClass, ' is-collapsed', `Group ${groupLetter} should have .is-collapsed`);
+      assert.strictEqual(ariaExpanded, 'false', `Group ${groupLetter} should have aria-expanded="false"`);
+    }
+  }
+  // Collapsed groups must still contain their standings data in the markup —
+  // .is-collapsed only ever hides via CSS (mobile-only), it never omits data.
+  assert(html.includes('S1-C-1') && html.includes('S1-D-1'), 'Stage 1 collapsed groups must still render their rows');
+  assert(html.includes('S2-C-1') && html.includes('S2-D-1'), 'Stage 2 collapsed groups must still render their rows');
+});
+
+test('render() wires a click/keydown toggle on every .group-card-summary (mobile-only effect, see CSS tests below)', () => {
+  const groupCallLog = [];
+  const LeagueData = buildLeagueData({ scheduleFormat: 'groupStage', hasStage2: true, groupCallLog });
+  const sandbox = { LeagueData, console };
+  vm.createContext(sandbox);
+  vm.runInContext(utilsSrc, sandbox, { filename: 'shared-utils.js' });
+  vm.runInContext(standingsSrc, sandbox, { filename: 'standings.js' });
+  const StandingsView = vm.runInContext('StandingsView', sandbox);
+
+  // Minimal fake DOM: enough for querySelectorAll + classList.toggle +
+  // closest + addEventListener to exercise the real toggle logic.
+  function makeEl(className) {
+    const listeners = {};
+    const el = {
+      className,
+      attrs: { 'aria-expanded': 'true' },
+      children: [],
+      parent: null,
+      addEventListener(type, fn) { listeners[type] = fn; },
+      fire(type, evt) { listeners[type]?.(evt || {}); },
+      classList: {
+        toggle(cls) {
+          const has = el.className.split(' ').includes(cls);
+          el.className = has ? el.className.replace(` ${cls}`, '').replace(cls, '').trim() : `${el.className} ${cls}`.trim();
+          return !has;
+        },
+      },
+      setAttribute(k, v) { el.attrs[k] = v; },
+      getAttribute(k) { return el.attrs[k]; },
+      closest(sel) {
+        const cls = sel.replace('.', '');
+        let node = el;
+        while (node && !(node.className || '').split(' ').includes(cls)) node = node.parent;
+        return node;
+      },
+    };
+    return el;
+  }
+  const card = makeEl('group-card');
+  const summary = makeEl('group-card-summary');
+  summary.parent = card;
+  card.children.push(summary);
+
+  const fakeContainer = {
+    querySelectorAll: (sel) => (sel === '.group-card-summary' ? [summary] : []),
+  };
+  StandingsView.render(fakeContainer);
+
+  assert.strictEqual(summary.getAttribute('aria-expanded'), 'true');
+  summary.fire('click');
+  assert(card.className.includes('is-collapsed'), 'clicking the summary should toggle .is-collapsed on the card');
+  assert.strictEqual(summary.getAttribute('aria-expanded'), 'false', 'aria-expanded should flip to false when collapsed');
+  summary.fire('click');
+  assert(!card.className.includes('is-collapsed'), 'clicking again should remove .is-collapsed');
+  assert.strictEqual(summary.getAttribute('aria-expanded'), 'true');
+});
+
+test('Team cell stacks logo/abbr and participant name in a dedicated wrapper (mobile-safe)', () => {
+  const { html } = render({ scheduleFormat: 'groupStage', hasStage2: false });
+  assert(html.includes('class="group-team-cell"'), 'expected the stacked team-cell wrapper');
+  assert(html.includes('class="group-team-name"'), 'expected the participant-name span inside it');
+  assert(html.includes('S1-A-1'), 'expected the participant name to still render inside the cell');
+});
+
+test('Helper text accurately reflects cumulative Stage 2 only when Stage 2 exists', () => {
+  const stage1Only = render({ scheduleFormat: 'groupStage', hasStage2: false }).html;
+  assert(!/Stage 1 results never affect Stage 2/.test(stage1Only), 'the old, now-inaccurate wording must be gone');
+  assert(!/cumulative/i.test(stage1Only), 'no Stage 2 yet — nothing cumulative to describe');
+
+  const bothStages = render({ scheduleFormat: 'groupStage', hasStage2: true }).html;
+  assert(/cumulative/i.test(bothStages), 'once Stage 2 exists, the helper text should say standings are cumulative');
+  assert(!/Stage 1 results never affect Stage 2/.test(bothStages), 'must not claim Stage 1 has no effect on Stage 2 — it does, by design');
+});
+
+// ─── CSS: the actual responsive rules exist in css/main.css ───────────
+test('css/main.css: mobile breakpoint collapses the group grid to 1 column, compacts group cards, and hides .is-collapsed bodies', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'main.css'), 'utf8');
+  const mobileBlockMatch = css.match(/@media \(max-width: 700px\) \{([\s\S]*?)\n\}/);
+  assert(mobileBlockMatch, 'expected the existing 700px mobile breakpoint to still exist');
+  const mobileBlock = mobileBlockMatch[1];
+  assert(/\.group-stage-grid\s*\{\s*grid-template-columns:\s*1fr;\s*\}/.test(mobileBlock), 'expected groups to go to 1 column on mobile');
+  assert(/\.group-team-cell\s*\{[^}]*flex-direction:\s*column/.test(mobileBlock), 'expected the team cell to stack vertically on mobile');
+  assert(/\.group-card\.is-collapsed \.group-card-body\s*\{\s*display:\s*none;\s*\}/.test(mobileBlock), 'expected the collapse-hide rule to live inside the mobile block only');
+});
+
+test('css/main.css: the >700px block never hides .group-card-body — desktop always-expanded is structural, not attribute-dependent', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'css', 'main.css'), 'utf8');
+  const desktopBlockMatch = css.match(/@media \(min-width: 701px\) \{([\s\S]*?)\n\}/);
+  assert(desktopBlockMatch, 'expected a >700px breakpoint that keeps desktop static');
+  const desktopBlock = desktopBlockMatch[1];
+  const desktopBlockCode = desktopBlock.replace(/\/\*[\s\S]*?\*\//g, ''); // strip comments before checking actual rules
+  assert(!/\.group-card(-body)?\s*\{[^}]*display:\s*none/.test(desktopBlockCode), 'the desktop block must never hide .group-card or .group-card-body');
+  assert(!desktopBlockCode.includes('.is-collapsed'), 'desktop block should not have a live rule referencing .is-collapsed — it has no effect there by construction');
+  assert(!css.includes('[open]'), 'no leftover native <details>[open] selectors should remain');
 });
 
 console.log(failures === 0 ? '\nAll tests passed.' : `\n${failures} test(s) failed.`);
