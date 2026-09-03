@@ -214,13 +214,20 @@ const AdminDraftView = {
           <span class="drr-name muted">(removed player)</span>
         </div>`;
     }
-    const pos = CORE_POSITIONS.includes(p.position) ? p.position : '—';
-    const poolClass = p.pool === 'blue' ? 'draft-pos-chip-blue' : 'draft-pos-chip-green';
+    // Rule 13/14: a Joker Pick shows its DESIGNATED position (chip +
+    // small "JOKER" tag, reusing the existing PINK classification color
+    // via classificationBadge) instead of the natural position chip —
+    // same "effective position" idea the rest of the app already uses
+    // for a Joker anywhere else (roster/trade views).
+    const pos = r.isJoker
+      ? r.jokerPosition
+      : (CORE_POSITIONS.includes(p.position) ? p.position : '—');
+    const poolClass = r.isJoker ? 'draft-pos-chip-joker' : (p.pool === 'blue' ? 'draft-pos-chip-blue' : 'draft-pos-chip-green');
     return `
       <div class="draft-roster-row">
         <span class="drr-num">${pickNum}</span>
         <span class="draft-pos-chip ${poolClass}">${escapeHtml(pos)}</span>
-        <span class="drr-name" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</span>
+        <span class="drr-name" title="${escapeHtml(p.name)}">${r.isJoker ? '<span class="draft-joker-tag">JOKER</span> ' : ''}${escapeHtml(p.name)}</span>
         <span class="drr-ovr">${p.overall ?? '—'}</span>
       </div>`;
   },
@@ -495,6 +502,17 @@ const AdminDraftView = {
           <span class="pool-badge pool-badge-${player.pool === 'blue' ? 'blue' : 'green'}" style="margin-left:0.5rem;">${player.pool === 'blue' ? 'Blue Pool' : 'Green Pool'}</span>
         </div>
         <p class="modal-prompt">Draft ${escapeHtml(player.name)}?</p>
+        <label class="draft-joker-toggle">
+          <input type="checkbox" id="draftJokerCheckbox">
+          Draft as Joker
+        </label>
+        <div id="draftJokerPositionRow" class="draft-joker-position-row" style="display:none;">
+          <label for="draftJokerPositionSelect">Designated Position</label>
+          <select id="draftJokerPositionSelect">
+            <option value="" disabled selected>Choose position…</option>
+            ${CORE_POSITIONS.map(pos => `<option value="${pos}">${pos}</option>`).join('')}
+          </select>
+        </div>
         <div class="modal-actions">
           <button class="btn btn-ghost" id="modalCancelBtn">Cancel</button>
           <button class="btn btn-primary" id="modalConfirmBtn">Draft Player</button>
@@ -508,11 +526,39 @@ const AdminDraftView = {
     const onKeydown = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKeydown); } };
     document.addEventListener('keydown', onKeydown);
 
+    // Joker toggle: reveals the required designated-position selector and
+    // relabels the confirm button — purely a UI convenience. The actual
+    // ONE-Joker rule and jokerPosition validation are enforced in
+    // AdminActions.makeDraftPick regardless of what happens here (Rule 6).
+    const jokerCheckbox = document.getElementById('draftJokerCheckbox');
+    const jokerPositionRow = document.getElementById('draftJokerPositionRow');
+    const jokerPositionSelect = document.getElementById('draftJokerPositionSelect');
+    const confirmBtn = document.getElementById('modalConfirmBtn');
+    const updateConfirmLabel = () => {
+      if (jokerCheckbox.checked) {
+        const pos = jokerPositionSelect.value;
+        confirmBtn.textContent = pos ? `Draft as Joker — ${pos}` : 'Draft as Joker';
+      } else {
+        confirmBtn.textContent = 'Draft Player';
+      }
+    };
+    jokerCheckbox.addEventListener('change', () => {
+      jokerPositionRow.style.display = jokerCheckbox.checked ? '' : 'none';
+      updateConfirmLabel();
+    });
+    jokerPositionSelect.addEventListener('change', updateConfirmLabel);
+
     document.getElementById('modalConfirmBtn').onclick = () => {
       AuthBoundary.requireAuth();
+      const isJoker = jokerCheckbox.checked;
+      const jokerPosition = isJoker ? jokerPositionSelect.value : undefined;
+      if (isJoker && !jokerPosition) {
+        showToast('Choose a designated position for the Joker Pick.', 'error');
+        return;
+      }
       try {
-        AdminActions.makeDraftPick(season.id, player.id);
-        showToast(`${player.name} drafted.`, 'success');
+        AdminActions.makeDraftPick(season.id, player.id, isJoker ? { isJoker: true, jokerPosition } : undefined);
+        showToast(isJoker ? `${player.name} drafted as Joker (${jokerPosition}).` : `${player.name} drafted.`, 'success');
         this._filter = ''; // clear search so the next view starts fresh
         close();
         AdminApp.renderView('draft');

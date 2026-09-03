@@ -988,6 +988,18 @@ select.input { cursor: pointer; }
 }
 .draft-pos-chip-green { background: var(--pool-green-dim); color: var(--pool-green); }
 .draft-pos-chip-blue { background: var(--pool-blue-dim); color: var(--pool-blue); }
+/* Joker Pick (live-draft): same pink tint as the existing PINK
+   classification badge (.pick-color-pink below) — reused, not a new
+   color scheme. */
+.draft-pos-chip-joker { background: rgba(255, 105, 180, 0.15); color: #c2185b; }
+.draft-joker-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #c2185b;
+  margin-right: 0.15rem;
+}
 
 /* Position Needs */
 .position-need-row {
@@ -1066,6 +1078,21 @@ select.input { cursor: pointer; }
 .modal-player-name { font-size: 1.4rem; font-weight: 900; margin-bottom: 0.3rem; }
 .modal-player-meta { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem; display: flex; align-items: center; }
 .modal-prompt { font-size: 0.9rem; margin-bottom: 1.25rem; }
+.draft-joker-toggle {
+  display: flex; align-items: center; gap: 0.5rem;
+  font-size: 0.85rem; font-weight: 600;
+  margin-bottom: 0.75rem; cursor: pointer;
+}
+.draft-joker-position-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  margin-bottom: 1.1rem;
+}
+.draft-joker-position-row label { font-size: 0.78rem; color: var(--text-muted); }
+.draft-joker-position-row select {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 0.3rem 0.5rem; font-size: 0.85rem;
+}
 .modal-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
 
 /* ── Responsive ── */

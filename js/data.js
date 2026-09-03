@@ -287,8 +287,10 @@ function createParticipant(id, name) {
  * never disagree — both call this same function against the same
  * already-loaded season/players data.
  *
- * A pick only counts toward a slot if the picked player's `position` is
- * exactly one of CORE_POSITIONS. A player with a missing or non-standard
+ * A pick only counts toward a slot if its EFFECTIVE position (see
+ * getEffectivePosition — the designated jokerPosition for a Joker Pick,
+ * otherwise the picked player's natural `position`) is exactly one of
+ * CORE_POSITIONS. A non-Joker player with a missing or non-standard
  * position does not fill any slot (see makeDraftPick for how that
  * interacts with the mandatory-first-five rule).
  */
@@ -301,8 +303,15 @@ function computePositionState(season, playersById, participantId) {
   );
   for (const pick of picks) {
     const player = playersById[pick.playerId];
-    if (player && CORE_POSITIONS.includes(player.position)) {
-      filled[player.position] = true;
+    if (!player) continue;
+    // A Joker Pick's draft-time position is its designated jokerPosition,
+    // not the player's natural position (see getEffectivePosition and
+    // AdminActions.makeDraftPick's Joker Pick handling) — for a normal
+    // pick this is simply player.position, exactly as before Joker Pick
+    // existed at the draft layer.
+    const effectivePos = getEffectivePosition(pick, player);
+    if (effectivePos && CORE_POSITIONS.includes(effectivePos)) {
+      filled[effectivePos] = true;
     }
   }
 
@@ -1949,11 +1958,16 @@ const LeagueData = {
       });
     }
 
-    // Fallback: derive from draft picks (pre-initialization view) — no
-    // Joker exists yet at this stage (rostersInitialized is false), so
-    // effectivePosition is always just the player's own position.
-    // draftSlot mirrors what initializeRostersFromDraft will assign a
-    // moment later, purely for display consistency pre-initialization.
+    // Fallback: derive from draft picks (pre-initialization view — draft
+    // still in progress, rostersInitialized is false). A Draft Joker Pick
+    // (Rule 16) DOES exist at this stage, straight on the playerDraftPicks
+    // entry itself (see makeDraftPick) — reuse getEffectivePosition here
+    // exactly like the post-init branch above does, so the live-draft
+    // effective position (e.g. natural SF drafted as Joker-C) is reflected
+    // immediately, with no window where this fallback still says SF while
+    // the draft itself already treats the pick as C. draftSlot mirrors
+    // what initializeRostersFromDraft will assign a moment later, purely
+    // for display consistency pre-initialization.
     return season.playerDraftPicks
       .filter(p => p.participantId === participantId)
       .map((p, i) => {
@@ -1962,13 +1976,17 @@ const LeagueData = {
           playerId: p.playerId,
           source: 'draft',
           player,
-          effectivePosition: player ? player.position : null,
+          effectivePosition: player ? getEffectivePosition(p, player) : null,
           draftSlot: i + 1,
-          // No Joker exists pre-initialization, and every pre-init entry is
-          // an actual original pick (never manually replaced), so this is
-          // simply the pick-number classification directly — no need for
-          // getPlayerClassificationInfo's manual-replace chaining here.
-          classification: player ? classifyPickNumber(i + 1) : null,
+          isJoker: !!p.isJoker,
+          jokerPosition: p.jokerPosition,
+          // Every pre-init entry is an actual original pick (never manually
+          // replaced), so classification is the pick-number classification
+          // directly — no need for getPlayerClassificationInfo's manual-
+          // replace chaining here. A Joker Pick classifies as PINK
+          // immediately, matching getPlayerClassificationInfo's isJoker
+          // override for the post-init branch above.
+          classification: player ? (p.isJoker ? 'PINK' : classifyPickNumber(i + 1)) : null,
         };
       });
   },
@@ -3173,8 +3191,20 @@ const AdminActions = {
    *
    * Uses the same snake formula as the Draft Orders preview: odd rounds
    * go in playerDraftOrder's stored order, even rounds reverse it.
+   *
+   * Joker Pick (optional 3rd argument): pass { isJoker: true, jokerPosition }
+   * to draft this player as the participant's ONE Joker, with jokerPosition
+   * (PG/SG/SF/PF/C) as their EFFECTIVE draft-time position instead of their
+   * natural player.position — see getEffectivePosition, used consistently
+   * below for the mandatory-first-five rule and the max-2-per-position cap.
+   * Everything else (variant lock, roster cap, rating cap using the
+   * player's real OVR, 10th-pick Blue rule) runs exactly as for a normal
+   * pick — a Joker Pick is still a normal draft pick, just tagged. A
+   * Joker Pick carries NO fee of its own (the existing ₱300 post-draft
+   * Joker Swap fee is a separate, unrelated mechanism — untouched here).
+   * Existing callers that omit the 3rd argument are unaffected.
    */
-  makeDraftPick(seasonId, playerId) {
+  makeDraftPick(seasonId, playerId, options = {}) {
     const data = loadData();
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
@@ -3194,7 +3224,10 @@ const AdminActions = {
     // If this player belongs to a variant group (e.g. multiple LeBron
     // James cards sharing variantGroup "lebron-james") and any other
     // member of that group has already been drafted by anyone, this pick
-    // is rejected. Undrafted, ungrouped players are unaffected.
+    // is rejected. Undrafted, ungrouped players are unaffected. Joker
+    // Pick does not exempt a player from this — Rule 1 (any otherwise-
+    // eligible player may be a Joker) implies Joker never bypasses normal
+    // draft legality.
     if (player.variantGroup) {
       const groupAlreadyDrafted = season.playerDraftPicks.some((p) => {
         const pickedPlayer = data.players[p.playerId];
@@ -3219,25 +3252,56 @@ const AdminActions = {
     const round = schedule.currentRound;
     const pick = season.playerDraftPicks.length + 1;
 
+    // ── Joker Pick: data-layer validation (cannot be bypassed by the UI) ─
+    // At most one Joker Pick per participant, enforced by scanning the
+    // actual draft history (not a cached flag) — this is what makes undo
+    // work automatically (see undoLastDraftPick): pop the pick, and the
+    // participant is immediately eligible again since this scan just
+    // won't find it anymore.
+    const isJoker = !!options.isJoker;
+    const jokerPosition = isJoker ? options.jokerPosition : undefined;
+    if (isJoker) {
+      if (!CORE_POSITIONS.includes(jokerPosition)) {
+        throw new Error(
+          `A Joker Pick requires a valid designated position (${CORE_POSITIONS.join("/")}).`
+        );
+      }
+      const alreadyHasJoker = season.playerDraftPicks.some(
+        (p) => p.participantId === participantId && p.isJoker
+      );
+      if (alreadyHasJoker) {
+        throw new Error("This participant has already made their Joker Pick.");
+      }
+    }
+    // The EFFECTIVE draft-time position for every rule below: the
+    // designated jokerPosition for a Joker Pick, otherwise this player's
+    // natural position — same rule getEffectivePosition already applies
+    // to currentRosters entries, reused here for a not-yet-drafted pick.
+    const effectivePosition = getEffectivePosition({ isJoker, jokerPosition }, player);
+
     // ── Phase 4B: mandatory first-five-positions rule ───────────────────
     // Enforced here at the data layer (not just in the UI) so the rule
     // cannot be bypassed. While this participant hasn't yet filled all of
     // PG/SG/SF/PF/C, they may only draft a player at a position they
-    // still need. A player with no recognized position is rejected during
-    // this phase too, since it's unclear which slot it would fill.
+    // still need — using the EFFECTIVE position, so a Joker Pick fills
+    // its designated position, not the player's natural one (Rule 3). A
+    // non-Joker player with no recognized position is rejected during
+    // this phase too, since it's unclear which slot it would fill (a
+    // Joker Pick always has a recognized effective position, since
+    // jokerPosition was just validated above).
     const posState = computePositionState(season, data.players, participantId);
     if (!posState.allFilled) {
-      if (!CORE_POSITIONS.includes(player.position)) {
+      if (!CORE_POSITIONS.includes(effectivePosition)) {
         throw new Error(
           `"${player.name}" has no recognized position (PG/SG/SF/PF/C). ` +
           `Complete PG, SG, SF, PF, and C first: still need ${posState.missing.join(", ")}.`
         );
       }
-      if (posState.filled[player.position]) {
+      if (posState.filled[effectivePosition]) {
         throw new Error(
-          `This participant already has a ${player.position}. ` +
+          `This participant already has a ${effectivePosition}. ` +
           `Complete their remaining positions (${posState.missing.join(", ")}) ` +
-          `before drafting another ${player.position}.`
+          `before drafting another ${effectivePosition}.`
         );
       }
     }
@@ -3252,17 +3316,22 @@ const AdminActions = {
     // already enforces on trade/swap results. This does NOT touch
     // computePositionState/getPositionState (used by the Position Need UI
     // and the mandatory-first-five rule above) — it's a separate count.
-    if (CORE_POSITIONS.includes(player.position)) {
-      const positionCountSoFar = season.playerDraftPicks.filter(
-        (p) =>
-          p.participantId === participantId &&
-          data.players[p.playerId]?.position === player.position
-      ).length;
+    // Uses EFFECTIVE position on both sides (this pick and every prior
+    // pick being counted) so a Joker Pick counts toward its designated
+    // position's cap, not its natural position's (Rule 4) — consistent
+    // with the mandatory-five rule just above.
+    if (CORE_POSITIONS.includes(effectivePosition)) {
+      const positionCountSoFar = season.playerDraftPicks.filter((p) => {
+        if (p.participantId !== participantId) return false;
+        const priorPlayer = data.players[p.playerId];
+        return priorPlayer && getEffectivePosition(p, priorPlayer) === effectivePosition;
+      }).length;
       if (positionCountSoFar >= MAX_PLAYERS_PER_POSITION) {
         throw new Error(
           `This participant already has ${MAX_PLAYERS_PER_POSITION} players at ` +
-          `${player.position} (max ${MAX_PLAYERS_PER_POSITION}).`
+          `${effectivePosition} (max ${MAX_PLAYERS_PER_POSITION}).`
         );
+
       }
     }
 
@@ -3330,7 +3399,12 @@ const AdminActions = {
       tenthPickBlueFeeCharged = true;
     }
 
-    season.playerDraftPicks.push({ round, pick, participantId, playerId });
+    season.playerDraftPicks.push({
+      round, pick, participantId, playerId,
+      // Rule 10 / Rule 13: only a Joker Pick gets these extra keys — a
+      // normal pick's stored shape is byte-for-byte what it always was.
+      ...(isJoker && { isJoker: true, jokerPosition }),
+    });
 
     // Refresh the bonusPicks mirror (see season.bonusPicks doc comment) now
     // that this pick has been recorded — computeDraftSchedule replays the
@@ -3338,6 +3412,14 @@ const AdminActions = {
     // map, whether this pick just consumed a bonus turn or not.
     season.bonusPicks = computeDraftSchedule(season).bonusPicks;
 
+    // ── Rule 8: a Draft Joker Pick carries NO fee of its own ────────────
+    // The ₱300 fee belongs exclusively to the separate, POST-DRAFT Joker
+    // Swap mechanism (evaluateSwap/commitSwap with isJokerSwap) — nothing
+    // here creates a transaction or touches season.pot for isJoker alone.
+    // Rule 9: the existing 10th-pick Blue fee (Rule D, above) is entirely
+    // independent of Joker and still applies exactly as before when this
+    // pick happens to be both a Joker Pick AND a qualifying 10th-pick Blue
+    // — the two are unrelated checks and neither is skipped for the other.
     if (tenthPickBlueFeeCharged) {
       season.pot = (season.pot || 0) + TENTH_PICK_BLUE_FEE;
       season.transactions.push({
@@ -3355,7 +3437,7 @@ const AdminActions = {
           overall: player.overall,
           pool: player.pool,
           pickClassification: null,
-          isJoker: false,
+          isJoker,
         }],
         fee: TENTH_PICK_BLUE_FEE,
         feeDoubled: false,
@@ -3369,6 +3451,8 @@ const AdminActions = {
       pick,
       participantId,
       playerId,
+      isJoker,
+      jokerPosition,
       tenthPickBlueFeeCharged,
       tenthPickBlueFee: tenthPickBlueFeeCharged ? TENTH_PICK_BLUE_FEE : 0,
     };
@@ -4201,6 +4285,13 @@ const AdminActions = {
         playerId: pick.playerId,
         source: 'draft',
         draftSlot: ownPickCounters[pick.participantId],
+        // Rule 15: a Draft Joker Pick's isJoker/jokerPosition carry straight
+        // into currentRosters, becoming indistinguishable from a Joker set
+        // by the existing post-draft designateJoker — every downstream
+        // reader (getEffectivePosition, getJoker, PINK classification,
+        // Joker Swap eligibility) already just reads these two fields.
+        // Absent for every normal pick, exactly as before this feature.
+        ...(pick.isJoker && { isJoker: true, jokerPosition: pick.jokerPosition }),
       });
     }
 
