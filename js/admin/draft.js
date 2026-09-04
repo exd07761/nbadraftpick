@@ -404,10 +404,16 @@ const AdminDraftView = {
 
     dropdown.innerHTML = `
       ${matches.map(({ player, status }) => {
-        const available = status === 'available';
+        // Bug fix — see _positionPoolRow in shared-utils.js for the full
+        // rationale: 'position-locked'/'no-position' come from the
+        // player's NATURAL position and must not block opening the
+        // confirm modal, since a Joker Pick can draft them at a different
+        // effective position. Only 'drafted' and 'variant-locked' are
+        // truly absolute here.
+        const openable = status !== 'drafted' && status !== 'variant-locked';
         const label = { drafted: 'Drafted', 'variant-locked': 'Variant taken', 'position-locked': 'Locked', 'no-position': 'No position' }[status];
         return `
-          <div class="draft-search-row ${available ? '' : 'disabled'}" ${available ? `data-action="selectPlayer" data-player-id="${player.id}"` : ''}>
+          <div class="draft-search-row ${openable ? '' : 'disabled'}" ${openable ? `data-action="selectPlayer" data-player-id="${player.id}"` : ''}>
             <span class="dsr-name">${escapeHtml(player.name)}</span>
             <span class="dsr-pos">${player.position || '—'}</span>
             <span class="dsr-ovr">${player.overall ?? '—'}</span>

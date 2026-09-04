@@ -239,14 +239,13 @@ test('14. The existing post-draft Joker Swap fee logic is untouched', () => {
   );
 });
 
-test('15. A 10th-pick Blue Joker still triggers the existing Blue 10th-pick fee, with no separate Joker fee', () => {
+test('15. A 10th-pick Blue Joker drafts normally — no special 10th-pick restriction, no fee, no transaction (old Rule D removed)', () => {
   const { seasons, players } = freshSeasonFixture();
-  // p1's own picks #1-9 (any content — direct seed, per the note in test 5
-  // above about turn order being purely count-derived): PG,SG,SF,PF,C once
-  // each (mandatory five), then PG,SG,SF,PF a 2nd time each (9 total,
-  // nothing at cap except leaving C at 1 so the 10th-pick Joker-C below
-  // becomes its 2nd, not a 3rd). 10 p2 filler entries pad the turn count
-  // so the 20th overall pick (p1's 10th own) lands on p1's turn.
+  // p1's own picks #1-9: PG,SG,SF,PF,C once each (mandatory five), then
+  // PG,SG,SF,PF a 2nd time each (9 total, all Green — no Blue used yet).
+  // 10 p2 filler entries pad the turn count so the 20th overall pick
+  // (p1's 10th own) lands on p1's turn (see test 5's comment on why
+  // direct-seeding prior history is valid here).
   const p1Positions = ['PG', 'SG', 'SF', 'PF', 'C', 'PG', 'SG', 'SF', 'PF'];
   const picks = [];
   for (let i = 0; i < 9; i++) {
@@ -259,16 +258,16 @@ test('15. A 10th-pick Blue Joker still triggers the existing Blue 10th-pick fee,
     picks.push({ round: 1, pick: picks.length + 1, participantId: 'p2', playerId: `p2_${i}` });
   }
   seasons.s1.playerDraftPicks = picks; // 19 entries — the 20th (index 19) is p1's turn
-  players.blue10 = player('blue10', { position: 'PG', overall: 90, pool: 'blue' }); // <= MAX_TENTH_PICK_BLUE_RATING (94)
+  players.blue10 = player('blue10', { position: 'PG', overall: 99, pool: 'blue' }); // deliberately HIGH OVR — the old 94-cap no longer applies
   const { AdminActions, LeagueData } = makeSandbox(seasons, players);
   const result = AdminActions.makeDraftPick('s1', 'blue10', { isJoker: true, jokerPosition: 'C' });
   assert.strictEqual(result.participantId, 'p1');
-  assert.strictEqual(result.tenthPickBlueFeeCharged, true, 'existing Blue 10th-pick fee must still apply');
   assert.strictEqual(result.isJoker, true);
+  assert.strictEqual('tenthPickBlueFeeCharged' in result, false, 'the old Rule D field must no longer exist on the return value');
+  assert.strictEqual('tenthPickBlueFee' in result, false, 'the old Rule D field must no longer exist on the return value');
   const season = LeagueData.getSeason('s1');
-  assert.strictEqual(season.pot, 100, 'exactly the Blue 10th-pick fee (100) — no additional Joker fee');
-  assert.strictEqual(season.transactions.length, 1, 'exactly one transaction — no duplicate/second fee');
-  assert.strictEqual(season.transactions[0].playersIn[0].isJoker, true, 'fee transaction should accurately record isJoker true');
+  assert.strictEqual(season.pot, 0, 'no fee of any kind for a 10th-pick Blue — the old Rule D fee is gone');
+  assert.strictEqual(season.transactions.length, 0, 'no transaction should be created — tenthPickBlueFee is no longer generated');
 });
 
 test('16. Joker does not discount OVR — the real rating still counts toward the cap', () => {

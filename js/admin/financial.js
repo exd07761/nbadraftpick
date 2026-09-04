@@ -5,8 +5,12 @@
  * (LeagueData.getFinancialSummary / getParticipantFinancialAccount /
  * getFreeAllowanceRemaining / getStreamerSalaryPlan), which themselves
  * derive everything from season.transactions[] — the same ledger Phase 5
- * (trades/swaps/Joker/10th-pick-Blue), F2/F3 (entryFee/tradeFeeSplit), and
- * F6 Revision 2 (payment) already write to.
+ * (trades/swaps/Joker), F2/F3 (entryFee/tradeFeeSplit), and F6 Revision 2
+ * (payment) already write to. Older seasons' ledgers may also contain
+ * historical "10th Pick Blue Fee" transactions from before that draft
+ * rule was replaced by the current phased Blue Pool rule — those are no
+ * longer created, but this file still recognizes and reports them
+ * correctly wherever they already exist (see TYPE_LABELS below).
  *
  * F6 Revision 2's core model: a CHARGE (entryFee/tradeFeeSplit/swap/
  * jokerSwap) increases season.pot immediately when it's created — pot

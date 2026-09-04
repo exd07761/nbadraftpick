@@ -10,8 +10,13 @@
  * Does NOT touch the Draft page, Team Assignment, Roster (Phase 4A), or the
  * public site. Requires season.rostersInitialized (see Rosters view) before
  * Trades/Swaps can be evaluated — Joker designation also requires it, since
- * it mutates currentRosters. The 10th-pick Blue fee is enforced inside
- * AdminActions.makeDraftPick itself (Draft page), not here.
+ * it mutates currentRosters. The Blue Pool draft rule (max 3 Blue in a
+ * participant's own picks 1-5, max 2 additional in picks 6-10) is enforced
+ * inside AdminActions.makeDraftPick itself (Draft page), not here — this
+ * file has no Blue-specific logic of its own for the DRAFT. (An old
+ * season's ledger may still contain a historical "10th Pick Blue Fee"
+ * transaction from before that rule was replaced — see js/admin/financial.js
+ * — but nothing here or in makeDraftPick creates new ones anymore.)
  *
  * All reads go through LeagueData; all writes go through AdminActions
  * behind AuthBoundary.requireAuth(), same convention as every other admin
@@ -332,6 +337,7 @@ const AdminTradesView = {
         <span class="swap-replacement-ovr">${p.overall}</span>
         <span class="swap-replacement-name">${escapeHtml(p.name)}</span>
         <span class="swap-replacement-pos">${escapeHtml(p.position)}</span>
+        ${classificationBadge(p.classification)}
         <button type="button" class="btn btn-sm ${selected ? 'btn-primary' : 'btn-ghost'}" data-select-replacement="${p.id}">
           ${selected ? 'SELECTED' : 'SELECT'}
         </button>

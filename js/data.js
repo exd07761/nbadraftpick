@@ -337,8 +337,8 @@ const GREEN_MIN_RATING = 75;
 const MAX_BLUE_PLAYERS = 5;
 const MAX_FIRST_THREE_BLUE_TOTAL = 380;
 const MAX_FOURTH_BLUE_RATING = 99;
-const MAX_TENTH_PICK_BLUE_RATING = 94;
-const TENTH_PICK_BLUE_FEE = 100;
+const MAX_BLUE_DRAFT_PHASE1 = 3; // own picks 1-5: max Blue players
+const MAX_BLUE_DRAFT_PHASE2_ADDITIONAL = 2; // own picks 6-10: max ADDITIONAL Blue players (5 total max)
 const MAX_PLAYERS_PER_POSITION = 2;
 const MAX_ROSTER_SIZE = 10; // 5 core positions x 2 max — enforced at draft time too, not just Phase 5 transactions
 const POOL_TRADE_FEE = { green: 100, blue: 100 };
@@ -357,8 +357,8 @@ const TRANSACTIONS_LOCKED_DAYS = [12, 13];
  *
  * ownPickNumber is 1-based: the participant's own 1st, 2nd, 3rd... pick —
  * NOT the global round/pick number playerDraftPicks already stores. This
- * is what Red/Yellow classification and the Joker/10th-pick-Blue windows
- * are actually defined against ("their 5th pick", "the 10th pick").
+ * is what Red/Yellow classification and the phased Blue Pool draft rule
+ * (own picks 1-5 vs 6-10 — see makeDraftPick) are actually defined against.
  */
 function getOriginalPickInfo(season, playerId) {
   const pickRecord = season.playerDraftPicks.find((p) => p.playerId === playerId);
@@ -521,12 +521,24 @@ function findCurrentRosterEntry(season, playerId) {
 
 /**
  * Full classification info for a player, independent of who currently
- * owns them: { classification, ownPickNumber, originalOwnerId,
- * currentOwnerId, isJoker }.
+ * owns them: { classification, baseClassification, ownPickNumber,
+ * originalOwnerId, currentOwnerId, isJoker }.
  *
  * classification is 'PINK' if the player is the current Joker designee
  * (isJoker overrides Red/Yellow — see rule C), otherwise derived from
  * their ORIGINAL draft pick number, otherwise null (6th+ pick, no Joker).
+ *
+ * baseClassification is the SAME RED/YELLOW/null value with the Joker/PINK
+ * overlay never applied — i.e. what this player's classification would be
+ * if they were not (or were no longer) anyone's Joker. This is what swap
+ * eligibility is matched against (see evaluateSwap's "Classification
+ * match" check): a slot's underlying RED/YELLOW identity persists whether
+ * or not it currently happens to be flagged as someone's Joker, and
+ * whether or not the player is currently on any roster at all — since
+ * this is computed from getOriginalPickInfo (the immutable
+ * playerDraftPicks history), a player who's been swapped OUT and is
+ * sitting in the available pool still reports their true original
+ * classification here, not null/Green just because they're unrostered.
  */
 function getPlayerClassificationInfo(season, playerId) {
   const current = findCurrentRosterEntry(season, playerId);
@@ -543,13 +555,11 @@ function getPlayerClassificationInfo(season, playerId) {
   // its new occupant was never personally drafted.
   const lookupPlayerId = (current && current.entry.classificationSourcePlayerId) || playerId;
   const originalPick = getOriginalPickInfo(season, lookupPlayerId);
-  const classification = isJoker
-    ? "PINK"
-    : originalPick
-      ? classifyPickNumber(originalPick.ownPickNumber)
-      : null;
+  const baseClassification = originalPick ? classifyPickNumber(originalPick.ownPickNumber) : null;
+  const classification = isJoker ? "PINK" : baseClassification;
   return {
     classification,
+    baseClassification,
     ownPickNumber: originalPick ? originalPick.ownPickNumber : null,
     originalOwnerId: originalPick ? originalPick.originalOwnerId : null,
     currentOwnerId: current ? current.participantId : null,
@@ -2761,6 +2771,15 @@ const LeagueData = {
    * Free-agent players eligible as a swap replacement: currently unowned
    * by any participant's currentRosters (i.e. never drafted, or previously
    * swapped back to the pool), matching the requested pool.
+   *
+   * Each result carries `classification` (RED/YELLOW/null) via
+   * getPlayerClassificationInfo, computed from the player's OWN original
+   * draft record — this persists correctly even for a player who was
+   * previously drafted and later swapped back out: their classification
+   * follows their original draft identity, not their current (or absent)
+   * roster location. (A pool player can never itself be flagged isJoker —
+   * that only exists on a live currentRosters entry — so this is always
+   * exactly their true RED/YELLOW identity, with nothing to unwrap.)
    */
   getSwapEligibleReplacements(seasonId, pool) {
     const season = this.getSeason(seasonId);
@@ -2770,9 +2789,9 @@ const LeagueData = {
     Object.values(season.currentRosters || {}).forEach((entries) => {
       entries.forEach((e) => ownedIds.add(e.playerId));
     });
-    return Object.values(data.players).filter(
-      (p) => !ownedIds.has(p.id) && (!pool || p.pool === pool)
-    );
+    return Object.values(data.players)
+      .filter((p) => !ownedIds.has(p.id) && (!pool || p.pool === pool))
+      .map((p) => ({ ...p, classification: getPlayerClassificationInfo(season, p.id).classification }));
   },
 
   /**
@@ -3198,11 +3217,13 @@ const AdminActions = {
    * natural player.position — see getEffectivePosition, used consistently
    * below for the mandatory-first-five rule and the max-2-per-position cap.
    * Everything else (variant lock, roster cap, rating cap using the
-   * player's real OVR, 10th-pick Blue rule) runs exactly as for a normal
-   * pick — a Joker Pick is still a normal draft pick, just tagged. A
-   * Joker Pick carries NO fee of its own (the existing ₱300 post-draft
-   * Joker Swap fee is a separate, unrelated mechanism — untouched here).
-   * Existing callers that omit the 3rd argument are unaffected.
+   * player's real OVR, the phased Blue Pool rule below) runs exactly as for
+   * a normal pick — a Joker Pick is still a normal draft pick, just tagged,
+   * and a Blue Joker counts toward the Blue rule exactly like a Blue normal
+   * pick. A Joker Pick carries NO fee of its own (the existing ₱300
+   * post-draft Joker Swap fee is a separate, unrelated mechanism —
+   * untouched here). Existing callers that omit the 3rd argument are
+   * unaffected.
    */
   makeDraftPick(seasonId, playerId, options = {}) {
     const data = loadData();
@@ -3337,12 +3358,12 @@ const AdminActions = {
 
     // ── Roster cap: 10 players max per participant ──────────────────────
     // Enforced here at the data layer, same as every other draft rule, so
-    // it can't be bypassed. ownPickNumber is this participant's OWN pick
-    // count (1st, 2nd, ... 10th player drafted) — not the global
-    // round/pick number — computed once here and reused below by the
-    // Phase 5 10th-pick-Blue rule.
-    const ownPickNumber =
-      season.playerDraftPicks.filter((p) => p.participantId === participantId).length + 1;
+    // it can't be bypassed. ownPicks/ownPickNumber are this participant's
+    // OWN picks so far / OWN pick count (1st, 2nd, ... 10th player
+    // drafted) — not the global round/pick number — computed once here
+    // and reused below by the phased Blue Pool rule.
+    const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
+    const ownPickNumber = ownPicks.length + 1;
     if (ownPickNumber > MAX_ROSTER_SIZE) {
       throw new Error(
         `This participant already has ${MAX_ROSTER_SIZE} players — the roster is full.`
@@ -3355,8 +3376,7 @@ const AdminActions = {
     // team's total OVR could exceed the cap. Enforced here the same way as
     // every other draft rule now: this participant's already-drafted total
     // plus this player's OVR must not exceed the cap.
-    const priorTotalRating = season.playerDraftPicks
-      .filter((p) => p.participantId === participantId)
+    const priorTotalRating = ownPicks
       .reduce((sum, p) => sum + (data.players[p.playerId]?.overall ?? 0), 0);
     const ratingCap = season.ratingCap ?? 875;
     const projectedTotal = priorTotalRating + player.overall;
@@ -3368,36 +3388,37 @@ const AdminActions = {
       );
     }
 
-    // ── Phase 5 / Rule D: 10th-pick Blue fee ─────────────────────────────
-    // Enforced here (not as after-the-fact bookkeeping) so it can never be
-    // forgotten: if this is the participant's OWN 10th pick (their 10th
-    // player drafted, not the global round/pick number) and it's a Blue
-    // player, the pick itself requires OVR <= 94 and must still satisfy
-    // every other Blue restriction (max 4 Blue, min 84, first-3-combined
-    // <=280, 4th-Blue<=94) against their draft-so-far. If it doesn't
-    // qualify, the pick is rejected outright — same as any other draft
-    // rule violation. If it does qualify, the additional ₱100 goes to the
-    // season pot and is recorded in transaction history in the same
-    // atomic write as the pick — there is no separate step to forget.
-    // The Draft page UI is unchanged: this is invisible plumbing inside
-    // the existing confirm-pick call.
-    let tenthPickBlueFeeCharged = false;
-    if (ownPickNumber === 10 && player.pool === "blue") {
-      if (player.overall > MAX_TENTH_PICK_BLUE_RATING) {
+    // ── Blue Pool draft rule (phased): max 5 Blue total per participant ──
+    // Replaces the old single "10th-pick Blue" restriction entirely — no
+    // OVR cap on a specific pick, no fee, no "Rule D" special case anymore.
+    // Phase 1 (this participant's own picks 1-5): at most
+    // MAX_BLUE_DRAFT_PHASE1 (3) Blue players. Phase 2 (own picks 6-10): at
+    // most MAX_BLUE_DRAFT_PHASE2_ADDITIONAL (2) MORE Blue players — a flat
+    // per-phase cap, not "5 minus however many Blue they had in phase 1".
+    // 3 + 2 = 5 Blue is therefore the highest a participant can ever reach,
+    // as a consequence of the two independent phase caps, not a separate
+    // "5 total" check of its own. A Joker Pick counts toward whichever
+    // phase it falls in exactly like a normal pick of the same pool — pool
+    // (Green/Blue) and Joker status are unrelated player attributes, so
+    // there is no special Blue+Joker interaction here.
+    if (player.pool === "blue") {
+      const inPhase1 = ownPickNumber <= 5;
+      const priorBlueInThisPhase = ownPicks.filter((p, idx) => {
+        const isPhase1Pick = idx < 5;
+        if (isPhase1Pick !== inPhase1) return false;
+        const priorPlayer = data.players[p.playerId];
+        return priorPlayer && priorPlayer.pool === "blue";
+      }).length;
+      const phaseMax = inPhase1 ? MAX_BLUE_DRAFT_PHASE1 : MAX_BLUE_DRAFT_PHASE2_ADDITIONAL;
+      if (priorBlueInThisPhase >= phaseMax) {
         throw new Error(
-          `"${player.name}" is ${player.overall} OVR — a Blue player selected for the ` +
-          `10th pick must be ${MAX_TENTH_PICK_BLUE_RATING} OVR or lower.`
+          inPhase1
+            ? `This participant already has ${MAX_BLUE_DRAFT_PHASE1} Blue players in their first 5 picks (max ${MAX_BLUE_DRAFT_PHASE1}).`
+            : `This participant already has ${MAX_BLUE_DRAFT_PHASE2_ADDITIONAL} additional Blue players in picks 6-10 (max ${MAX_BLUE_DRAFT_PHASE2_ADDITIONAL} beyond their first 5 picks).`
         );
       }
-      const priorEntries = season.playerDraftPicks
-        .filter((p) => p.participantId === participantId)
-        .map((p) => ({ playerId: p.playerId }));
-      const blueCheck = validateBlueComposition([...priorEntries, { playerId }], data.players);
-      if (!blueCheck.valid) {
-        throw new Error(`10th-pick Blue selection rejected: ${blueCheck.reason}`);
-      }
-      tenthPickBlueFeeCharged = true;
     }
+
 
     season.playerDraftPicks.push({
       round, pick, participantId, playerId,
@@ -3412,38 +3433,19 @@ const AdminActions = {
     // map, whether this pick just consumed a bonus turn or not.
     season.bonusPicks = computeDraftSchedule(season).bonusPicks;
 
-    // ── Rule 8: a Draft Joker Pick carries NO fee of its own ────────────
+    // ── A Draft Joker Pick carries NO fee of its own ────────────────────
     // The ₱300 fee belongs exclusively to the separate, POST-DRAFT Joker
     // Swap mechanism (evaluateSwap/commitSwap with isJokerSwap) — nothing
-    // here creates a transaction or touches season.pot for isJoker alone.
-    // Rule 9: the existing 10th-pick Blue fee (Rule D, above) is entirely
-    // independent of Joker and still applies exactly as before when this
-    // pick happens to be both a Joker Pick AND a qualifying 10th-pick Blue
-    // — the two are unrelated checks and neither is skipped for the other.
-    if (tenthPickBlueFeeCharged) {
-      season.pot = (season.pot || 0) + TENTH_PICK_BLUE_FEE;
-      season.transactions.push({
-        id: generateId("txn"),
-        seasonId,
-        seasonDay: season.currentSeasonDay,
-        timestamp: new Date().toISOString(),
-        type: "tenthPickBlueFee",
-        teamA: participantId,
-        teamB: null,
-        playersOut: [],
-        playersIn: [{
-          playerId,
-          name: player.name,
-          overall: player.overall,
-          pool: player.pool,
-          pickClassification: null,
-          isJoker,
-        }],
-        fee: TENTH_PICK_BLUE_FEE,
-        feeDoubled: false,
-        approvedBy: "commissioner",
-      });
-    }
+    // here creates a transaction or touches season.pot for isJoker, or for
+    // Blue, or for both together. The old 10th-pick-Blue fee (and its
+    // dedicated "tenthPickBlueFee" transaction type) has been removed
+    // entirely — the Blue Pool rule above is now a pure pick/reject
+    // validation, exactly like every other draft rule, with no financial
+    // side effect. (Historical seasons drafted before this change may
+    // still contain real tenthPickBlueFee transactions in their ledger —
+    // those are left alone; see getFinancialSummary's doc comment and
+    // js/admin/financial.js, both unmodified, for why that historical data
+    // still needs to be recognized in reports.)
 
     saveData(data);
     return {
@@ -3453,8 +3455,6 @@ const AdminActions = {
       playerId,
       isJoker,
       jokerPosition,
-      tenthPickBlueFeeCharged,
-      tenthPickBlueFee: tenthPickBlueFeeCharged ? TENTH_PICK_BLUE_FEE : 0,
     };
   },
 
@@ -4337,11 +4337,13 @@ const AdminActions = {
 
   // ── Financial Management (F2 — Entry Fee Recording) ─────────────────────
   // Uses the existing season.transactions[] ledger as the sole source of
-  // truth (same array Phase 5 trade/swap/Joker/10th-pick-Blue entries live
-  // in) — no separate financial collection, and no stored
-  // participant.entryFeePaid flag; "paid" is always derived by checking
-  // for an existing type:"entryFee" transaction for that participant (see
-  // the duplicate check below, which doubles as the paid-status read).
+  // truth (same array Phase 5 trade/swap/Joker entries live in, and where
+  // an older season's historical 10th-pick-Blue-fee entries — no longer
+  // created, see makeDraftPick — still live too) — no separate financial
+  // collection, and no stored participant.entryFeePaid flag; "paid" is
+  // always derived by checking for an existing type:"entryFee" transaction
+  // for that participant (see the duplicate check below, which doubles as
+  // the paid-status read).
 
   /**
    * Records a participant's season entry-fee payment as a new ledger
@@ -5196,6 +5198,28 @@ const AdminActions = {
     const minCheck = validateMinimumRating(incomingPlayer);
     if (!minCheck.valid) fail("Minimum rating", minCheck.reason);
     else pass("Minimum rating");
+
+    // Swap Compatibility: RED can only be replaced by RED, YELLOW only by
+    // YELLOW — matched on each player's BASE classification (their true
+    // RED/YELLOW identity from their own original draft pick, ignoring any
+    // Joker/PINK overlay — see getPlayerClassificationInfo's doc comment
+    // and Rule 32) so flagging the outgoing slot's occupant as Joker can
+    // never let that slot bypass this check. A player with no
+    // classification at all (6th+ pick, never drafted) carries no
+    // RED/YELLOW restriction to preserve, so this only fires when the
+    // OUTGOING player actually has one.
+    const outgoingClassInfo = getPlayerClassificationInfo(season, outgoingPlayerId);
+    const incomingClassInfo = getPlayerClassificationInfo(season, incomingPlayerId);
+    if (outgoingClassInfo.baseClassification
+      && outgoingClassInfo.baseClassification !== incomingClassInfo.baseClassification) {
+      fail(
+        "Classification match",
+        `${outgoingPlayer.name} is ${outgoingClassInfo.baseClassification} — only another ` +
+        `${outgoingClassInfo.baseClassification} player may replace them.`
+      );
+    } else {
+      pass("Classification match");
+    }
 
     if (isJokerSwap && !jokerPosition) {
       fail("Joker position", "A Joker swap must specify the assigned roster position.");

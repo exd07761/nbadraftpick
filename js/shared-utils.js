@@ -189,7 +189,21 @@ function _positionPoolRow(entry, rank, mode) {
   // and no-position — so a new status added later still degrades safely
   // to "clearly unavailable" instead of silently looking available.
   const isLocked = status && status !== 'available' && status !== 'drafted';
-  const isDraftable = mode === 'draft' && status === 'available';
+  // Bug fix — Joker Pick natural-position lockout: 'position-locked' and
+  // 'no-position' are both derived from the player's NATURAL position
+  // (see getDraftPoolStatus) — but a Joker Pick lets the commissioner
+  // draft this exact player at a DIFFERENT, commissioner-chosen effective
+  // position, so neither status is actually an absolute "can never be
+  // drafted" fact the way 'drafted' (already taken) and 'variant-locked'
+  // (a real-world duplicate) are. In draft mode, only those last two stay
+  // truly non-clickable; a naturally-locked player still opens the normal
+  // confirm modal, where "Draft as Joker" + an effective position is
+  // available, with makeDraftPick as the sole authority on whether that
+  // effective position is actually legal (see its own position/cap
+  // checks). The "Locked"/"No Position" tag below is untouched — the
+  // commissioner still sees why a NORMAL pick of this player wouldn't
+  // work; only the click-to-open behavior changes.
+  const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'variant-locked';
   const ovr = player.overall ?? 0;
   const tier = ovr >= 90 ? 'pos-ovr-elite' : ovr >= 80 ? 'pos-ovr-good' : 'pos-ovr-role';
   const statusTag = mode === 'draft' && _DRAFT_STATUS_LABELS[status]
