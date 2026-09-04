@@ -412,6 +412,31 @@ a:hover { color: var(--accent-hover); }
 .all-rosters-title { font-size: 1.4rem; font-weight: 900; letter-spacing: -0.01em; }
 .all-rosters-cap-note { font-size: 0.82rem; color: var(--text-muted); }
 
+/* Old Season Roster Viewer: season picker + past-season indicator */
+.all-rosters-season-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.all-rosters-season-picker {
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--nb-r, 10px);
+  cursor: pointer;
+}
+.all-rosters-season-picker:disabled { cursor: default; opacity: 0.7; }
+.all-rosters-old-season-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+}
+
 .roster-card-grid {
   display: grid;
   /* Explicit 3/2/1 breakpoints (desktop/tablet/mobile) rather than a fluid

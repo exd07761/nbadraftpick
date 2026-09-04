@@ -177,6 +177,19 @@
 .all-rosters-title { color: var(--nb-text); }
 .all-rosters-cap-note { color: var(--nb-text-muted); }
 
+/* Old Season Roster Viewer */
+.all-rosters-season-label { color: var(--nb-text-muted); }
+.all-rosters-season-picker {
+  border: 1px solid var(--nb-surface-border);
+  background: var(--nb-surface-card);
+  color: var(--nb-text);
+}
+.all-rosters-season-picker:focus { outline: none; border-color: var(--nb-primary); }
+.all-rosters-old-season-badge {
+  background: var(--nb-surface-border);
+  color: var(--nb-text-muted);
+}
+
 .roster-card {
   background: var(--nb-surface-card);
   border: 1px solid var(--nb-surface-border);
