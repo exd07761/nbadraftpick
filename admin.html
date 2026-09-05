@@ -125,6 +125,13 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
   <script src="js/firebase-config.js"></script>
 
+  <!-- Phase 6.2: Supabase client, dormant/parallel to Firebase above.
+       Nothing in the app calls SupabaseClient yet — this only makes the
+       client available for the query/read layer built in later steps. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/supabase-config.js"></script>
+  <script src="js/supabase-query.js"></script>
+
   <!-- Data layer -->
   <script src="js/data.js"></script>
 
