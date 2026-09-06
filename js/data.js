@@ -5114,22 +5114,34 @@ const AdminActions = {
   },
 
   /**
-   * Runs every Swap validation check (rule set §17 / swap workflow).
-   * isJokerSwap=true uses the ₱300 Joker fee and, on commit, makes
-   * incomingPlayerId the participant's new Joker at jokerPosition —
-   * regardless of whether outgoingPlayerId was previously the Joker (see
-   * "Fix Joker Swap" revision below). Any other Joker already on that
-   * roster is cleared in the same commit, since only one Joker per
-   * participant is ever allowed at a time.
+   * Runs Swap validation (rule set §17 / swap workflow). isJokerSwap=true
+   * uses the ₱300 Joker fee and, on commit, makes incomingPlayerId the
+   * participant's new Joker at jokerPosition — regardless of whether
+   * outgoingPlayerId was previously the Joker (see "Fix Joker Swap"
+   * revision below). Any other Joker already on that roster is cleared in
+   * the same commit, since only one Joker per participant is ever allowed
+   * at a time.
    *
-   * Revision — Loosen Swap Validation: a NORMAL swap (isJokerSwap falsy)
-   * only enforces Rating Cap, Minimum Rating, and Season Day, plus basic
-   * data integrity (Ownership, Replacement eligibility — a real player,
-   * not already owned elsewhere). Position limit and Blue restrictions are
-   * roster-composition rules, not part of that required set, and are
-   * bypassed for a normal swap. A dedicated Joker Swap (isJokerSwap ===
-   * true) is unaffected by this revision — it still runs every check
-   * exactly as before, including Position limit and Blue restrictions.
+   * Revision — Unrestricted Swap Validation: for BOTH Normal Pool Swap and
+   * Joker Swap, the ONLY resulting-roster rule enforced is the Rating Cap
+   * (≤875, see cap/capCheck below). Every other former swap validator —
+   * Position limit (max 2 per position), Position completion, Red↔Red /
+   * Yellow↔Yellow Classification match, Minimum rating (Green/Blue pool
+   * floor), Blue pool composition, Season Day (transaction-window lock),
+   * and the Joker-swap "position required" check — has been removed for
+   * both swap types. What's left is only basic data integrity so the
+   * function can't corrupt state: Season/Rosters exist, Ownership (the
+   * outgoing player is actually on this roster), Replacement (the incoming
+   * player exists), and Replacement eligibility (the incoming player isn't
+   * already owned by any roster — "select any AVAILABLE player from the
+   * pool"). None of these four block a swap based on rating, position, or
+   * pool/color — they only prevent operating on a nonexistent season,
+   * player, or already-owned player. This does not change how Red/Yellow
+   * tags are computed: getPlayerClassificationInfo still derives a
+   * player's tag from their own original draft pick, independent of
+   * current roster location (see its doc comment) — so an outgoing Red/
+   * Yellow player keeps that tag once back in the pool, and an incoming
+   * player never inherits it, exactly as before this revision.
    *
    * Revision — Fix Joker Swap: outgoing player / new Joker logic. A Joker
    * Swap no longer requires outgoingPlayerId to already be the current
@@ -5163,14 +5175,12 @@ const AdminActions = {
     }
     pass("Ownership");
 
-    const day = season.currentSeasonDay ?? 1;
-    if (isTransactionsLockedDay(day)) {
-      fail("Season Day", `Day ${day} — swaps are closed.`);
-    } else {
-      pass("Season Day");
-    }
+    // Revision — Unrestricted Swap Validation: Season Day is a
+    // roster-transaction-window control, not a resulting-roster rule, and
+    // is intentionally no longer enforced here for either swap type — see
+    // the doc comment above this function. (isTransactionsLockedDay itself
+    // is untouched and still used elsewhere, e.g. Trades.)
 
-    const outgoingPlayer = data.players[outgoingPlayerId];
     const incomingPlayer = data.players[incomingPlayerId];
     if (!incomingPlayer) {
       fail("Replacement", "Replacement player not found.");
@@ -5195,35 +5205,17 @@ const AdminActions = {
       pass("Replacement eligibility");
     }
 
-    const minCheck = validateMinimumRating(incomingPlayer);
-    if (!minCheck.valid) fail("Minimum rating", minCheck.reason);
-    else pass("Minimum rating");
-
-    // Swap Compatibility: RED can only be replaced by RED, YELLOW only by
-    // YELLOW — matched on each player's BASE classification (their true
-    // RED/YELLOW identity from their own original draft pick, ignoring any
-    // Joker/PINK overlay — see getPlayerClassificationInfo's doc comment
-    // and Rule 32) so flagging the outgoing slot's occupant as Joker can
-    // never let that slot bypass this check. A player with no
-    // classification at all (6th+ pick, never drafted) carries no
-    // RED/YELLOW restriction to preserve, so this only fires when the
-    // OUTGOING player actually has one.
-    const outgoingClassInfo = getPlayerClassificationInfo(season, outgoingPlayerId);
-    const incomingClassInfo = getPlayerClassificationInfo(season, incomingPlayerId);
-    if (outgoingClassInfo.baseClassification
-      && outgoingClassInfo.baseClassification !== incomingClassInfo.baseClassification) {
-      fail(
-        "Classification match",
-        `${outgoingPlayer.name} is ${outgoingClassInfo.baseClassification} — only another ` +
-        `${outgoingClassInfo.baseClassification} player may replace them.`
-      );
-    } else {
-      pass("Classification match");
-    }
-
-    if (isJokerSwap && !jokerPosition) {
-      fail("Joker position", "A Joker swap must specify the assigned roster position.");
-    }
+    // Revision — Unrestricted Swap Validation: Minimum rating (by pool),
+    // Classification match (RED<->RED / YELLOW<->YELLOW), and the Joker
+    // swap "position required" check are all no longer enforced here, for
+    // either swap type — see the doc comment above this function. Note
+    // this does NOT touch how Red/Yellow tags are computed or displayed:
+    // getPlayerClassificationInfo still derives a player's tag purely from
+    // their own original draft pick (see its doc comment), so the outgoing
+    // player keeps his true Red/Yellow identity in the pool and an
+    // incoming player never inherits it — that behavior lives entirely in
+    // getPlayerClassificationInfo/afterEntries below, not in a validator,
+    // and is unaffected by removing this check.
 
     // Revision — Fix Joker Swap: outgoing player / new Joker logic. A
     // Joker Swap no longer requires the OUTGOING player to already be the
@@ -5245,21 +5237,13 @@ const AdminActions = {
         : { playerId: incomingPlayerId, source: "swap" },
     ];
 
-    // Revision — Loosen Swap Validation: Position limit and Blue
-    // restrictions are roster-COMPOSITION rules, not among the three
-    // restrictions a normal swap is required to enforce (Rating Cap,
-    // Minimum Rating, Season Day). Bypassed entirely for a normal swap
-    // (isJokerSwap falsy) — still run, unchanged, for the dedicated Joker
-    // Swap path (isJokerSwap === true), which this revision does not touch.
-    if (isJokerSwap) {
-      const posCheck = validateResultingPositions(roster, afterEntries, data.players);
-      if (!posCheck.valid) fail("Position limit", posCheck.reason);
-      else pass("Position limit");
-
-      const blueCheck = validateBlueComposition(afterEntries, data.players);
-      if (!blueCheck.valid) fail("Blue restrictions", blueCheck.reason);
-      else pass("Blue restrictions");
-    }
+    // Revision — Unrestricted Swap Validation: Position limit (max 2 per
+    // position) and Blue restrictions are roster-COMPOSITION rules, and are
+    // no longer enforced for EITHER swap type (previously still run for a
+    // dedicated Joker Swap — see the removed "Revision — Loosen Swap
+    // Validation" comment this replaces). The 2-per-position cap no longer
+    // blocks Normal Pool Swap or Joker Swap; only the resulting-roster
+    // Rating Cap below still applies to both.
 
     const cap = season.ratingCap ?? 875;
     const capCheck = validateRatingCap(afterEntries, data.players, cap);
