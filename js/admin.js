@@ -30,6 +30,7 @@ const AdminApp = {
     nba2kImport: Nba2kImport,
     nba2kDatabase: Nba2kDatabaseView,
     nba2k27Pool: Nba2k27PoolView,
+    nba2k27PositionSort: Nba2k27PositionSortView,
   },
 
   renderView(viewName) {
