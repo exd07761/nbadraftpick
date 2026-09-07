@@ -1,0 +1,45 @@
+# ── Dependencies ─────────────────────────────────────────────────────────
+# node_modules is already tracked in this repo. Adding it here does NOT
+# untrack it or remove anything — it only stops any NEW files under
+# node_modules/ from being staged by accident going forward (e.g. after
+# an `npm install` bump). See package.json for how to reinstall.
+node_modules/
+functions/node_modules/
+
+# ── Firebase Admin credentials (NEVER commit these) ─────────────────────
+# scripts/lib/init-admin.js documents these patterns and never hardcodes
+# a key path — see that file for the credential resolution order.
+*.serviceAccountKey.json
+serviceAccountKey.json
+service-account*.json
+firebase-adminsdk-*.json
+.env
+.env.*
+!.env.example
+
+# ── Firebase local tooling ───────────────────────────────────────────────
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+ui-debug.log
+pubsub-debug.log
+database-debug.log
+*.emulator-data/
+
+# ── OS / editor cruft ────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# ── Logs ─────────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
