@@ -277,7 +277,7 @@ console.log('Phase 10 tests');
   });
   await check('29. nba2k27_pool documents contain only the intended fields', () => {
     for (const doc of Object.values(nba2k27Docs)) {
-      assertDeepEqual(Object.keys(doc).sort(), ['nba2kRef', 'pool', 'selectedAt', 'updatedAt'].sort());
+      assertDeepEqual(Object.keys(doc).sort(), ['nba2kRef', 'pool', 'position', 'selectedAt', 'updatedAt'].sort());
     }
   });
 
@@ -322,20 +322,31 @@ console.log('Phase 10 tests');
   await view._runInitialization(container);
   const r = view._initResult;
 
-  await check('10. existing correct selections are not rewritten unnecessarily', () => {
-    assertEqual(r.alreadyCorrect, 1);
+  // 2K27 Pool ⇄ Position unification: 'already-right' has a correct pool
+  // but NO `position` field at all — under the new schema an absent
+  // position is never valid, so this doc now genuinely needs a write
+  // (to backfill position: 'UNASSIGNED'), even though its pool needed no
+  // change. This is a deliberate, expected change from the doc's
+  // original pool-only behavior — not a regression.
+  await check('10. a correct-pool doc with no position field is backfilled to UNASSIGNED (position is never left absent)', () => {
+    assertEqual(r.alreadyCorrect, 0);
+    assertEqual(r.positionsBackfilled, 2, 'both already-right and needs-fix lacked a position field');
+    assertEqual(nba2k27Docs['already-right'].pool, 'green', 'pool untouched — it was already correct');
+    assertEqual(nba2k27Docs['already-right'].position, 'UNASSIGNED');
     assertEqual(nba2k27Docs['already-right'].selectedAt, '2024-01-01T00:00:00.000Z', 'untouched, original selectedAt preserved');
   });
 
-  await check('11. existing incorrect pool selections are corrected', () => {
-    assertEqual(r.corrected, 1);
+  await check('11. existing incorrect pool selections are corrected, and their missing position is backfilled', () => {
+    assertEqual(r.corrected, 2, 'both already-right (position backfill only) and needs-fix (pool + position) needed a write');
     assertEqual(nba2k27Docs['needs-fix'].pool, 'white');
+    assertEqual(nba2k27Docs['needs-fix'].position, 'UNASSIGNED');
     assertEqual(nba2k27Docs['needs-fix'].selectedAt, '2024-02-02T00:00:00.000Z', 'original selectedAt kept on correction, only updatedAt changes');
   });
 
   await check('brand-new player is created', () => {
     assertEqual(r.created, 1);
     assertEqual(nba2k27Docs['brand-new'].pool, 'blue');
+    assertEqual(nba2k27Docs['brand-new'].position, 'UNASSIGNED');
   });
 
   await check('12. orphaned pool document is not deleted or modified', () => {

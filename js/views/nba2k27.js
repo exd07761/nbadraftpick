@@ -208,6 +208,22 @@ function publicNba2k27PoolLabel(pool) { return (PUBLIC_NBA2K27_POOL_META[pool] |
 function publicNba2k27PoolDot(pool) { return (PUBLIC_NBA2K27_POOL_META[pool] || {}).dot || ''; }
 function publicNba2k27PoolValueValid(pool) { return Object.prototype.hasOwnProperty.call(PUBLIC_NBA2K27_POOL_META, pool); }
 
+// ── 2K27 Pool ⇄ Position unification (duplicated, not imported — see
+// this file's own header on why every shared piece of rendering logic
+// is intentionally re-declared here rather than shared with the admin
+// bundle). This is the CANONICAL, manually-curated draft position —
+// `nba2k27_pool/<slug>.position` — assigned by the admin-only NBA 2K27
+// Position Sorter. It is a completely different thing from
+// `nba2k_players/<slug>.positions`, the raw multi-valued *source
+// eligibility* array imported from 2kratings.com, which this file
+// already rendered before this phase and still does, unchanged, further
+// below — the two are never conflated.
+const PUBLIC_NBA2K27_POSITION_VALUES = ['PG', 'SG', 'SF', 'PF', 'C', 'UNASSIGNED'];
+function publicNba2k27PositionOf(entry) {
+  const p = entry && entry.position;
+  return PUBLIC_NBA2K27_POSITION_VALUES.includes(p) ? p : 'UNASSIGNED';
+}
+
 const PublicNba2k27View = {
   // Module-level cache — populated once per page load, never re-fetched
   // (see file header "PERFORMANCE / LOAD PATTERN").
@@ -323,6 +339,7 @@ const PublicNba2k27View = {
         orphan: !player,
         poolValue: entry.pool,
         poolValid: publicNba2k27PoolValueValid(entry.pool),
+        curatedPosition: publicNba2k27PositionOf(entry),
         category: player ? player.teamType : null,
       };
     });
@@ -508,6 +525,12 @@ const PublicNba2k27View = {
     }
     const p = row.player;
     const ovr = Number(p.overall) || 0;
+    // `positions` = raw SOURCE ELIGIBILITY (nba2k_players.positions, as
+    // imported — unchanged from before this phase). `row.curatedPosition`
+    // = the CANONICAL, manually-assigned 2K27 draft position
+    // (nba2k27_pool.position). Shown separately, never merged into one
+    // value — see the file-level "2K27 Pool ⇄ Position unification"
+    // comment for why conflating them would be wrong.
     const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';
     const poolDot = row.poolValid ? publicNba2k27PoolDot(row.poolValue) : '⚠';
     const poolLabel = row.poolValid ? publicNba2k27PoolLabel(row.poolValue) : 'Unknown';
@@ -521,9 +544,10 @@ const PublicNba2k27View = {
           <div class="pub2k27-card-name">${escapeHtml(p.name || row.slug)}</div>
           <div class="pub2k27-card-meta">
             <span class="pos-ovr ${publicNba2kOvrTierClass(ovr)}">${ovr} OVR</span>
-            <span>${escapeHtml(positions)}</span>
+            <span class="pub2k27-position-badge">${escapeHtml(row.curatedPosition)}</span>
             <span>${escapeHtml(p.team || '—')}</span>
           </div>
+          <div class="helper-text pub2k27-card-eligibility">Eligible: ${escapeHtml(positions)}</div>
           <div class="pub2k27-card-tags">
             <span class="nba2k-category-chip nba2k-category-chip-${escapeHtml(p.teamType || 'other')}">${escapeHtml(publicNba2kCategoryLabel(p.teamType).toUpperCase())}</span>
             <span class="pub2k27-pool-tag pub2k27-pool-tag-${escapeHtml(row.poolValue || 'unknown')}">${poolDot} ${escapeHtml(poolLabel)}</span>
@@ -596,10 +620,11 @@ const PublicNba2k27View = {
               <div class="nba2k-detail-meta">
                 <span class="pos-ovr ${publicNba2kOvrTierClass(ovr)} nba2k-detail-ovr">${ovr} OVR</span>
                 <span>${escapeHtml(p.team || '—')}</span>
-                <span>${escapeHtml(positions)}</span>
+                <span class="pub2k27-position-badge">${escapeHtml(row.curatedPosition)}</span>
                 <span class="nba2k-category-chip nba2k-category-chip-${escapeHtml(p.teamType || 'other')}">${escapeHtml(publicNba2kCategoryLabel(p.teamType).toUpperCase())}</span>
                 <span class="pub2k27-pool-tag pub2k27-pool-tag-${escapeHtml(row.poolValue || 'unknown')}">${poolDot} ${escapeHtml(poolLabel)} Pool</span>
               </div>
+              <div class="helper-text nba2k-detail-eligibility">Source eligibility: ${escapeHtml(positions)}</div>
               <div class="nba2k-detail-physicals">
                 ${p.build ? `<span>${escapeHtml(p.build)}</span>` : ''}
                 ${p.height ? `<span>${escapeHtml(p.height)}</span>` : ''}

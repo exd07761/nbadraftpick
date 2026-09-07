@@ -66,7 +66,7 @@ const Nba2kImport = {
     container.innerHTML = `
       <div class="admin-section">
         <div class="admin-section-header">
-          <h2>NBA 2K26 Database Import</h2>
+          <h2>NBA 2K Player Database Import</h2>
         </div>
         <p class="helper-text">
           Source: <code>nba2k-all-players.json</code>. Expected 1,757 total players
@@ -74,7 +74,7 @@ const Nba2kImport = {
           <code>nba2k_players</code> Firestore collection — this is a standalone
           reference database. It does not touch the existing Players page, pools,
           draft, rosters, or trades. Pool assignment only happens through the
-          existing per-player promotion workflow in the NBA 2K26 Database browser.
+          existing per-player promotion workflow in the NBA 2K Player Database browser.
         </p>
 
         <div class="csv-drop-zone" id="nba2kDropZone">
@@ -423,7 +423,7 @@ const Nba2kImport = {
           <div style="margin-top:0.5rem;">Breakdown — Current: ${categoryCounts.curr} · Classics: ${categoryCounts.class} · All-Time: ${categoryCounts.allt}${categoryCounts.other ? ` · Other: ${categoryCounts.other}` : ''}</div>
           <div>Source records in file: ${sourceTotal}</div>
         </div>`;
-      showToast('NBA 2K26 database import completed.', 'success');
+      showToast('NBA 2K player database import completed.', 'success');
       confirmBtn.classList.add('hidden');
     } catch (e) {
       resultEl.innerHTML = `

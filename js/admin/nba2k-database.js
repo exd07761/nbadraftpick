@@ -289,6 +289,31 @@ function nba2k27PoolLabel(pool) { return (NBA2K27_POOL_META[pool] || {}).label |
 function nba2k27PoolDot(pool) { return (NBA2K27_POOL_META[pool] || {}).dot || ''; }
 function nba2k27PoolValueValid(pool) { return Object.prototype.hasOwnProperty.call(NBA2K27_POOL_META, pool); }
 
+// ── 2K27 Pool ⇄ Position unification ────────────────────────────────────
+// The ONLY six valid `nba2k27_pool/<slug>.position` values — the five
+// real draft positions plus the explicit 'UNASSIGNED' sentinel. This is
+// a DIFFERENT vocabulary from `NBA2K_VALID_POSITIONS` below: that one is
+// the raw, possibly multi-valued *source eligibility* array imported
+// from 2kratings.com (`nba2k_players/<slug>.positions`, Phase 6); this
+// one is the single, manually-curated *canonical 2K27 draft position*,
+// stored on `nba2k27_pool/<slug>.position` and assigned exclusively by
+// the NBA 2K27 Position Sorter. Never conflate the two.
+//
+// 'UNASSIGNED' is always stored explicitly on every `nba2k27_pool` doc
+// — an absent `position` field is never used to mean unassigned, per
+// the "do not use an absent field to represent an unsorted player"
+// requirement. `nba2k27PoolPositionOf()` below is the single defensive
+// accessor every render/filter/group call site should read through, so
+// a doc written before this field existed and a doc explicitly holding
+// 'UNASSIGNED' are always treated identically.
+const NBA2K27_POOL_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
+const NBA2K27_POOL_POSITION_VALUES = NBA2K27_POOL_POSITIONS.concat('UNASSIGNED');
+function nba2k27PoolPositionValid(position) { return NBA2K27_POOL_POSITION_VALUES.includes(position); }
+function nba2k27PoolPositionOf(entry) {
+  const p = entry && entry.position;
+  return nba2k27PoolPositionValid(p) ? p : 'UNASSIGNED';
+}
+
 
 // Phase 6: the ONLY five position values this app ever accepts, in the
 // authoritative canonical order (confirmed by commissioner correction
@@ -468,8 +493,8 @@ const Nba2kDatabaseView = {
     } else {
       container.innerHTML = `
         <div class="admin-section">
-          <div class="admin-section-header"><h2>NBA 2K26 Database</h2></div>
-          <p class="backup-muted">Loading NBA 2K26 players…</p>
+          <div class="admin-section-header"><h2>NBA 2K Player Database</h2></div>
+          <p class="backup-muted">Loading NBA 2K players…</p>
         </div>`;
       this._load(container);
     }
@@ -503,8 +528,8 @@ const Nba2kDatabaseView = {
           this._pool27 = null;
           // Never surface raw Firebase error text to the admin.
           this._loadError = err && err.code === 'permission-denied'
-            ? "You don't have permission to access the NBA 2K26 database."
-            : 'Unable to load the NBA 2K26 database.';
+            ? "You don't have permission to access the NBA 2K player database."
+            : 'Unable to load the NBA 2K player database.';
         })
         .finally(() => { this._loadPromise = null; });
     }
@@ -524,7 +549,7 @@ const Nba2kDatabaseView = {
     if (this._loadError) {
       container.innerHTML = `
         <div class="admin-section">
-          <div class="admin-section-header"><h2>NBA 2K26 Database</h2></div>
+          <div class="admin-section-header"><h2>NBA 2K Player Database</h2></div>
           <div class="backup-result backup-result-error">${escapeHtml(this._loadError)}</div>
         </div>`;
       return;
@@ -552,7 +577,7 @@ const Nba2kDatabaseView = {
     container.innerHTML = `
       <div class="admin-section nba2k-db">
         <div class="admin-section-header">
-          <h2>NBA 2K26 Database</h2>
+          <h2>NBA 2K Player Database</h2>
         </div>
         <p class="nba2k-db-subtitle">
           Current · Classics · All-Time
@@ -571,7 +596,7 @@ const Nba2kDatabaseView = {
         `}
 
         ${players.length === 0 ? `
-          <p class="backup-muted">No NBA 2K26 players found.</p>
+          <p class="backup-muted">No NBA 2K players found.</p>
         ` : `
           <div class="nba2k-category-tabs" role="tablist" aria-label="Filter by category">
             ${categoryTabs.map(t => `
@@ -1166,7 +1191,10 @@ const Nba2kDatabaseView = {
           }
 
           const now = new Date().toISOString();
-          const docData = { nba2kRef: player.id, pool: writePool, selectedAt: now, updatedAt: now };
+          // position always starts explicit ('UNASSIGNED'), never absent
+          // — see NBA2K27_POOL_POSITION_VALUES above. The sorter is the
+          // only place this ever changes after creation.
+          const docData = { nba2kRef: player.id, pool: writePool, position: 'UNASSIGNED', selectedAt: now, updatedAt: now };
           try {
             // Targeted write: only nba2k27_pool/<slug>. Never league/main,
             // never nba2k_players.
@@ -1671,6 +1699,13 @@ const Nba2k27PoolView = {
   _filterCategory: '', // '' = All, else 'curr' | 'class' | 'allt'
   _filterPool: '',     // '' = All Pools, else 'green' | 'blue' | 'white'
   _sortMode: 'ovr-desc',
+  // 2K27 Pool ⇄ Position unification: 'grouped' (default) renders the
+  // Pool -> Position -> Players tree; 'table' renders the original flat,
+  // sortable table exactly as before. Both read the SAME `_buildRows()`/
+  // `_getVisibleRows()` data — there is no second data source, just a
+  // second layout for it. `_renderRow`/the `<table>` markup are entirely
+  // unchanged so nothing that depended on the table view is disturbed.
+  _viewMode: 'grouped',
 
   // Phase 9: last computed validation report (null until "Validate 2K27
   // Pool" is clicked, or after a pool-changing write invalidates it —
@@ -1719,6 +1754,7 @@ const Nba2k27PoolView = {
         orphan: !player,
         poolValue: entry.pool,
         poolValid,
+        position: nba2k27PoolPositionOf(entry),
         category: player ? player.teamType : null,
       };
     });
@@ -1876,6 +1912,11 @@ const Nba2k27PoolView = {
           `).join('')}
         </div>
 
+        <div class="nba2k27-viewmode-toggle">
+          <button type="button" class="btn btn-sm ${this._viewMode === 'grouped' ? 'btn-primary' : 'btn-secondary'}" id="nba2k27ViewGrouped">Grouped View</button>
+          <button type="button" class="btn btn-sm ${this._viewMode === 'table' ? 'btn-primary' : 'btn-secondary'}" id="nba2k27ViewTable">Table View</button>
+        </div>
+
         <div class="table-controls nba2k-controls">
           <input type="text" id="nba2k27mgmtSearch" class="input search-input"
             placeholder="Search by player or team…" value="${escapeHtml(this._search)}">
@@ -1905,6 +1946,8 @@ const Nba2k27PoolView = {
     container.querySelectorAll('.nba2k27mgmt-category-tab').forEach(btn => {
       btn.onclick = () => { this._filterCategory = btn.dataset.category; this._renderShell(container); };
     });
+    container.querySelector('#nba2k27ViewGrouped').onclick = () => { this._viewMode = 'grouped'; this._renderShell(container); };
+    container.querySelector('#nba2k27ViewTable').onclick = () => { this._viewMode = 'table'; this._renderShell(container); };
     container.querySelector('#nba2k27mgmtSearch').oninput = e => { this._search = e.target.value; this._refreshList(container); };
     container.querySelector('#nba2k27mgmtPoolFilter').onchange = e => { this._filterPool = e.target.value; this._refreshList(container); };
     container.querySelector('#nba2k27mgmtSort').onchange = e => { this._sortMode = e.target.value; this._refreshList(container); };
@@ -1956,13 +1999,14 @@ const Nba2k27PoolView = {
       return;
     }
 
-    wrap.innerHTML = `
+    wrap.innerHTML = this._viewMode === 'table'
+      ? `
       <table class="admin-table nba2k27mgmt-table">
         <thead>
           <tr>
             <th>Player</th>
             <th>OVR</th>
-            <th>Position</th>
+            <th>2K27 Position</th>
             <th>NBA Team</th>
             <th>Category</th>
             <th>Pool</th>
@@ -1972,9 +2016,14 @@ const Nba2k27PoolView = {
         <tbody>
           ${visible.map(r => this._renderRow(r)).join('')}
         </tbody>
-      </table>`;
+      </table>`
+      : this._renderGroupedView(visible);
 
-    wrap.querySelectorAll('.nba2k27mgmt-row').forEach(row => {
+    // Same click/keydown-to-open-detail and remove-button wiring for
+    // BOTH view modes — '.nba2k27mgmt-row' (table) and '.nba2k27group-item'
+    // (grouped) are simply the two possible row-item classes; whichever
+    // one the current markup actually contains is the one this matches.
+    wrap.querySelectorAll('.nba2k27mgmt-row, .nba2k27group-item').forEach(row => {
       const slug = row.dataset.slug;
       const rowData = visible.find(r => r.slug === slug);
       if (!rowData || rowData.orphan) return; // no source record to show a detail modal for
@@ -1999,6 +2048,89 @@ const Nba2k27PoolView = {
     });
   },
 
+  // ── Grouped view: Pool -> Position -> Players ───────────────────────
+  // Buckets the SAME filtered/sorted `rows` the table view uses — no
+  // second data source, no re-fetch, no re-derivation of pool/position
+  // (both are read straight off each row via `_buildRows()`, which
+  // already resolved them through `nba2k27PoolPositionOf()`). Rows that
+  // can't be placed in a Green/Blue/White bucket at all (orphaned, or a
+  // structurally invalid stored pool) are surfaced in a separate "Needs
+  // Attention" section rather than silently dropped — same philosophy
+  // as the Phase 9 validator.
+  _groupRows(rows) {
+    const pools = ['green', 'blue', 'white'];
+    const positions = NBA2K27_POOL_POSITIONS.concat('UNASSIGNED');
+    const sections = pools.map(pool => ({
+      pool,
+      label: nba2k27PoolLabel(pool),
+      dot: nba2k27PoolDot(pool),
+      positionGroups: positions.map(position => ({
+        position,
+        rows: rows.filter(r => r.poolValid && r.poolValue === pool && r.position === position),
+      })),
+    }));
+    const needsAttention = rows.filter(r => r.orphan || !r.poolValid);
+    return { sections, needsAttention };
+  },
+
+  _renderGroupedView(rows) {
+    const { sections, needsAttention } = this._groupRows(rows);
+
+    const sectionsHtml = sections.map(sec => {
+      const total = sec.positionGroups.reduce((n, g) => n + g.rows.length, 0);
+      if (total === 0) return ''; // hide empty pool sections under the current filters
+      const positionsHtml = sec.positionGroups
+        .filter(g => g.rows.length > 0)
+        .map(g => `
+          <div class="nba2k27group-position">
+            <h4 class="nba2k27group-position-title">${escapeHtml(g.position)} <span class="backup-muted">(${g.rows.length})</span></h4>
+            <ul class="nba2k27group-player-list">
+              ${g.rows.map(r => this._renderGroupedItem(r)).join('')}
+            </ul>
+          </div>`)
+        .join('');
+      return `
+        <div class="nba2k27group-pool nba2k27group-pool-${sec.pool}">
+          <h3 class="nba2k27group-pool-title">${sec.dot} ${escapeHtml(sec.label)} Pool <span class="backup-muted">(${total})</span></h3>
+          ${positionsHtml}
+        </div>`;
+    }).join('');
+
+    const needsAttentionHtml = needsAttention.length ? `
+      <div class="nba2k27group-pool nba2k27group-pool-warn">
+        <h3 class="nba2k27group-pool-title">⚠ Needs Attention <span class="backup-muted">(${needsAttention.length})</span></h3>
+        <ul class="nba2k27group-player-list">
+          ${needsAttention.map(r => this._renderGroupedItem(r)).join('')}
+        </ul>
+      </div>` : '';
+
+    const body = sectionsHtml + needsAttentionHtml;
+    return body.trim() ? body : `<p class="backup-muted">No players match these filters.</p>`;
+  },
+
+  _renderGroupedItem(row) {
+    if (row.orphan) {
+      return `
+        <li class="nba2k27group-item nba2k27group-item-orphan" data-slug="${escapeHtml(row.slug)}">
+          <code>${escapeHtml(row.slug)}</code>
+          <span>⚠ Source player not found</span>
+          <button type="button" class="btn btn-ghost btn-sm nba2k27mgmt-remove-btn" data-slug="${escapeHtml(row.slug)}">Remove</button>
+        </li>`;
+    }
+    const p = row.player;
+    const ovr = Number(p.overall) || 0;
+    const categoryLabel = nba2kCategoryLabel(p.teamType);
+    return `
+      <li class="nba2k27group-item" data-slug="${escapeHtml(row.slug)}" tabindex="0" role="button" aria-label="View ${escapeHtml(p.name)} details">
+        <span class="pos-ovr ${nba2kOvrTierClass(ovr)}">${ovr}</span>
+        <span class="nba2k27group-item-name">${escapeHtml(p.name)}</span>
+        <span class="nba2k-category-chip nba2k-category-chip-${escapeHtml(p.teamType || 'other')}">${escapeHtml(categoryLabel.toUpperCase())}</span>
+        <span class="backup-muted">${escapeHtml(p.team || '—')}</span>
+        ${!row.poolValid ? this._renderPoolCell(row) : ''}
+        <button type="button" class="btn btn-ghost btn-sm nba2k27mgmt-remove-btn" data-slug="${escapeHtml(row.slug)}">Remove</button>
+      </li>`;
+  },
+
   _renderPoolCell(row) {
     if (row.poolValid) {
       const label = (nba2k27PoolLabel(row.poolValue) || '').toUpperCase();
@@ -2018,7 +2150,7 @@ const Nba2k27PoolView = {
             <div class="nba2k27mgmt-orphan-warning">⚠ Source player not found</div>
           </td>
           <td data-label="OVR">—</td>
-          <td data-label="Position">—</td>
+          <td data-label="2K27 Position">—</td>
           <td data-label="NBA Team">—</td>
           <td data-label="Category">—</td>
           <td data-label="Pool">${this._renderPoolCell(row)}</td>
@@ -2030,13 +2162,16 @@ const Nba2k27PoolView = {
 
     const p = row.player;
     const ovr = Number(p.overall) || 0;
-    const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';
+    // The curated 2K27 draft position (nba2k27_pool.position) — NOT the
+    // raw source eligibility array (p.positions). See the file-level
+    // "2K27 Pool ⇄ Position unification" comment for why these are
+    // deliberately different values and must never be conflated.
     const categoryLabel = nba2kCategoryLabel(p.teamType);
     return `
       <tr class="nba2k27mgmt-row" data-slug="${escapeHtml(row.slug)}" tabindex="0" role="button" aria-label="View ${escapeHtml(p.name)} details">
         <td data-label="Player" class="nba2k27mgmt-cell-player">${escapeHtml(p.name)}</td>
         <td data-label="OVR"><span class="pos-ovr ${nba2kOvrTierClass(ovr)}">${ovr}</span></td>
-        <td data-label="Position">${escapeHtml(positions)}</td>
+        <td data-label="2K27 Position">${escapeHtml(row.position)}</td>
         <td data-label="NBA Team">${escapeHtml(p.team || '—')}</td>
         <td data-label="Category"><span class="nba2k-category-chip nba2k-category-chip-${escapeHtml(p.teamType || 'other')}">${escapeHtml(categoryLabel.toUpperCase())}</span></td>
         <td data-label="Pool">${this._renderPoolCell(row)}</td>
@@ -2336,7 +2471,7 @@ const Nba2k27PoolView = {
           <li>🔵 All-Time → Blue Pool</li>
           <li>⚪ Classics → White Pool</li>
         </ul>
-        <p class="helper-text">Player positions are not modified. You can correct positions individually afterward.</p>
+        <p class="helper-text">Already-assigned positions are preserved exactly as-is. Players with no position yet are set to UNASSIGNED — sort them individually afterward in the NBA 2K27 Position Sorter.</p>
         <div class="nba2k27val-breakdown">
           <div>Total players <strong>${preview.total}</strong></div>
           <div>🟢 Green — Current <strong>${preview.green}</strong></div>
@@ -2371,18 +2506,35 @@ const Nba2k27PoolView = {
     // dialog opened) — each item already knows whether it's a brand-new
     // doc or a correction of an existing one, so idempotency is decided
     // up front, once per player, not re-derived mid-batch.
+    //
+    // 2K27 Pool ⇄ Position unification: a doc now also needs (re)writing
+    // if its `position` field is missing/invalid — not just on a pool
+    // mismatch — because every doc must hold an explicit position value
+    // (never an absent field). When a doc already has a VALID position
+    // (i.e. the commissioner has sorted this player, or a prior run
+    // already backfilled it), that value is always preserved verbatim
+    // and never reset to 'UNASSIGNED' — this is the one property every
+    // test in this area exists to pin down.
     const toWrite = [];
     let alreadyCorrect = 0;
     let skippedUnknown = 0;
+    let positionsBackfilled = 0;
     for (const p of players) {
       const pool = nba2k27PoolForTeamType(p.teamType);
       if (!pool) { skippedUnknown++; continue; } // unknown/missing teamType — never guessed
       const existing = Nba2kDatabaseView._pool27 ? Nba2kDatabaseView._pool27[p.id] : null;
-      if (existing && nba2k27PoolValueValid(existing.pool) && existing.pool === pool) {
+      const poolOk = !!existing && nba2k27PoolValueValid(existing.pool) && existing.pool === pool;
+      const hasValidPosition = !!existing && nba2k27PoolPositionValid(existing.position);
+      if (poolOk && hasValidPosition) {
         alreadyCorrect++;
         continue; // already correct — left alone, not rewritten
       }
-      toWrite.push({ slug: p.id, pool, isNew: !existing });
+      // Preserve an already-assigned (valid) position; only a doc with
+      // no position at all, or an invalid one, gets backfilled to the
+      // explicit 'UNASSIGNED' default.
+      const position = hasValidPosition ? existing.position : 'UNASSIGNED';
+      if (existing && !hasValidPosition) positionsBackfilled++;
+      toWrite.push({ slug: p.id, pool, position, isNew: !existing });
     }
 
     // Firestore write batches are capped at 500 operations — chunk
@@ -2406,9 +2558,13 @@ const Nba2k27PoolView = {
           const prior = Nba2kDatabaseView._pool27 ? Nba2kDatabaseView._pool27[item.slug] : null;
           const selectedAt = (!item.isNew && prior && prior.selectedAt) ? prior.selectedAt : nowIso;
           // Only the intended fields — never attributes, badges,
-          // physicals, images, or positions, exactly like a single
-          // Phase 7 "Add" write.
-          const docData = { nba2kRef: item.slug, pool: item.pool, selectedAt, updatedAt: nowIso };
+          // physicals, or images, exactly like a single Phase 7 "Add"
+          // write. `position` IS one of the intended fields as of the
+          // 2K27 Pool ⇄ Position unification — `item.position` above is
+          // always either the preserved, already-valid stored value or
+          // the explicit 'UNASSIGNED' default; this write never resets
+          // a real assignment.
+          const docData = { nba2kRef: item.slug, pool: item.pool, position: item.position, selectedAt, updatedAt: nowIso };
           batch.set(firebase.firestore().collection('nba2k27_pool').doc(item.slug), docData);
           chunkDocs.push({ slug: item.slug, docData, isNew: item.isNew });
         }
@@ -2436,6 +2592,7 @@ const Nba2k27PoolView = {
       alreadyCorrect,
       corrected,
       skippedUnknown,
+      positionsBackfilled,
       errors,
       errorMessage: writeError
         ? (writeError.code === 'permission-denied'
@@ -2490,6 +2647,7 @@ const Nba2k27PoolView = {
           <div>Already Correct <strong>${r.alreadyCorrect}</strong></div>
           <div>Corrected <strong>${r.corrected}</strong></div>
           <div>Skipped — unknown teamType <strong>${r.skippedUnknown}</strong></div>
+          <div>Positions backfilled to UNASSIGNED <strong>${r.positionsBackfilled || 0}</strong></div>
           <div>Errors <strong>${r.errors}</strong></div>
         </div>
         ${r.errorMessage ? `<div class="backup-result backup-result-error">${escapeHtml(r.errorMessage)}</div>` : ''}

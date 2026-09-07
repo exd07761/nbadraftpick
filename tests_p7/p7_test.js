@@ -245,7 +245,10 @@ console.log('Phase 7 tests');
   await check('written doc references the source via nba2kRef, carries no copied attributes', () => {
     const doc = nba2k27Docs['trae-young'];
     assertEqual(doc.nba2kRef, 'trae-young');
-    assertEqual(Object.keys(doc).sort().join(','), 'nba2kRef,pool,selectedAt,updatedAt');
+    assertEqual(Object.keys(doc).sort().join(','), 'nba2kRef,pool,position,selectedAt,updatedAt');
+  });
+  await check('position defaults to UNASSIGNED on a new pool doc (2K27 Pool ⇄ Position unification)', () => {
+    assertEqual(nba2k27Docs['trae-young'].position, 'UNASSIGNED');
   });
   await check('local _pool27 cache updated in place — no re-fetch needed to see it', () => {
     assertTruthy(view._get2k27Entry('trae-young'), 'entry visible immediately from local cache');
