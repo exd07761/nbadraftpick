@@ -561,3 +561,35 @@
   color: var(--nb-text-muted, var(--text-muted));
 }
 .nba2k27init-mapping li { margin: 0.2rem 0; }
+
+/* ─── NBA 2K27 Pool page redesign (Players-page-style column layout) ─────
+   Reuses .pos-table-grid/.pos-table/.pos-rank/.pos-name/.pos-ovr and
+   .pool-tab/.pool-dot/.pool-tab-count unmodified from css/main.css (the
+   same shared component the admin/public Players pages already use —
+   see js/shared-utils.js positionPoolGrid()). Only the WHITE-pool color
+   variants are added here, since main.css only ever needed green/blue
+   for the two-pool 2K26 Draft Pool; 2K27 adds Classics -> white. */
+.pos-table-white .pos-table-head {
+  background: var(--pool-white-dim, rgba(215,218,224,0.14));
+  color: var(--pool-white, #d7dae0);
+  border-bottom: 1px solid rgba(215,218,224,0.25);
+}
+.pool-tab-white .pool-dot { background: var(--pool-white, #d7dae0); }
+.pool-tab.active.pool-tab-white {
+  color: var(--pool-white, #d7dae0);
+  border-color: var(--pool-white, #d7dae0);
+  background: var(--pool-white-dim, rgba(215,218,224,0.14));
+}
+
+/* The UNASSIGNED band sits BELOW the five position columns (never as a
+   sixth column beside them) — a full-width single-column .pos-table
+   using the exact same row styling, so a player who still needs manual
+   sorting reads identically to one who already has a position, just in
+   its own clearly-labeled section. */
+.nba2k27pool-unassigned-band { margin-top: 1.1rem; }
+.nba2k27pool-unassigned-label {
+  font-size: 0.78rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--nb-text-muted, var(--text-muted)); margin-bottom: 0.5rem;
+}
+.nba2k27pool-unassigned-grid { grid-template-columns: 1fr; }
+.nba2k27pool-unassigned-grid .pos-table { max-width: 420px; }

@@ -29,6 +29,13 @@ const vm = require('vm');
 
 const srcPath = path.join(__dirname, '..', 'js', 'admin', 'nba2k-database.js');
 const src = fs.readFileSync(srcPath, 'utf8');
+// 2K27 Pool page redesign: Nba2k27PoolView now calls the REAL
+// positionPoolGrid()/_positionPoolColumn()/CORE_POSITIONS from
+// js/shared-utils.js (the same shared component the admin/public
+// Players pages already use) — loaded into the sandbox below,
+// unmodified, same as nba2k-database.js itself.
+const sharedUtilsSrcPath = path.join(__dirname, '..', 'js', 'shared-utils.js');
+const sharedUtilsSrc = fs.readFileSync(sharedUtilsSrcPath, 'utf8');
 
 // ─── Minimal fake DOM (copied/extended from tests_p7's FakeElement) ─────
 class FakeClassList {
@@ -85,6 +92,10 @@ function makeSandbox() {
     console,
     document: { body: { contains: () => true } },
     escapeHtml: (s) => String(s),
+    // Required by the REAL js/shared-utils.js positionPoolGrid() now
+    // loaded into this sandbox — normally comes from js/data.js, not
+    // loaded here, so it's stubbed with the exact same literal value.
+    CORE_POSITIONS: ['PG', 'SG', 'SF', 'PF', 'C'],
     showToast: () => {},
     normalizePlayerName: (n) => String(n).trim().toLowerCase(),
     AuthBoundary: { requireAuth: () => {} },
@@ -133,6 +144,7 @@ function makeSandbox() {
     },
   };
   vm.createContext(sandbox);
+  vm.runInContext(sharedUtilsSrc, sandbox, { filename: 'shared-utils.js' });
   vm.runInContext(src, sandbox, { filename: 'nba2k-database.js' });
   vm.runInContext(
     'this.Nba2kDatabaseView = Nba2kDatabaseView; this.Nba2k27PoolView = Nba2k27PoolView; ' +

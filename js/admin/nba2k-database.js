@@ -1696,16 +1696,15 @@ const Nba2k27PoolValidator = {
 
 const Nba2k27PoolView = {
   _search: '',
-  _filterCategory: '', // '' = All, else 'curr' | 'class' | 'allt'
-  _filterPool: '',     // '' = All Pools, else 'green' | 'blue' | 'white'
+  _filterCategory: '', // unused by this page's own UI now (superseded by pool tabs, which already 1:1 map to category) — still checked by _getVisibleRows for API/test compatibility
+  _filterPool: 'green', // always exactly one of 'green'|'blue'|'white' on this page — there is no "All Pools" tab, matching the Players-page reference design
   _sortMode: 'ovr-desc',
-  // 2K27 Pool ⇄ Position unification: 'grouped' (default) renders the
-  // Pool -> Position -> Players tree; 'table' renders the original flat,
-  // sortable table exactly as before. Both read the SAME `_buildRows()`/
-  // `_getVisibleRows()` data — there is no second data source, just a
-  // second layout for it. `_renderRow`/the `<table>` markup are entirely
-  // unchanged so nothing that depended on the table view is disturbed.
-  _viewMode: 'grouped',
+  // 2K27 Pool page redesign: this page's own UI is one Players-page-style
+  // column layout now — no separate 'table'/'grouped' mode toggle exposed
+  // here anymore. _renderRow/_groupRows/the flat `<table>` markup below
+  // all remain defined and directly exercised by tests_p8/tests_p12 —
+  // nothing was deleted, this page's own render path just no longer
+  // calls them.
 
   // Phase 9: last computed validation report (null until "Validate 2K27
   // Pool" is clicked, or after a pool-changing write invalidates it —
@@ -1876,12 +1875,15 @@ const Nba2k27PoolView = {
     const counts = this._computeCounts(rows, players.length);
     const issueCount = rows.filter(r => r.orphan || !r.poolValid).length;
 
-    const categoryTabs = [
-      { value: '', label: `All (${counts.total})` },
-      { value: 'curr', label: `Current (${counts.categoryCounts.curr})` },
-      { value: 'class', label: `Classics (${counts.categoryCounts.class})` },
-      { value: 'allt', label: `All-Time (${counts.categoryCounts.allt})` },
-    ].filter(t => t.value === '' || counts.categoryCounts[t.value] > 0);
+    // Assigned/unassigned breakdown for the CURRENTLY ACTIVE pool tab
+    // only — never affected by the search box, matching the pool-tab
+    // counts above (both answer "what does this pool actually contain",
+    // not "what does the current search show").
+    const activePoolRows = rows.filter(r => !r.orphan && r.poolValid && r.poolValue === this._filterPool);
+    const positionStats = {
+      assigned: activePoolRows.filter(r => r.position !== 'UNASSIGNED').length,
+      unassigned: activePoolRows.filter(r => r.position === 'UNASSIGNED').length,
+    };
 
     container.innerHTML = `
       <div class="admin-section nba2k-db">
@@ -1905,37 +1907,30 @@ const Nba2k27PoolView = {
           <div id="nba2k27ValResult"></div>
         </div>
 
-        <div class="nba2k-category-tabs" role="tablist" aria-label="Filter by category">
-          ${categoryTabs.map(t => `
-            <button type="button" class="btn ${this._filterCategory === t.value ? 'btn-primary' : 'btn-ghost'} btn-sm nba2k27mgmt-category-tab"
-              data-category="${escapeHtml(t.value)}" aria-pressed="${this._filterCategory === t.value}">${escapeHtml(t.label)}</button>
-          `).join('')}
-        </div>
-
-        <div class="nba2k27-viewmode-toggle">
-          <button type="button" class="btn btn-sm ${this._viewMode === 'grouped' ? 'btn-primary' : 'btn-secondary'}" id="nba2k27ViewGrouped">Grouped View</button>
-          <button type="button" class="btn btn-sm ${this._viewMode === 'table' ? 'btn-primary' : 'btn-secondary'}" id="nba2k27ViewTable">Table View</button>
-        </div>
-
-        <div class="table-controls nba2k-controls">
+        <div class="nba2k27-pool-controls table-controls nba2k-controls">
           <input type="text" id="nba2k27mgmtSearch" class="input search-input"
-            placeholder="Search by player or team…" value="${escapeHtml(this._search)}">
-
-          <select id="nba2k27mgmtPoolFilter" class="input">
-            <option value="" ${this._filterPool === '' ? 'selected' : ''}>All Pools</option>
-            <option value="green" ${this._filterPool === 'green' ? 'selected' : ''}>🟢 Green</option>
-            <option value="blue" ${this._filterPool === 'blue' ? 'selected' : ''}>🔵 Blue</option>
-            <option value="white" ${this._filterPool === 'white' ? 'selected' : ''}>⚪ White</option>
-          </select>
+            placeholder="Search players…" value="${escapeHtml(this._search)}">
 
           <select id="nba2k27mgmtSort" class="input" style="max-width:220px;">
             <option value="ovr-desc" ${this._sortMode === 'ovr-desc' ? 'selected' : ''}>Sort: OVR (High–Low)</option>
             <option value="ovr-asc" ${this._sortMode === 'ovr-asc' ? 'selected' : ''}>Sort: OVR (Low–High)</option>
             <option value="name-asc" ${this._sortMode === 'name-asc' ? 'selected' : ''}>Sort: Name (A–Z)</option>
             <option value="name-desc" ${this._sortMode === 'name-desc' ? 'selected' : ''}>Sort: Name (Z–A)</option>
-            <option value="team-asc" ${this._sortMode === 'team-asc' ? 'selected' : ''}>Sort: Team (A–Z)</option>
-            <option value="team-desc" ${this._sortMode === 'team-desc' ? 'selected' : ''}>Sort: Team (Z–A)</option>
           </select>
+
+          <span class="player-count">${counts.total} total &middot; ${positionStats.assigned} assigned &middot; ${positionStats.unassigned} unassigned</span>
+        </div>
+
+        <div class="pool-tabs">
+          <button type="button" class="pool-tab pool-tab-green ${this._filterPool === 'green' ? 'active' : ''}" data-pool="green">
+            <span class="pool-dot"></span> Green Pool <span class="pool-tab-count">${counts.green}</span>
+          </button>
+          <button type="button" class="pool-tab pool-tab-blue ${this._filterPool === 'blue' ? 'active' : ''}" data-pool="blue">
+            <span class="pool-dot"></span> Blue Pool <span class="pool-tab-count">${counts.blue}</span>
+          </button>
+          <button type="button" class="pool-tab pool-tab-white ${this._filterPool === 'white' ? 'active' : ''}" data-pool="white">
+            <span class="pool-dot"></span> White Pool <span class="pool-tab-count">${counts.white}</span>
+          </button>
         </div>
 
         <div id="nba2k27mgmtConfirm" class="hidden"></div>
@@ -1943,14 +1938,11 @@ const Nba2k27PoolView = {
       </div>
       <div id="nba2kDetailMount"></div>`;
 
-    container.querySelectorAll('.nba2k27mgmt-category-tab').forEach(btn => {
-      btn.onclick = () => { this._filterCategory = btn.dataset.category; this._renderShell(container); };
+    container.querySelectorAll('.pool-tab').forEach(tab => {
+      tab.onclick = () => { this._filterPool = tab.dataset.pool; this._renderShell(container); };
     });
-    container.querySelector('#nba2k27ViewGrouped').onclick = () => { this._viewMode = 'grouped'; this._renderShell(container); };
-    container.querySelector('#nba2k27ViewTable').onclick = () => { this._viewMode = 'table'; this._renderShell(container); };
-    container.querySelector('#nba2k27mgmtSearch').oninput = e => { this._search = e.target.value; this._refreshList(container); };
-    container.querySelector('#nba2k27mgmtPoolFilter').onchange = e => { this._filterPool = e.target.value; this._refreshList(container); };
-    container.querySelector('#nba2k27mgmtSort').onchange = e => { this._sortMode = e.target.value; this._refreshList(container); };
+    container.querySelector('#nba2k27mgmtSearch').oninput = e => { this._search = e.target.value; this._refreshPoolPane(container); };
+    container.querySelector('#nba2k27mgmtSort').onchange = e => { this._sortMode = e.target.value; this._refreshPoolPane(container); };
     container.querySelector('#nba2k27ValidateBtn').onclick = () => this._runValidation(container);
     this._bindInitEvents(container);
 
@@ -1962,7 +1954,7 @@ const Nba2k27PoolView = {
     // been navigated away from while its modal was still open.
     Nba2kDatabaseView._onPool27Changed = () => {
       if (!document.body.contains(container)) return;
-      this._refreshList(container);
+      this._refreshPoolPane(container);
       // Phase 9: the selection set just changed underneath a previously
       // computed validation report — that report is now stale data, not
       // a re-derivable view, so it is discarded rather than silently
@@ -1977,7 +1969,7 @@ const Nba2k27PoolView = {
       }
     };
 
-    this._refreshList(container);
+    this._refreshPoolPane(container);
     this._renderValidationResult(container);
     if (this._initResult) this._renderInitResult(container);
   },
@@ -1987,65 +1979,85 @@ const Nba2k27PoolView = {
     if (btn) btn.onclick = () => this._showInitConfirm(container);
   },
 
-  _refreshList(container) {
+  // ── NBA 2K27 Pool page redesign: Players-page-style column layout ───
+  // Renders the currently active pool tab (_filterPool — always exactly
+  // one of green/blue/white on this page) as five ranked position
+  // columns (PG/SG/SF/PF/C), reusing the SAME shared positionPoolGrid()
+  // component the admin/public Players pages already use — same CSS
+  // classes, same typography/spacing, no new design system. UNASSIGNED
+  // players render in their own full-width band below the five columns,
+  // never folded in as a sixth column, so the admin can see at a glance
+  // who still needs manual sorting in the NBA 2K27 Position Sorter.
+  //
+  // Never mode:'manage' — no edit/remove icons per row here. This page
+  // is view/filter/verify only; positions are only ever assigned in the
+  // Position Sorter. `_renderRow`/`_groupRows`/the flat `<table>` markup
+  // further below remain fully defined (still exercised directly by
+  // tests_p8/tests_p12) — this page's own render path just no longer
+  // calls them.
+  _refreshPoolPane(container) {
     const wrap = container.querySelector('#nba2k27mgmtListWrap');
     if (!wrap) return;
+    wrap.innerHTML = this._renderPoolPane();
+  },
 
-    const rows = this._buildRows();
-    const visible = this._getVisibleRows(rows);
+  _renderPoolPane() {
+    const pool = this._filterPool;
+    // Category/search/sort all still run through the exact same
+    // `_getVisibleRows()` this page always used — the only change is
+    // `_filterPool` is now always a real pool (never ''), so this
+    // naturally scopes to the active tab with no extra filtering logic
+    // duplicated here.
+    const rows = this._getVisibleRows(this._buildRows())
+      .filter(r => !r.orphan && r.poolValid && r.poolValue === pool);
 
-    if (!visible.length) {
-      wrap.innerHTML = `<p class="backup-muted">No players match these filters.</p>`;
-      return;
-    }
+    const positioned = rows.filter(r => r.position !== 'UNASSIGNED');
+    const unassigned = rows.filter(r => r.position === 'UNASSIGNED');
 
-    wrap.innerHTML = this._viewMode === 'table'
+    // Synthetic, disposable player objects for positionPoolGrid()'s own
+    // `.position` (singular) convention — never written back anywhere,
+    // never confused with `nba2k_players.positions` (the source
+    // eligibility array, untouched and unread here).
+    const toEntry = r => ({
+      player: { id: r.slug, name: r.player.name, overall: r.player.overall, position: r.position },
+      status: 'available',
+    });
+
+    const gridHtml = positioned.length
+      ? positionPoolGrid(positioned.map(toEntry), pool, { mode: 'view', sortMode: this._sortMode })
+      : `<p class="backup-muted">No sorted players in this pool yet.</p>`;
+
+    const unassignedEntries = this._sortForDisplay(unassigned.map(toEntry), this._sortMode);
+    const unassignedHtml = unassignedEntries.length
       ? `
-      <table class="admin-table nba2k27mgmt-table">
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>OVR</th>
-            <th>2K27 Position</th>
-            <th>NBA Team</th>
-            <th>Category</th>
-            <th>Pool</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${visible.map(r => this._renderRow(r)).join('')}
-        </tbody>
-      </table>`
-      : this._renderGroupedView(visible);
+        <div class="nba2k27pool-unassigned-band">
+          <div class="nba2k27pool-unassigned-label">UNASSIGNED <span class="pool-tab-count">${unassignedEntries.length}</span></div>
+          <div class="pos-table-grid nba2k27pool-unassigned-grid">
+            ${_positionPoolColumn('UNASSIGNED', unassignedEntries, pool, 'view')}
+          </div>
+        </div>`
+      : `
+        <div class="nba2k27pool-unassigned-band">
+          <p class="backup-muted">Every player in this pool has been sorted — nothing UNASSIGNED here.</p>
+        </div>`;
 
-    // Same click/keydown-to-open-detail and remove-button wiring for
-    // BOTH view modes — '.nba2k27mgmt-row' (table) and '.nba2k27group-item'
-    // (grouped) are simply the two possible row-item classes; whichever
-    // one the current markup actually contains is the one this matches.
-    wrap.querySelectorAll('.nba2k27mgmt-row, .nba2k27group-item').forEach(row => {
-      const slug = row.dataset.slug;
-      const rowData = visible.find(r => r.slug === slug);
-      if (!rowData || rowData.orphan) return; // no source record to show a detail modal for
-      const open = () => Nba2kDatabaseView._openDetail(container, slug);
-      row.addEventListener('click', e => {
-        if (e.target.closest('.nba2k27mgmt-remove-btn')) return;
-        open();
-      });
-      row.addEventListener('keydown', e => {
-        if (e.target.closest('.nba2k27mgmt-remove-btn')) return;
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
-      });
-    });
+    return gridHtml + unassignedHtml;
+  },
 
-    wrap.querySelectorAll('.nba2k27mgmt-remove-btn').forEach(btn => {
-      btn.onclick = e => {
-        e.stopPropagation();
-        const slug = btn.dataset.slug;
-        const rowData = this._buildRows().find(r => r.slug === slug);
-        if (rowData) this._showRemoveConfirm(container, rowData);
-      };
-    });
+  // Small local mirror of positionPoolGrid()'s own comparator, needed
+  // because the UNASSIGNED band calls the shared `_positionPoolColumn()`
+  // directly (bypassing positionPoolGrid()'s outer function, which only
+  // ever sorts its own CORE_POSITIONS buckets) — a comparator, not a
+  // rendering concern, so it is not itself worth exporting from
+  // shared-utils.js.
+  _sortForDisplay(entries, sortMode) {
+    const sorter = {
+      'ovr-desc': (a, b) => (b.player.overall ?? 0) - (a.player.overall ?? 0),
+      'ovr-asc': (a, b) => (a.player.overall ?? 0) - (b.player.overall ?? 0),
+      'name-asc': (a, b) => a.player.name.localeCompare(b.player.name),
+      'name-desc': (a, b) => b.player.name.localeCompare(a.player.name),
+    }[sortMode] || ((a, b) => (b.player.overall ?? 0) - (a.player.overall ?? 0));
+    return entries.slice().sort(sorter);
   },
 
   // ── Grouped view: Pool -> Position -> Players ───────────────────────

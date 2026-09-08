@@ -125,7 +125,7 @@ function badgeTextColor(hex) {
  *                (Drafted / Variant Taken / Locked / No Position) — used by
  *                the admin Draft page. Caller wires the click.
  *   admin: boolean (legacy alias for mode:'manage', kept for existing callers)
- *   sortMode: 'ovr-desc' | 'ovr-asc' | 'name-asc'  (default 'ovr-desc')
+ *   sortMode: 'ovr-desc' | 'ovr-asc' | 'name-asc' | 'name-desc'  (default 'ovr-desc')
  */
 function positionPoolGrid(entries, pool, options = {}) {
   const { admin = false, sortMode = 'ovr-desc' } = options;
@@ -143,6 +143,7 @@ function positionPoolGrid(entries, pool, options = {}) {
     'ovr-desc': (a, b) => (b.player.overall ?? 0) - (a.player.overall ?? 0),
     'ovr-asc': (a, b) => (a.player.overall ?? 0) - (b.player.overall ?? 0),
     'name-asc': (a, b) => a.player.name.localeCompare(b.player.name),
+    'name-desc': (a, b) => b.player.name.localeCompare(a.player.name),
   }[sortMode] || ((a, b) => (b.player.overall ?? 0) - (a.player.overall ?? 0));
 
   CORE_POSITIONS.forEach((pos) => byPos[pos].sort(sorter));

@@ -32,6 +32,13 @@ const dbSrcPath = path.join(__dirname, '..', 'js', 'admin', 'nba2k-database.js')
 const sortSrcPath = path.join(__dirname, '..', 'js', 'admin', 'nba2k27-position-sort.js');
 const dbSrc = fs.readFileSync(dbSrcPath, 'utf8');
 const sortSrc = fs.readFileSync(sortSrcPath, 'utf8');
+// 2K27 Pool page redesign: Nba2k27PoolView now calls the REAL
+// positionPoolGrid()/_positionPoolColumn()/CORE_POSITIONS from
+// js/shared-utils.js (the same shared component the admin/public
+// Players pages already use) — loaded into the sandbox below,
+// unmodified, same as the two admin files themselves.
+const sharedUtilsSrcPath = path.join(__dirname, '..', 'js', 'shared-utils.js');
+const sharedUtilsSrc = fs.readFileSync(sharedUtilsSrcPath, 'utf8');
 
 const migrate = require('../scripts/migrate-nba2k27-positions.js');
 
@@ -110,6 +117,10 @@ function makeSandbox() {
     console,
     document: { body: { contains: () => true }, addEventListener: () => {} },
     escapeHtml: (s) => String(s),
+    // Required by the REAL js/shared-utils.js positionPoolGrid() now
+    // loaded into this sandbox — normally comes from js/data.js, not
+    // loaded here, so it's stubbed with the exact same literal value.
+    CORE_POSITIONS: ['PG', 'SG', 'SF', 'PF', 'C'],
     showToast: () => {},
     normalizePlayerName: (n) => String(n).trim().toLowerCase(),
     AuthBoundary: { requireAuth: () => { requireAuthCalls.push(true); } },
@@ -147,6 +158,7 @@ function makeSandbox() {
     },
   };
   vm.createContext(sandbox);
+  vm.runInContext(sharedUtilsSrc, sandbox, { filename: 'shared-utils.js' });
   vm.runInContext(dbSrc, sandbox, { filename: 'nba2k-database.js' });
   vm.runInContext(sortSrc, sandbox, { filename: 'nba2k27-position-sort.js' });
   vm.runInContext(
