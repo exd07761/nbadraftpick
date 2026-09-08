@@ -294,26 +294,48 @@ const PublicNba2k27View = {
       }
 
       const slugs = Object.keys(this._pool27);
+      const chunks = [];
+      for (let i = 0; i < slugs.length; i += NBA2K27_PUBLIC_CHUNK_SIZE) {
+        chunks.push(slugs.slice(i, i + NBA2K27_PUBLIC_CHUNK_SIZE));
+      }
+
+      // PERFORMANCE: fire every chunk query in parallel. The previous
+      // version awaited each chunk inside a `for` loop, one at a time —
+      // with ~744+ curated players that's ~75 sequential network round
+      // trips, each one waiting for the last to finish before starting.
+      // Promise.all here means total wall-clock time is bounded by the
+      // SLOWEST single chunk, not the SUM of all of them. This changes
+      // nothing about correctness or cost: it is still the exact same
+      // number of chunk queries, the exact same 10-per-chunk 'in'-query
+      // limit, the exact same per-chunk try/catch semantics (a
+      // .catch() per promise instead of a try/catch per loop iteration,
+      // so one failed chunk can never abort the others via Promise.all's
+      // normal short-circuit-on-first-rejection behavior) — Firestore
+      // still bills the same one document read per player either way.
+      const chunkResults = await Promise.all(chunks.map(chunk =>
+        firebase.firestore().collection('nba2k_players')
+          .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
+          .get()
+          .then(snap => ({ ok: true, snap }))
+          .catch(err => ({ ok: false, err }))
+      ));
+
       const players = {};
       let resolvedAny = slugs.length === 0;
       let deniedAny = false;
-      for (let i = 0; i < slugs.length; i += NBA2K27_PUBLIC_CHUNK_SIZE) {
-        const chunk = slugs.slice(i, i + NBA2K27_PUBLIC_CHUNK_SIZE);
-        try {
-          const snap = await firebase.firestore().collection('nba2k_players')
-            .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
-            .get();
-          snap.docs.forEach(d => { players[d.id] = { id: d.id, ...d.data() }; });
+      chunkResults.forEach(result => {
+        if (result.ok) {
+          result.snap.docs.forEach(d => { players[d.id] = { id: d.id, ...d.data() }; });
           resolvedAny = true;
-        } catch (err) {
+        } else if (this._classifyError(result.err) === 'permission-denied') {
           // A slug simply not resolving is handled per-row as an
           // "orphan/unavailable" card (see `_buildRows`) — this only
           // tracks whether EVERY chunk failed, which means the rule
           // change above genuinely hasn't been applied yet, distinct
           // from "this one player's doc doesn't exist."
-          if (this._classifyError(err) === 'permission-denied') deniedAny = true;
+          deniedAny = true;
         }
-      }
+      });
       this._players = players;
       if (slugs.length > 0 && !resolvedAny && deniedAny) {
         this._loadError = 'permission-denied';
@@ -327,10 +349,23 @@ const PublicNba2k27View = {
   // record by slug === document ID on both sides — same join shape as
   // the admin Phase 8 page, over this page's own, separately-loaded
   // (and public-rule-scoped) cache.
+  //
+  // PERFORMANCE: memoized. `_pool27`/`_players` are populated exactly
+  // once per page load and never mutated afterward (this is a read-only
+  // page) — every call site (the shell's count computation, every
+  // search/sort/tab-change pane re-render, every row-click detail open)
+  // was independently re-running this same ~744-row join from scratch.
+  // The cache is invalidated the only way it ever legitimately can be:
+  // a fresh `_ensureLoaded()` run replacing `_players`/`_pool27`
+  // (guarded by `if (this._pool27) return;` above, so that never
+  // actually happens twice in one page life — but the guard here costs
+  // nothing and protects against ever serving a stale join if that
+  // ever changes).
   _buildRows() {
+    if (this._rowsCache && this._rowsCacheFor === this._players) return this._rowsCache;
     const pool27 = this._pool27 || {};
     const players = this._players || {};
-    return Object.keys(pool27).map(slug => {
+    const rows = Object.keys(pool27).map(slug => {
       const entry = pool27[slug] || {};
       const player = players[slug] || null;
       return {
@@ -343,6 +378,9 @@ const PublicNba2k27View = {
         category: player ? player.teamType : null,
       };
     });
+    this._rowsCache = rows;
+    this._rowsCacheFor = players;
+    return rows;
   },
 
   _getVisibleRows(rows) {
