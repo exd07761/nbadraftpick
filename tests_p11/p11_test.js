@@ -26,6 +26,14 @@ const { execFileSync } = require('child_process');
 
 const srcPath = path.join(__dirname, '..', 'js', 'views', 'nba2k27.js');
 const src = fs.readFileSync(srcPath, 'utf8');
+// 2K27 Pool page redesign: PublicNba2k27View now calls the REAL
+// positionPoolGrid()/_positionPoolColumn()/CORE_POSITIONS from
+// js/shared-utils.js (the same shared component the admin/public
+// Players pages, and the redesigned admin NBA 2K27 Pool page, already
+// use) — loaded into the sandbox below, unmodified, same as nba2k27.js
+// itself.
+const sharedUtilsSrcPath = path.join(__dirname, '..', 'js', 'shared-utils.js');
+const sharedUtilsSrc = fs.readFileSync(sharedUtilsSrcPath, 'utf8');
 
 // ─── Minimal fake DOM (same shape as tests_p7/8/9/10's FakeElement) ─────
 class FakeClassList {
@@ -120,9 +128,14 @@ function makeSandbox(opts = {}) {
     console,
     document: { body: { contains: () => true } },
     escapeHtml: (s) => String(s),
+    // Required by the REAL js/shared-utils.js positionPoolGrid() now
+    // loaded into this sandbox — normally comes from js/data.js, not
+    // loaded here, so it's stubbed with the exact same literal value.
+    CORE_POSITIONS: ['PG', 'SG', 'SF', 'PF', 'C'],
     firebase: { firestore: firestoreFn },
   };
   vm.createContext(sandbox);
+  vm.runInContext(sharedUtilsSrc, sandbox, { filename: 'shared-utils.js' });
   vm.runInContext(src, sandbox, { filename: 'nba2k27.js' });
   vm.runInContext('this.PublicNba2k27View = PublicNba2k27View;', sandbox, { filename: 'export.js' });
   vm.runInContext(

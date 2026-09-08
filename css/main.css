@@ -627,6 +627,55 @@ a:hover { color: var(--accent-hover); }
 .pool-tab.active.pool-tab-blue { color: var(--pool-blue); border-color: var(--pool-blue); background: var(--pool-blue-dim); }
 .pool-tab-count { font-size: 0.7rem; color: inherit; opacity: 0.75; font-weight: 600; }
 
+/* ─── NBA 2K27 Pool page redesign (Players-page-style column layout) ─────
+   Shared by BOTH the redesigned admin NBA 2K27 Pool page
+   (js/admin/nba2k-database.js Nba2k27PoolView) and the public NBA 2K27
+   Player Pool page (js/views/nba2k27.js) — both call the SAME
+   positionPoolGrid() below with mode:'view', so this lives here (the
+   file both admin.html and index.html already load) rather than in
+   either page's own theme file. Only the WHITE-pool color variant is
+   added here — the two-pool 2K26 Draft Pool above only ever needed
+   green/blue; 2K27 adds Classics -> white. */
+.pos-table-white .pos-table-head {
+  background: var(--pool-white-dim, rgba(215,218,224,0.14));
+  color: var(--pool-white, #d7dae0);
+  border-bottom: 1px solid rgba(215,218,224,0.25);
+}
+.pool-tab-white .pool-dot { background: var(--pool-white, #d7dae0); }
+.pool-tab.active.pool-tab-white {
+  color: var(--pool-white, #d7dae0);
+  border-color: var(--pool-white, #d7dae0);
+  background: var(--pool-white-dim, rgba(215,218,224,0.14));
+}
+
+/* The UNASSIGNED band sits BELOW the five position columns (never as a
+   sixth column beside them) — a full-width single-column .pos-table
+   using the exact same row styling, so a player who still needs manual
+   sorting reads identically to one who already has a position, just in
+   its own clearly-labeled section. Shared by both the admin and public
+   2K27 Pool pages. */
+.nba2k27pool-unassigned-band { margin-top: 1.1rem; }
+.nba2k27pool-unassigned-label {
+  font-size: 0.78rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--nb-text-muted, var(--text-muted)); margin-bottom: 0.5rem;
+}
+.nba2k27pool-unassigned-grid { grid-template-columns: 1fr; }
+.nba2k27pool-unassigned-grid .pos-table { max-width: 420px; }
+
+/* Public page only: positionPoolGrid()'s mode:'view' rows have no click
+   styling of their own (that's reserved for 'manage'/'draft' modes) —
+   the public 2K27 Pool page wires an actual click handler onto each row
+   to open the player-details modal (see js/views/nba2k27.js
+   `_refreshList`), so give those rows a pointer cursor and a hover
+   affordance, scoped to this page's own wrapper so the read-only admin
+   view (which adds no click handler at all) is never affected. */
+.pub2k27-clickable-columns .pos-table-row { cursor: pointer; }
+.pub2k27-clickable-columns .pos-table-row:hover,
+.pub2k27-clickable-columns .pos-table-row:focus-visible {
+  background: var(--surface-hover, rgba(255,255,255,0.04));
+  outline: none;
+}
+
 .pool-pane { display: none; }
 .pool-pane.active { display: block; }
 
