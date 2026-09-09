@@ -314,6 +314,55 @@ function nba2k27PoolPositionOf(entry) {
   return nba2k27PoolPositionValid(p) ? p : 'UNASSIGNED';
 }
 
+// ── Manual Edit: 2K27-only display overrides ────────────────────────────
+// Purely additive, optional fields on `nba2k27_pool/<slug>` —
+// `nba2k_players` (the shared source dataset used by the 2K26 import/
+// promotion flow too) is NEVER written to by this feature. An override
+// is a string/number stored directly on the pool doc; when absent, the
+// source `nba2k_players` value is used untouched. There is deliberately
+// NO poolOverride — pool stays fully derived from `teamType` via
+// nba2k27PoolForTeamType(), exactly as it already was; nothing in this
+// feature's requirements calls for a second, conflicting classification
+// path, so none was added. Position is likewise not an "override" of
+// anything — `entry.position` already IS the sole curated value, set by
+// the Position Sorter or here in Manual Edit; both write to the exact
+// same field.
+function nba2k27EffectiveName(entry, player) {
+  const o = entry && typeof entry.nameOverride === 'string' ? entry.nameOverride.trim() : '';
+  return o || (player && player.name) || '';
+}
+function nba2k27EffectiveOverall(entry, player) {
+  const o = entry && entry.overallOverride;
+  return (typeof o === 'number' && Number.isFinite(o)) ? o : (player ? player.overall : null);
+}
+function nba2k27EffectiveTeam(entry, player) {
+  const o = entry && typeof entry.teamOverride === 'string' ? entry.teamOverride.trim() : '';
+  return o || (player && player.team) || '';
+}
+function nba2k27OverallValid(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 && n <= 99;
+}
+
+// ── Variant grouping: metadata/grouping ONLY ─────────────────────────────
+// `variantGroupId` (any non-empty string the admin chooses — e.g.
+// 'michael-jordan') optionally links otherwise-independent
+// `nba2k27_pool` docs together for DISPLAY purposes. `variantLabel` is
+// an optional free-text label for THIS player's variant within that
+// group (e.g. '1996'). Grouping two docs under the same
+// variantGroupId never merges, deletes, or duplicates any player
+// record, and never touches pool/position — it is read exactly like
+// any other optional field via nba2k27PoolPositionOf()-style defensive
+// accessors, never assumed present.
+function nba2k27VariantGroupOf(entry) {
+  const g = entry && entry.variantGroupId;
+  return (typeof g === 'string' && g.trim()) ? g.trim() : null;
+}
+function nba2k27VariantLabelOf(entry) {
+  const l = entry && entry.variantLabel;
+  return (typeof l === 'string' && l.trim()) ? l.trim() : null;
+}
+
 
 // Phase 6: the ONLY five position values this app ever accepts, in the
 // authoritative canonical order (confirmed by commissioner correction
@@ -1755,6 +1804,11 @@ const Nba2k27PoolView = {
         poolValid,
         position: nba2k27PoolPositionOf(entry),
         category: player ? player.teamType : null,
+        effectiveName: nba2k27EffectiveName(entry, player),
+        effectiveOverall: nba2k27EffectiveOverall(entry, player),
+        effectiveTeam: nba2k27EffectiveTeam(entry, player),
+        variantGroupId: nba2k27VariantGroupOf(entry),
+        variantLabel: nba2k27VariantLabelOf(entry),
       };
     });
   },
@@ -1934,6 +1988,7 @@ const Nba2k27PoolView = {
         </div>
 
         <div id="nba2k27mgmtConfirm" class="hidden"></div>
+        <div id="nba2k27mgmtEdit" class="hidden"></div>
         <div id="nba2k27mgmtListWrap"></div>
       </div>
       <div id="nba2kDetailMount"></div>`;
@@ -1999,6 +2054,24 @@ const Nba2k27PoolView = {
     const wrap = container.querySelector('#nba2k27mgmtListWrap');
     if (!wrap) return;
     wrap.innerHTML = this._renderPoolPane();
+
+    // Manual Edit: click (or Enter/Space) any player row to open the
+    // edit modal. positionPoolGrid()'s mode:'view' rows carry
+    // `data-player-id` but no click semantics of their own — this is
+    // the one interaction this page adds on top of the shared
+    // component, same pattern as the public page's click-to-view-detail
+    // wiring, just opening an editable form here instead of a read-only
+    // modal.
+    wrap.querySelectorAll('.pos-table-row[data-player-id]').forEach(row => {
+      const slug = row.dataset.playerId;
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('role', 'button');
+      row.setAttribute('aria-label', 'Edit player');
+      row.addEventListener('click', () => this._openManualEdit(container, slug));
+      row.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._openManualEdit(container, slug); }
+      });
+    });
   },
 
   _renderPoolPane() {
@@ -2017,9 +2090,19 @@ const Nba2k27PoolView = {
     // Synthetic, disposable player objects for positionPoolGrid()'s own
     // `.position` (singular) convention — never written back anywhere,
     // never confused with `nba2k_players.positions` (the source
-    // eligibility array, untouched and unread here).
+    // eligibility array, untouched and unread here). Uses the EFFECTIVE
+    // name/overall (override → source fallback, see nba2k27EffectiveName/
+    // nba2k27EffectiveOverall) so a Manual Edit is reflected here
+    // immediately. A variant group, if any, is surfaced as a small
+    // inline marker on the name — deliberately not a shared-utils.js
+    // markup change, so the shared component itself stays untouched.
     const toEntry = r => ({
-      player: { id: r.slug, name: r.player.name, overall: r.player.overall, position: r.position },
+      player: {
+        id: r.slug,
+        name: r.effectiveName + (r.variantGroupId ? ` 🔗${r.variantLabel ? ' ' + r.variantLabel : ''}` : ''),
+        overall: r.effectiveOverall,
+        position: r.position,
+      },
       status: 'available',
     });
 
@@ -2236,7 +2319,7 @@ const Nba2k27PoolView = {
         showToast(`${label} removed from the 2K27 pool.`, 'success');
         confirmEl.classList.add('hidden');
         confirmEl.innerHTML = '';
-        this._refreshList(container);
+        this._refreshPoolPane(container);
         // Phase 9: this removal changed the selection set too — same
         // staleness reasoning as the `_onPool27Changed` hook above.
         if (this._validation) {
@@ -2257,7 +2340,178 @@ const Nba2k27PoolView = {
     };
   },
 
-  // ── Phase 9: NBA 2K27 Pool Validation & Readiness ───────────────────
+  // ── Manual Edit + Variant grouping ───────────────────────────────────
+  // Opens from a player row click (wired in `_refreshPoolPane` above).
+  // Shows the CURRENT EFFECTIVE values (override -> source fallback,
+  // see nba2k27EffectiveName/Overall/Team) and lets the admin save
+  // display overrides plus variant-group metadata onto
+  // `nba2k27_pool/<slug>` only. `nba2k_players` is never read for
+  // writing here and never written to at all — only ever read (via the
+  // already-loaded `Nba2kDatabaseView._players` cache) to know what the
+  // UN-overridden source value is, for the placeholder text.
+  _openManualEdit(container, slug) {
+    const editEl = container.querySelector('#nba2k27mgmtEdit');
+    if (!editEl) return;
+    const row = this._buildRows().find(r => r.slug === slug);
+    if (!row || row.orphan) return; // nothing to edit without a source record to fall back to
+
+    const entry = row.entry || {};
+    const p = row.player;
+
+    editEl.classList.remove('hidden');
+    editEl.innerHTML = `
+      <div class="nba2k-promo-confirm-card nba2k27edit-card">
+        <div class="nba2k-promo-eyebrow">Manual Edit — ${escapeHtml(p.name)}</div>
+        <p class="helper-text">
+          Overrides apply only to the NBA 2K27 Pool display — the shared source record in
+          <code>nba2k_players</code> is never changed. Leave a field blank to fall back to the source value.
+        </p>
+
+        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditName">Display name</label>
+        <input type="text" id="nba2k27EditName" class="input" placeholder="${escapeHtml(p.name)} (source)" value="${entry.nameOverride ? escapeHtml(entry.nameOverride) : ''}">
+
+        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditOverall">Overall</label>
+        <input type="number" id="nba2k27EditOverall" class="input" min="0" max="99" placeholder="${p.overall != null ? p.overall : '—'} (source)" value="${typeof entry.overallOverride === 'number' ? entry.overallOverride : ''}">
+
+        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditTeam">NBA team</label>
+        <input type="text" id="nba2k27EditTeam" class="input" placeholder="${escapeHtml(p.team || '—')} (source)" value="${entry.teamOverride ? escapeHtml(entry.teamOverride) : ''}">
+
+        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditPosition">2K27 Position</label>
+        <select id="nba2k27EditPosition" class="input">
+          ${NBA2K27_POOL_POSITION_VALUES.map(pos => `<option value="${pos}" ${row.position === pos ? 'selected' : ''}>${pos}</option>`).join('')}
+        </select>
+
+        <div class="nba2k-promo-confirm-row">
+          <span>2K27 Pool</span>
+          <strong>${nba2k27PoolDot(row.poolValue)} ${escapeHtml(nba2k27PoolLabel(row.poolValue) || '—')}</strong>
+        </div>
+        <p class="helper-text">Auto — derived from source category, not editable here.</p>
+
+        <hr>
+        <div class="nba2k-promo-eyebrow">Variant grouping</div>
+        <p class="helper-text">
+          Group related but SEPARATE player records (e.g. different-year editions of the same real player)
+          for display only. This never merges, deletes, or duplicates any record, and never changes pool or position.
+        </p>
+        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditVariantGroup">Variant group ID</label>
+        <input type="text" id="nba2k27EditVariantGroup" class="input" placeholder="e.g. michael-jordan (blank = no group)" value="${row.variantGroupId ? escapeHtml(row.variantGroupId) : ''}">
+        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditVariantLabel">This player's variant label</label>
+        <input type="text" id="nba2k27EditVariantLabel" class="input" placeholder="e.g. 1996 (optional)" value="${row.variantLabel ? escapeHtml(row.variantLabel) : ''}">
+        ${this._renderVariantGroupMembers(row)}
+
+        <div id="nba2k27EditError"></div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-primary" id="nba2k27EditSaveBtn">Save</button>
+          <button type="button" class="btn btn-ghost" id="nba2k27EditCancelBtn">Cancel</button>
+        </div>
+      </div>`;
+
+    editEl.querySelector('#nba2k27EditCancelBtn').onclick = () => {
+      editEl.classList.add('hidden');
+      editEl.innerHTML = '';
+    };
+
+    const saveBtn = editEl.querySelector('#nba2k27EditSaveBtn');
+    saveBtn.onclick = async () => {
+      const errEl = editEl.querySelector('#nba2k27EditError');
+      errEl.innerHTML = '';
+
+      const nameRaw = editEl.querySelector('#nba2k27EditName').value.trim();
+      const overallRaw = editEl.querySelector('#nba2k27EditOverall').value.trim();
+      const teamRaw = editEl.querySelector('#nba2k27EditTeam').value.trim();
+      const position = editEl.querySelector('#nba2k27EditPosition').value;
+      const variantGroupRaw = editEl.querySelector('#nba2k27EditVariantGroup').value.trim();
+      const variantLabelRaw = editEl.querySelector('#nba2k27EditVariantLabel').value.trim();
+
+      if (!nba2k27PoolPositionValid(position)) {
+        errEl.innerHTML = `<div class="backup-result backup-result-error">Position must be one of PG/SG/SF/PF/C/UNASSIGNED.</div>`;
+        return;
+      }
+      if (overallRaw && !nba2k27OverallValid(overallRaw)) {
+        errEl.innerHTML = `<div class="backup-result backup-result-error">Overall must be a number from 0 to 99.</div>`;
+        return;
+      }
+      // A variant label with no group doesn't mean anything on its own —
+      // caught here rather than silently dropped, so the admin notices.
+      if (variantLabelRaw && !variantGroupRaw) {
+        errEl.innerHTML = `<div class="backup-result backup-result-error">A variant label needs a variant group ID too.</div>`;
+        return;
+      }
+
+      // Empty override fields REMOVE the override (FieldValue.delete()),
+      // falling back to the source value — never left as a stale
+      // leftover value, per "empty override fields should remove the
+      // override and fall back to source data".
+      const del = firebase.firestore.FieldValue.delete();
+      const payload = {
+        position,
+        nameOverride: nameRaw ? nameRaw : del,
+        overallOverride: overallRaw ? Number(overallRaw) : del,
+        teamOverride: teamRaw ? teamRaw : del,
+        variantGroupId: variantGroupRaw ? variantGroupRaw : del,
+        variantLabel: variantLabelRaw ? variantLabelRaw : del,
+        updatedAt: new Date().toISOString(),
+      };
+
+      saveBtn.disabled = true;
+      try {
+        AuthBoundary.requireAuth();
+        // merge:true — touches ONLY the fields above. nba2kRef/pool/
+        // selectedAt/anything else on this doc are never included here,
+        // so they can never be overwritten by this write, the same
+        // safety property the Position Sorter's own writes already
+        // guarantee.
+        await firebase.firestore().collection('nba2k27_pool').doc(slug).set(payload, { merge: true });
+
+        // Reflect immediately in the local cache — same convention as
+        // every other write path on this page (Add/Remove/Initialize).
+        const updated = { ...entry, position, updatedAt: payload.updatedAt };
+        if (nameRaw) updated.nameOverride = nameRaw; else delete updated.nameOverride;
+        if (overallRaw) updated.overallOverride = Number(overallRaw); else delete updated.overallOverride;
+        if (teamRaw) updated.teamOverride = teamRaw; else delete updated.teamOverride;
+        if (variantGroupRaw) updated.variantGroupId = variantGroupRaw; else delete updated.variantGroupId;
+        if (variantLabelRaw) updated.variantLabel = variantLabelRaw; else delete updated.variantLabel;
+        if (Nba2kDatabaseView._pool27) Nba2kDatabaseView._pool27[slug] = updated;
+
+        showToast('Saved.', 'success');
+        editEl.classList.add('hidden');
+        editEl.innerHTML = '';
+        this._refreshPoolPane(container);
+        if (this._validation) {
+          this._validation = null;
+          this._issueFilter = '';
+          const resultEl = container.querySelector('#nba2k27ValResult');
+          if (resultEl) resultEl.innerHTML = `<p class="helper-text">Pool selections changed — click "Validate 2K27 Pool" again to refresh this report.</p>`;
+        }
+      } catch (err) {
+        saveBtn.disabled = false;
+        const msg = err && err.code === 'permission-denied'
+          ? "You don't have permission to update the 2K27 pool."
+          : 'Could not save — please try again.';
+        errEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
+      }
+    };
+  },
+
+  // Read-only helper: lists every OTHER player currently sharing this
+  // player's variant group, if any — purely informational, no
+  // assign/remove controls of its own (removing yourself from a group
+  // is just clearing the "Variant group ID" field above and saving;
+  // adding someone else to a group is done from THEIR OWN Manual Edit
+  // form, using the same group ID — no separate multi-select UI is
+  // needed for a feature this is explicitly asked to keep simple).
+  _renderVariantGroupMembers(row) {
+    if (!row.variantGroupId) return '';
+    const members = this._buildRows().filter(r => r.slug !== row.slug && r.variantGroupId === row.variantGroupId && !r.orphan);
+    if (!members.length) return `<p class="helper-text">No other players are in this variant group yet.</p>`;
+    return `
+      <p class="helper-text">Other players in variant group "${escapeHtml(row.variantGroupId)}":</p>
+      <ul class="nba2k27edit-variant-list">
+        ${members.map(m => `<li>${escapeHtml(m.effectiveName)}${m.variantLabel ? ` — ${escapeHtml(m.variantLabel)}` : ''}</li>`).join('')}
+      </ul>`;
+  },
+
+
   // Everything below reads `this._buildRows()` (already-cached data,
   // zero Firestore access) and `Nba2k27PoolValidator` (pure functions,
   // zero Firestore access). Nothing in this section ever calls `.set()`,
@@ -2672,7 +2926,7 @@ const Nba2k27PoolView = {
       this._initResult = null;
       areaEl.classList.add('hidden');
       areaEl.innerHTML = '';
-      this._refreshList(container);
+      this._refreshPoolPane(container);
     };
   },
 };

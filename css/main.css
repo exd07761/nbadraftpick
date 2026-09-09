@@ -676,6 +676,11 @@ a:hover { color: var(--accent-hover); }
   outline: none;
 }
 
+/* Manual Edit + Variant grouping (admin NBA 2K27 Pool page only) */
+.nba2k27edit-card .input { margin-top: 0.25rem; margin-bottom: 0.5rem; width: 100%; }
+.nba2k27edit-card hr { border: none; border-top: 1px solid var(--border-light, rgba(255,255,255,0.08)); margin: 1rem 0; }
+.nba2k27edit-variant-list { margin: 0.3rem 0 0.6rem 1.1rem; font-size: 0.85rem; color: var(--text-muted); }
+
 .pool-pane { display: none; }
 .pool-pane.active { display: block; }
 

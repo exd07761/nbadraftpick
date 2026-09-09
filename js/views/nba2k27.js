@@ -224,6 +224,34 @@ function publicNba2k27PositionOf(entry) {
   return PUBLIC_NBA2K27_POSITION_VALUES.includes(p) ? p : 'UNASSIGNED';
 }
 
+// ── Manual Edit overrides + variant grouping (read-only here) ───────────
+// Duplicated from the same fields js/admin/nba2k-database.js writes —
+// see this file's own header on why shared rendering/data logic is
+// intentionally re-declared rather than imported. `nba2k_players` is
+// never written to for this feature on either page; an override is a
+// plain field on `nba2k27_pool/<slug>`, read defensively (absent =
+// fall back to source), never assumed present.
+function publicNba2k27EffectiveName(entry, player) {
+  const o = entry && typeof entry.nameOverride === 'string' ? entry.nameOverride.trim() : '';
+  return o || (player && player.name) || '';
+}
+function publicNba2k27EffectiveOverall(entry, player) {
+  const o = entry && entry.overallOverride;
+  return (typeof o === 'number' && Number.isFinite(o)) ? o : (player ? player.overall : null);
+}
+function publicNba2k27EffectiveTeam(entry, player) {
+  const o = entry && typeof entry.teamOverride === 'string' ? entry.teamOverride.trim() : '';
+  return o || (player && player.team) || '';
+}
+function publicNba2k27VariantGroupOf(entry) {
+  const g = entry && entry.variantGroupId;
+  return (typeof g === 'string' && g.trim()) ? g.trim() : null;
+}
+function publicNba2k27VariantLabelOf(entry) {
+  const l = entry && entry.variantLabel;
+  return (typeof l === 'string' && l.trim()) ? l.trim() : null;
+}
+
 const PublicNba2k27View = {
   // Module-level cache — populated once per page load, never re-fetched
   // (see file header "PERFORMANCE / LOAD PATTERN").
@@ -376,6 +404,11 @@ const PublicNba2k27View = {
         poolValid: publicNba2k27PoolValueValid(entry.pool),
         curatedPosition: publicNba2k27PositionOf(entry),
         category: player ? player.teamType : null,
+        effectiveName: publicNba2k27EffectiveName(entry, player),
+        effectiveOverall: publicNba2k27EffectiveOverall(entry, player),
+        effectiveTeam: publicNba2k27EffectiveTeam(entry, player),
+        variantGroupId: publicNba2k27VariantGroupOf(entry),
+        variantLabel: publicNba2k27VariantLabelOf(entry),
       };
     });
     this._rowsCache = rows;
@@ -569,8 +602,16 @@ const PublicNba2k27View = {
     // `.position` (singular) convention — never written back anywhere,
     // never confused with `nba2k_players.positions` (untouched, still
     // read separately for the detail modal's "source eligibility" line).
+    // Uses EFFECTIVE name/overall (Manual Edit override -> source
+    // fallback) so a saved edit shows immediately; a variant group, if
+    // any, is surfaced as a small inline marker on the name.
     const toEntry = r => ({
-      player: { id: r.slug, name: r.player.name, overall: r.player.overall, position: r.curatedPosition },
+      player: {
+        id: r.slug,
+        name: r.effectiveName + (r.variantGroupId ? ` 🔗${r.variantLabel ? ' ' + r.variantLabel : ''}` : ''),
+        overall: r.effectiveOverall,
+        position: r.curatedPosition,
+      },
       status: 'available',
     });
 
@@ -659,9 +700,9 @@ const PublicNba2k27View = {
     const mount = container.querySelector('#pub2k27DetailMount') || document.getElementById('pub2k27DetailMount');
     if (!mount) return;
 
-    const ovr = Number(p.overall) || 0;
+    const ovr = Number(row.effectiveOverall) || 0;
     const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';
-    const initials = (p.name || '?').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+    const initials = (row.effectiveName || '?').split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 
     const attrSections = PUBLIC_NBA2K_ATTRIBUTE_GROUPS.map(group => {
       const rowsHtml = group.keys.map(([key, label]) => {
@@ -700,6 +741,19 @@ const PublicNba2k27View = {
     const poolDot = row.poolValid ? publicNba2k27PoolDot(row.poolValue) : '⚠';
     const poolLabel = row.poolValid ? publicNba2k27PoolLabel(row.poolValue) : 'Unknown';
 
+    // Other players sharing this variant group, if any — read entirely
+    // from the already-loaded, already-joined `_buildRows()` cache, so
+    // this never issues an extra Firestore query (see the file's own
+    // performance-fix header: no N+1 pattern is introduced here).
+    const variantSiblings = row.variantGroupId
+      ? this._buildRows().filter(r => r.slug !== row.slug && r.variantGroupId === row.variantGroupId && !r.orphan)
+      : [];
+    const variantHtml = row.variantGroupId ? `
+      <div class="helper-text nba2k-detail-eligibility">
+        Variant${row.variantLabel ? `: ${escapeHtml(row.variantLabel)}` : ''}
+        ${variantSiblings.length ? ` &middot; also see: ${variantSiblings.map(s => escapeHtml(s.effectiveName)).join(', ')}` : ''}
+      </div>` : '';
+
     mount.innerHTML = `
       <div class="pub2k27-modal-overlay" id="pub2k27DetailOverlay">
         <div class="pub2k27-modal-card">
@@ -711,15 +765,16 @@ const PublicNba2k27View = {
               <span class="nba2k-avatar-fallback">${escapeHtml(initials)}</span>
             </div>
             <div class="nba2k-detail-header-info">
-              <div class="nba2k-detail-name">${escapeHtml(p.name || row.slug)}</div>
+              <div class="nba2k-detail-name">${escapeHtml(row.effectiveName || row.slug)}</div>
               <div class="nba2k-detail-meta">
                 <span class="pos-ovr ${publicNba2kOvrTierClass(ovr)} nba2k-detail-ovr">${ovr} OVR</span>
-                <span>${escapeHtml(p.team || '—')}</span>
+                <span>${escapeHtml(row.effectiveTeam || '—')}</span>
                 <span class="pub2k27-position-badge">${escapeHtml(row.curatedPosition)}</span>
                 <span class="nba2k-category-chip nba2k-category-chip-${escapeHtml(p.teamType || 'other')}">${escapeHtml(publicNba2kCategoryLabel(p.teamType).toUpperCase())}</span>
                 <span class="pub2k27-pool-tag pub2k27-pool-tag-${escapeHtml(row.poolValue || 'unknown')}">${poolDot} ${escapeHtml(poolLabel)} Pool</span>
               </div>
               <div class="helper-text nba2k-detail-eligibility">Source eligibility: ${escapeHtml(positions)}</div>
+              ${variantHtml}
               <div class="nba2k-detail-physicals">
                 ${p.build ? `<span>${escapeHtml(p.build)}</span>` : ''}
                 ${p.height ? `<span>${escapeHtml(p.height)}</span>` : ''}
