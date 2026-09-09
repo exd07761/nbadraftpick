@@ -244,14 +244,23 @@ const AdminPlayersView = {
   },
 
   /**
-   * Edit modal — Rating (overall) and Variant (variantGroup) ONLY.
+   * Edit modal — Name, Rating (overall), and Variant (variantGroup).
    * Reuses the shared .modal-overlay/.modal-card pattern (see
    * js/admin/draft.js's _openDraftConfirm for the original), the same
    * "overall must be 40–99" rule already enforced in _bindFormEvents'
    * Add Player handler, and AdminActions.updatePlayer — which does
-   * Object.assign(existingPlayer, fields), so id/name/position/pool and
-   * any other field are left completely untouched and no new player
-   * record or ID is created.
+   * Object.assign(existingPlayer, fields), so id/position/pool and any
+   * other field are left completely untouched and no new player record
+   * or ID is created.
+   *
+   * Name editing was added specifically so a commissioner can change an
+   * ALREADY-DRAFTED player's displayed variant (e.g. "LeBron James —
+   * Variant A" -> "LeBron James — Variant B") without creating a second
+   * pick, roster entry, or transaction — playerId is what every other
+   * structure (playerDraftPicks, currentRosters, transactions) actually
+   * references, and updatePlayer never touches playerId or any of
+   * those. variantGroup remains the sole grouping mechanism; this does
+   * not introduce a second one.
    */
   _openEditPlayerModal(container, player) {
     document.getElementById('editPlayerOverlay')?.remove();
@@ -268,6 +277,10 @@ const AdminPlayersView = {
           <span class="pool-badge pool-badge-${player.pool === 'blue' ? 'blue' : 'green'}" style="margin-left:0.5rem;">${player.pool === 'blue' ? 'Blue Pool' : 'Green Pool'}</span>
         </div>
         <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="editPlayerName" class="input" value="${escapeHtml(player.name)}">
+        </div>
+        <div class="form-group" style="margin-top:0.75rem;">
           <label>Rating (OVR)</label>
           <input type="number" id="editPlayerOvr" class="input" min="40" max="99" value="${player.overall ?? ''}">
         </div>
@@ -292,9 +305,14 @@ const AdminPlayersView = {
     document.getElementById('editPlayerSaveBtn').onclick = () => {
       AuthBoundary.requireAuth();
       const errorEl = document.getElementById('editPlayerError');
+      const name = document.getElementById('editPlayerName').value.trim();
       const overall = parseInt(document.getElementById('editPlayerOvr').value, 10);
       const variantGroup = document.getElementById('editPlayerVariantGroup').value.trim();
 
+      if (!name) {
+        errorEl.textContent = 'Name is required.';
+        return;
+      }
       if (isNaN(overall) || overall < 40 || overall > 99) {
         errorEl.textContent = 'Rating must be 40–99.';
         return;
@@ -302,10 +320,11 @@ const AdminPlayersView = {
 
       try {
         AdminActions.updatePlayer(player.id, {
+          name,
           overall,
           variantGroup: variantGroup || undefined, // '' normalizes to undefined, same as Add Player/CSV import
         });
-        showToast(`${player.name} updated.`, 'success');
+        showToast(`${name} updated.`, 'success');
         close();
         this._refreshPane(container);
       } catch (e) {
