@@ -71,6 +71,17 @@ function createSeason(id, name) {
     name,
     status: "setup", // setup | draft | team_assignment | regular_season | playoffs | complete
     createdAt: new Date().toISOString(),
+    // NBA2K27 season-cutover feature: absent for every season created
+    // before this feature existed (including the frozen NBA2K26 season)
+    // and for any season that doesn't opt in — getAvailablePlayers()/
+    // getDraftPoolStatus() below only apply scoped filtering when this
+    // is actually set, so omitting it here (the existing default for
+    // every existing caller) is a guaranteed no-op, not a new default
+    // behavior. When set (see AdminActions.createSeason's third
+    // parameter), its value is always this season's own `id` — it marks
+    // "this season's draft pool is limited to players seeded for it",
+    // not a reference to some other season.
+    playerPoolScope: undefined,
 
     // Participants: keyed by participant ID
     // Supports any number of teams — no hardcoded length.
@@ -343,6 +354,19 @@ const MAX_PLAYERS_PER_POSITION = 2;
 const MAX_ROSTER_SIZE = 10; // 5 core positions x 2 max — enforced at draft time too, not just Phase 5 transactions
 const POOL_TRADE_FEE = { green: 100, blue: 100 };
 const REGULAR_SWAP_FEE = 100;
+
+/**
+ * NBA2K27 season-cutover White-pool policy: White ("Classics") players
+ * participate in every existing Blue-pool composition/restriction rule
+ * below, while the STORED classification stays exactly `pool: 'white'` —
+ * this helper is the only thing that treats White as Blue-like; nothing
+ * ever rewrites the field itself. Existing NBA2K26 players only ever
+ * have pool 'green' | 'blue' | undefined, so this is a no-op for every
+ * player that predates this feature.
+ */
+function isBlueLike(player) {
+  return !!player && (player.pool === "blue" || player.pool === "white");
+}
 const JOKER_SWAP_FEE = 300;
 const TRADE_FEE_DOUBLE_DAYS = [9, 10, 11];
 const TRANSACTIONS_LOCKED_DAYS = [12, 13];
@@ -614,11 +638,11 @@ function validateResultingPositions(beforeEntries, afterEntries, playersById) {
   return { valid: true, reason: null };
 }
 
-/** Rule 4: max 4 Blue, each Blue >= 84 OVR, first 3 combined <= 280, 4th <= 94 OVR. */
+/** Rule 4: max 4 Blue, each Blue >= 84 OVR, first 3 combined <= 280, 4th <= 94 OVR. White ("Classics") counts as Blue-like here — see isBlueLike(). */
 function validateBlueComposition(afterEntries, playersById) {
   const blues = afterEntries
     .map((e) => playersById[e.playerId])
-    .filter((p) => p && p.pool === "blue");
+    .filter((p) => isBlueLike(p));
 
   if (blues.length > MAX_BLUE_PLAYERS) {
     return {
@@ -652,7 +676,7 @@ function validateBlueComposition(afterEntries, playersById) {
   return { valid: true, reason: null };
 }
 
-/** Rule 2: minimum rating for a player entering a roster, by pool. */
+/** Rule 2: minimum rating for a player entering a roster, by pool. White ("Classics") counts as Blue-like here — see isBlueLike(). */
 function validateMinimumRating(player) {
   if (!player) return { valid: false, reason: "Unknown player." };
   if (player.pool === "green" && player.overall < GREEN_MIN_RATING) {
@@ -661,7 +685,7 @@ function validateMinimumRating(player) {
       reason: `${player.name} (${player.overall} OVR) is below the Green minimum rating (${GREEN_MIN_RATING}).`,
     };
   }
-  if (player.pool === "blue" && player.overall < BLUE_MIN_RATING) {
+  if (isBlueLike(player) && player.overall < BLUE_MIN_RATING) {
     return {
       valid: false,
       reason: `${player.name} (${player.overall} OVR) is below the Blue minimum rating (${BLUE_MIN_RATING}).`,
@@ -721,9 +745,9 @@ function validateRedYellowCompatibility(season, outgoingPlayerIds, incomingPlaye
   return { valid: true, reason: null };
 }
 
-/** Rule E: normal trade fee is by POOL only (Green=100, Blue=200), never Red/Yellow. */
+/** Rule E: normal trade fee is by POOL only (Green=100, Blue=200), never Red/Yellow. White ("Classics") counts as Blue-like here — see isBlueLike(). */
 function getPoolTradeFee(player) {
-  return player.pool === "blue" ? POOL_TRADE_FEE.blue : POOL_TRADE_FEE.green;
+  return isBlueLike(player) ? POOL_TRADE_FEE.blue : POOL_TRADE_FEE.green;
 }
 
 function isFeeDoubleDay(day) {
@@ -1656,6 +1680,25 @@ const FirebaseSync = (() => {
         }
       });
     },
+    /**
+     * Additive, awaited variant of save() for operations where silently
+     * declaring success while a background write might still be failing
+     * is unacceptable (NBA2K27 season-seeding: up to ~700+ new player
+     * records in one document write, right before a live draft). Every
+     * other caller keeps using the existing fire-and-forget save() above
+     * completely unchanged — this is a new method, not a behavior change
+     * to it.
+     *
+     * Deliberately NOT optimistic, unlike save(): the local cache is
+     * only updated AFTER Firestore confirms the write. If the write
+     * rejects, `_cache` is left exactly as it was — no phantom
+     * unconfirmed data ever becomes visible to loadData()/getAllPlayers()
+     * /etc, and a subsequent unrelated save() elsewhere can never
+     * accidentally persist it forward.
+     */
+    saveAndConfirm(data) {
+      return docRef().set(data).then(() => { _cache = data; return data; });
+    },
     onRemoteChange(fn) {
       remoteChangeListeners.push(fn);
     },
@@ -1841,12 +1884,24 @@ const LeagueData = {
    * how a drafted player becomes structurally undraftable again: it
    * simply stops appearing here. The global player database itself is
    * never modified by drafting.
+   *
+   * NBA2K27 season-cutover feature: when `season.playerPoolScope` is
+   * set, ALSO require `player.seasonId === season.playerPoolScope` —
+   * restricting the pool to only players seeded for this specific
+   * season. When `playerPoolScope` is absent (every season that existed
+   * before this feature, including the frozen NBA2K26 season, and any
+   * season that doesn't opt in), this filter is skipped entirely and
+   * behavior is byte-for-byte identical to before this feature existed.
    */
   getAvailablePlayers(seasonId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
     const drafted = new Set(season.playerDraftPicks.map((p) => p.playerId));
-    return this.getAllPlayers().filter((p) => !drafted.has(p.id));
+    let players = this.getAllPlayers().filter((p) => !drafted.has(p.id));
+    if (season.playerPoolScope) {
+      players = players.filter((p) => p.seasonId === season.playerPoolScope);
+    }
+    return players;
   },
 
   /**
@@ -2089,7 +2144,15 @@ const LeagueData = {
     const season = this.getSeason(seasonId);
     if (!season) return [];
     const data = loadData();
-    const allPlayers = Object.values(data.players);
+    // NBA2K27 season-cutover feature: when `season.playerPoolScope` is
+    // set, restrict to players seeded for THIS season only. Absent for
+    // every season that existed before this feature (including the
+    // frozen NBA2K26 season) — for those, this is a no-op and
+    // `allPlayers` is exactly what it always was.
+    let allPlayers = Object.values(data.players);
+    if (season.playerPoolScope) {
+      allPlayers = allPlayers.filter((p) => p.seasonId === season.playerPoolScope);
+    }
 
     const draftedIds = new Set(season.playerDraftPicks.map((p) => p.playerId));
     const draftedVariantGroups = new Set(
@@ -3049,11 +3112,18 @@ const AdminActions = {
    *   keeps the factory default; any field provided must be a finite
    *   number >= 0, or this throws — same validation style as
    *   setRatingCap/setSeasonDay below.
+   * @param scopePlayerPool — optional boolean (NBA2K27 season-cutover
+   *   feature). Every existing caller omits this (defaults falsy), which
+   *   leaves `season.playerPoolScope` unset — byte-for-byte the same
+   *   season shape createSeason() has always produced. Pass `true` only
+   *   for a season meant to draft from a seeded NBA2K27 snapshot; this
+   *   sets `playerPoolScope` to the season's own new id, nothing else.
    */
-  createSeason(name, financialSettings) {
+  createSeason(name, financialSettings, scopePlayerPool) {
     const data = loadData();
     const id = generateId("s");
     const season = createSeason(id, name);
+    if (scopePlayerPool) season.playerPoolScope = id;
 
     if (financialSettings && typeof financialSettings === "object") {
       for (const key of ["entryFee", "freeTrades", "freeSwaps"]) {
@@ -3102,6 +3172,190 @@ const AdminActions = {
       data.settings.currentSeasonId = remaining.length ? remaining[0] : null;
     }
     saveData(data);
+  },
+
+  /**
+   * NBA2K27 season-cutover seed operation. Reads the curated
+   * `nba2k27_pool` + `nba2k_players` (Firestore reads only — this
+   * function NEVER writes to either collection), builds and validates
+   * the complete result entirely in memory, then performs exactly ONE
+   * write to `league/main` (via FirebaseSync.saveAndConfirm, awaited —
+   * see that method's own comment for why this operation specifically
+   * needs a confirmed write rather than the app's normal fire-and-forget
+   * save). Because `league/main` is a single document, there is no
+   * "700 succeeded, 701 failed" scenario possible here: either this one
+   * write lands or it doesn't, and nothing is reported as seeded unless
+   * Firestore has confirmed it.
+   *
+   * Idempotent by construction: any nba2k27_pool entry whose `nba2kRef`
+   * already matches an existing `data.players` record with
+   * `seasonId === seasonId` is skipped, never updated/overwritten — a
+   * second run only ever adds newly-eligible players (e.g. more
+   * positions sorted since the first run).
+   *
+   * Reuses nba2k27EffectiveName/Overall/Team, nba2k27PoolPositionValid,
+   * and NBA2K27_POOL_POSITION_VALUES exactly as already defined in
+   * js/admin/nba2k-database.js — not duplicated here. That file loads
+   * AFTER this one in admin.html, but since these are only referenced
+   * inside this function's body (evaluated at call time, when the
+   * commissioner actually clicks "Seed NBA2K27 Pool" — long after every
+   * script has finished loading), not at definition time, this is safe.
+   */
+  async seedSeasonFromNba2k27Pool(seasonId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    if (season.playerDraftPicks && season.playerDraftPicks.length > 0) {
+      throw new Error("Cannot seed — this season already has draft picks.");
+    }
+
+    const alreadySeeded = new Set();
+    Object.values(data.players).forEach((p) => {
+      if (p.seasonId === seasonId && p.nba2kRef) alreadySeeded.add(p.nba2kRef);
+    });
+
+    const [poolSnap, playersSnap] = await Promise.all([
+      firebase.firestore().collection("nba2k27_pool").get(),
+      firebase.firestore().collection("nba2k_players").get(),
+    ]);
+    const sourcePlayers = {};
+    playersSnap.docs.forEach((d) => { sourcePlayers[d.id] = { id: d.id, ...d.data() }; });
+
+    const result = {
+      totalExamined: poolSnap.size,
+      seeded: 0,
+      alreadySeeded: 0,
+      unassigned: 0,
+      orphan: 0,
+      invalidPosition: 0,
+      invalidPool: 0,
+      missingName: 0,
+      invalidOverall: 0,
+      skippedDetails: [],
+    };
+    const toAdd = [];
+
+    poolSnap.docs.forEach((doc) => {
+      const slug = doc.id;
+      const entry = doc.data() || {};
+      const sourcePlayer = sourcePlayers[slug];
+
+      if (alreadySeeded.has(slug)) {
+        result.alreadySeeded++;
+        return;
+      }
+      if (!sourcePlayer) {
+        result.orphan++;
+        result.skippedDetails.push({ slug, reason: "orphan — no matching nba2k_players record" });
+        return;
+      }
+      const position = entry.position;
+      if (position === "UNASSIGNED" || !position) {
+        result.unassigned++;
+        return;
+      }
+      if (!nba2k27PoolPositionValid(position)) {
+        result.invalidPosition++;
+        result.skippedDetails.push({ slug, reason: `invalid position: ${position}` });
+        return;
+      }
+      if (!["green", "blue", "white"].includes(entry.pool)) {
+        result.invalidPool++;
+        result.skippedDetails.push({ slug, reason: `invalid pool: ${entry.pool}` });
+        return;
+      }
+      const effectiveName = nba2k27EffectiveName(entry, sourcePlayer);
+      if (!effectiveName) {
+        result.missingName++;
+        result.skippedDetails.push({ slug, reason: "missing effective name" });
+        return;
+      }
+      const effectiveOverall = nba2k27EffectiveOverall(entry, sourcePlayer);
+      if (typeof effectiveOverall !== "number" || !Number.isFinite(effectiveOverall) || effectiveOverall < 40 || effectiveOverall > 99) {
+        result.invalidOverall++;
+        result.skippedDetails.push({ slug, reason: `invalid overall: ${effectiveOverall}` });
+        return;
+      }
+      // Effective team is used for validation only (createPlayer has no
+      // `team` field — the 2K26 schema never had one, so none is added
+      // here either) — an empty/missing one is not itself a reason to
+      // skip a player.
+      nba2k27EffectiveTeam(entry, sourcePlayer);
+
+      // Malformed variant metadata is cosmetic, never fatal — keep
+      // whatever is a valid non-empty string, drop what isn't.
+      const variantGroup = (typeof entry.variantGroupId === "string" && entry.variantGroupId.trim())
+        ? entry.variantGroupId.trim()
+        : undefined;
+
+      toAdd.push(createPlayer(generateId("pl"), {
+        name: effectiveName,
+        position,
+        overall: effectiveOverall,
+        pool: entry.pool,
+        variantGroup,
+        nba2kRef: slug,
+      }));
+      toAdd[toAdd.length - 1].seasonId = seasonId;
+    });
+
+    if (toAdd.length === 0) {
+      // Nothing new to add — still a normal, successful outcome (e.g.
+      // a rerun after everyone eligible was already seeded). No write
+      // is needed at all in this case.
+      result.seeded = 0;
+      return result;
+    }
+
+    toAdd.forEach((p) => { data.players[p.id] = p; });
+    season.playerPoolScope = seasonId;
+
+    try {
+      await FirebaseSync.saveAndConfirm(data);
+    } catch (err) {
+      throw new Error(`Seed failed — nothing was saved, safe to retry (${err && err.message ? err.message : err}).`);
+    }
+
+    result.seeded = toAdd.length;
+    return result;
+  },
+
+  /**
+   * NBA2K27 season-cutover emergency safety net — NOT a general player
+   * deletion tool. Undoes ONLY a season's own NBA2K27 seed: removes every
+   * `data.players` record whose `seasonId === seasonId`, and clears
+   * `season.playerPoolScope`. Nothing else is touched:
+   *   - never a 2K26 legacy player (they never carry `seasonId` at all)
+   *   - never a player seeded for a DIFFERENT season (different seasonId)
+   *   - never `nba2k27_pool` or `nba2k_players` (this function never
+   *     reads or writes Firestore collections outside league/main)
+   * Refuses outright if the season already has any draft picks — once a
+   * seeded player has actually been picked, removing their record out
+   * from under `playerDraftPicks`/`currentRosters` would corrupt draft
+   * history, which this function must never do. This is deliberately a
+   * pre-draft-only safety valve, not a way to undo an in-progress draft.
+   */
+  undoSeasonSeed(seasonId) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    if (!season.playerPoolScope) {
+      throw new Error("This season has no NBA2K27 seed to undo.");
+    }
+    if (season.playerDraftPicks && season.playerDraftPicks.length > 0) {
+      throw new Error("Cannot undo the seed — this season already has draft picks.");
+    }
+
+    let removed = 0;
+    Object.keys(data.players).forEach((id) => {
+      if (data.players[id].seasonId === season.playerPoolScope) {
+        delete data.players[id];
+        removed++;
+      }
+    });
+    season.playerPoolScope = undefined;
+    saveData(data);
+    return { removed };
   },
 
   // Participants
@@ -3401,13 +3655,15 @@ const AdminActions = {
     // phase it falls in exactly like a normal pick of the same pool — pool
     // (Green/Blue) and Joker status are unrelated player attributes, so
     // there is no special Blue+Joker interaction here.
-    if (player.pool === "blue") {
+    // White ("Classics", NBA2K27 season cutover) counts as Blue-like for
+    // this cap too — see isBlueLike().
+    if (isBlueLike(player)) {
       const inPhase1 = ownPickNumber <= 5;
       const priorBlueInThisPhase = ownPicks.filter((p, idx) => {
         const isPhase1Pick = idx < 5;
         if (isPhase1Pick !== inPhase1) return false;
         const priorPlayer = data.players[p.playerId];
-        return priorPlayer && priorPlayer.pool === "blue";
+        return priorPlayer && isBlueLike(priorPlayer);
       }).length;
       const phaseMax = inPhase1 ? MAX_BLUE_DRAFT_PHASE1 : MAX_BLUE_DRAFT_PHASE2_ADDITIONAL;
       if (priorBlueInThisPhase >= phaseMax) {

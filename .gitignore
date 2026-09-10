@@ -1,14 +1,15 @@
 # ── Dependencies ─────────────────────────────────────────────────────────
-# node_modules is already tracked in this repo. Adding it here does NOT
-# untrack it or remove anything — it only stops any NEW files under
-# node_modules/ from being staged by accident going forward (e.g. after
-# an `npm install` bump). See package.json for how to reinstall.
+# node_modules is already tracked in this repo (see chat notes) — adding
+# it here does NOT untrack it or remove anything. It only stops any NEW
+# files under node_modules/ from being staged by accident going forward
+# (e.g. after an `npm install` bump). See BACKUP_RESTORE.md / package.json
+# for how to reinstall.
 node_modules/
 functions/node_modules/
 
 # ── Firebase Admin credentials (NEVER commit these) ─────────────────────
-# scripts/lib/init-admin.js documents these patterns and never hardcodes
-# a key path — see that file for the credential resolution order.
+# scripts/lib/init-admin.js explicitly documents these patterns and never
+# hardcodes a key path — see that file for the credential resolution order.
 *.serviceAccountKey.json
 serviceAccountKey.json
 service-account*.json
