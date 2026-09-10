@@ -153,6 +153,10 @@ const AdminDraftView = {
             ${abbr ? `<span class="otc-team-name">${escapeHtml(LeagueData.getNBATeam(abbr)?.name || '')}</span>` : `<span class="otc-team-name muted">No NBA team assigned yet</span>`}
           </div>
         </div>
+        ${state.isBonusTurn ? `
+        <div class="info-banner" style="margin-top:0.5rem;padding:0.5rem 0.75rem;font-size:0.85rem;">
+          ⭐ ${state.picksNeededThisTurn} pick opportunities available this turn (earlier Skips banked some) — opportunity ${state.picksTakenThisTurn + 1} of ${state.picksNeededThisTurn}. Pick or Skip freely; a Skip here just banks another opportunity for next time.
+        </div>` : ''}
         <div class="otc-stats-grid">
           <div class="draft-status-chip">
             <span class="status-label">Round</span>
