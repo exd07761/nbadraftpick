@@ -105,26 +105,22 @@ function createSeason(id, name) {
     // over this file via ownPickNumber/roster-cap/position-state counts,
     // and must stay exactly as it always has been).
     // afterPickCount anchors each skip to its exact place in history: the
-    // length of playerDraftPicks at the moment the skip happened. Together
-    // with playerDraftPicks this lets computeDraftSchedule() below replay
-    // the full chronological sequence of turns (picks interleaved with
-    // skips) to figure out whose turn it is now, purely by derivation —
-    // same "nothing stored, everything computed on read" philosophy
-    // getDraftState already used before this revision.
+    // length of playerDraftPicks at the moment the skip happened.
+    //
+    // Revision 2: draftSkips is now PURELY informational/statistics —
+    // history of who skipped and when. It has NO effect on future turn
+    // requirements. Every turn slot in the base snake rotation resolves
+    // with exactly one event, a Pick or a Skip, and a Skip simply hands
+    // the turn to the next participant — see computeDraftSchedule().
     draftSkips: [],   // [{ participantId, round, afterPickCount, timestamp }]
 
-    // Explicit, human-readable record of each participant's pending
-    // future double-pick entitlement (see computeDraftSchedule) —
-    // { [participantId]: number }. This is a materialized snapshot of
-    // what computeDraftSchedule already derives from draftSkips/
-    // playerDraftPicks on every read; it is kept in sync by
-    // AdminActions.skipDraftPick/makeDraftPick/undoLastDraftPick purely
-    // so the entitlement is visible as its own named piece of state
-    // (rather than only implied by replaying history), per Revision 1's
-    // explicit requirement not to represent this as a bare turn-index
-    // manipulation. computeDraftSchedule's own replay remains the
-    // authoritative source of truth for whose turn it is.
-    bonusPicks: {},   // { [participantId]: number }
+    // Revision 2: the bonus-turn / double-pick entitlement mechanic that
+    // used to live here has been removed entirely — a previous skip no
+    // longer obligates a participant to any future extra pick. This field
+    // is kept (always `{}`) only so the season document's shape doesn't
+    // change for existing code/tooling that reads it; nothing ever
+    // populates it with entries anymore. See computeDraftSchedule().
+    bonusPicks: {},   // always {} as of Revision 2 — kept for shape stability only
 
     // ── Process 2: NBA Team Assignment ───────────────────────────────────────
     // Completely separate from Process 1. Second DuckRace result entered independently.
@@ -415,30 +411,29 @@ function ensureDraftSkipFields(season) {
 }
 
 /**
- * Derives whose turn it is in the live Phase 2 snake draft, accounting
- * for Skip/bonus-double-pick turns, by replaying the full chronological
- * history from scratch every time this is called. Nothing here is
+ * Derives whose turn it is in the live Phase 2 snake draft, by counting
+ * how many turn slots have already been resolved. Nothing here is
  * stored — same "derived every render" approach getDraftState already
  * used pre-Revision-1 — so a page refresh, an Undo, or a remote Firestore
  * update can never leave a stale turn pointer behind.
  *
- * Model: the base rotation (the existing, UNCHANGED snake formula — odd
- * rounds forward through playerDraftOrder, even rounds reversed) assigns
- * each of n participants exactly one "turn slot" per round, in order,
- * regardless of skips. A turn slot normally resolves with exactly one
- * pick. Skipping a slot resolves it immediately with zero picks and
- * grants that participant a pending bonus; the NEXT time the rotation
- * reaches that same participant's slot, it requires two picks in a row
- * (their normal pick, then the bonus pick) before the rotation advances
- * to the next participant. This is why "the skipped participant's next
- * scheduled turn becomes a double-pick turn" rather than an immediate
- * extra pick — the bonus is only resolved when the base rotation would
- * have given them a turn anyway.
+ * Model (Revision 2 — bonus/double-pick mechanic removed): the base
+ * rotation (the existing, UNCHANGED snake formula — odd rounds forward
+ * through playerDraftOrder, even rounds reversed) assigns each of n
+ * participants exactly one "turn slot" per round, in order. EVERY turn
+ * slot — no exceptions — resolves with exactly one event: a Pick or a
+ * Skip. A Skip does not grant any future entitlement; it simply hands
+ * the turn to the next participant in rotation, same as a Pick does.
+ * This means the number of turn slots already resolved is always just
+ * (picks made so far) + (skips made so far), regardless of the order
+ * picks and skips happened in — so whose turn it is now is pure
+ * arithmetic on that count, same as the pre-Revision-1 "old raw idx/n"
+ * formula, just counting skips as consuming a slot too.
  *
- * playerDraftPicks and draftSkips are merged into one chronological
- * timeline using each skip's afterPickCount (the picks-so-far count at
- * the moment it happened) as the interleave point, then that timeline is
- * consumed turn slot by turn slot.
+ * draftSkips itself is untouched by this — it remains a full,
+ * append-only history of every skip ever made (participant, round,
+ * afterPickCount, timestamp), used for stats/history display only. See
+ * its doc comment above for the historical-data guarantee.
  */
 function computeDraftSchedule(season) {
   const order = season.playerDraftOrder || [];
@@ -446,7 +441,11 @@ function computeDraftSchedule(season) {
   const picks = season.playerDraftPicks || [];
   const skips = season.draftSkips || [];
 
-  const bonusPicks = {}; // replayed fresh — see doc comment on season.bonusPicks
+  // Revision 2: the bonus-turn mechanic is gone. This is always {} now —
+  // kept in the return shape only so existing callers (UI, getDraftState,
+  // the dormant Supabase mirror) that read isBonusTurn/bonusPicks don't
+  // need to change; nothing ever sets these to anything else anymore.
+  const bonusPicks = {};
 
   if (n === 0) {
     return {
@@ -460,75 +459,24 @@ function computeDraftSchedule(season) {
     };
   }
 
-  // Merge picks + skips into one chronological timeline. For each point k
-  // (0..picks.length), any skip recorded with afterPickCount === k
-  // happened right before pick k+1 (or, if k === picks.length, is the
-  // most recent event of all).
-  const timeline = [];
-  let skipCursor = 0;
-  for (let k = 0; k <= picks.length; k++) {
-    while (skipCursor < skips.length && skips[skipCursor].afterPickCount === k) {
-      timeline.push({ type: "skip", participantId: skips[skipCursor].participantId });
-      skipCursor++;
-    }
-    if (k < picks.length) {
-      timeline.push({ type: "pick", pick: picks[k] });
-    }
-  }
+  // One event (pick or skip) resolves exactly one turn slot, so the
+  // number of fully-resolved slots is simply the total event count.
+  const turnIndex = picks.length + skips.length;
+  const round = Math.floor(turnIndex / n) + 1;
+  const posInRound = turnIndex % n;
+  const isEvenRound = round % 2 === 0;
+  const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
+  const currentParticipantId = order[orderIndex];
 
-  function baseTurnParticipant(turnIndex) {
-    const round = Math.floor(turnIndex / n) + 1;
-    const posInRound = turnIndex % n;
-    const isEvenRound = round % 2 === 0;
-    const orderIndex = isEvenRound ? n - 1 - posInRound : posInRound;
-    return { participantId: order[orderIndex], round };
-  }
-
-  let turnIndex = 0;
-  let eventPtr = 0;
-
-  while (true) {
-    const { participantId, round } = baseTurnParticipant(turnIndex);
-    const isBonusTurn = (bonusPicks[participantId] || 0) > 0;
-    const picksNeeded = isBonusTurn ? 2 : 1;
-
-    let takenThisTurn = 0;
-    let turnResolved = false;
-
-    while (takenThisTurn < picksNeeded && eventPtr < timeline.length) {
-      const ev = timeline[eventPtr];
-      if (ev.type === "skip") {
-        // A skip always resolves the whole slot immediately, whether or
-        // not it was a bonus turn — bonus turns aren't expected to be
-        // skippable (AdminActions.skipDraftPick rejects that), but if
-        // history ever contains one anyway, don't get stuck.
-        eventPtr++;
-        bonusPicks[participantId] = (bonusPicks[participantId] || 0) + 1;
-        takenThisTurn = picksNeeded;
-        turnResolved = true;
-        break;
-      }
-      eventPtr++;
-      takenThisTurn++;
-      if (takenThisTurn === picksNeeded) turnResolved = true;
-    }
-
-    if (!turnResolved) {
-      // Timeline exhausted mid-turn — this is the current, in-progress turn.
-      return {
-        turnIndex,
-        currentParticipantId: participantId,
-        currentRound: round,
-        isBonusTurn,
-        picksTakenThisTurn: takenThisTurn,
-        picksNeededThisTurn: picksNeeded,
-        bonusPicks,
-      };
-    }
-
-    if (isBonusTurn) bonusPicks[participantId] = 0; // entitlement consumed
-    turnIndex++;
-  }
+  return {
+    turnIndex,
+    currentParticipantId,
+    currentRound: round,
+    isBonusTurn: false,
+    picksTakenThisTurn: 0,
+    picksNeededThisTurn: 1,
+    bonusPicks,
+  };
 }
 
 /** Locates a player's current roster entry (and owner) across all participants. */
@@ -1921,9 +1869,9 @@ const LeagueData = {
     const totalPicksMade = picks.length;
     const availablePlayers = this.getAvailablePlayers(seasonId);
 
-    // Revision 1: turn/round/current-participant are now derived via
-    // computeDraftSchedule (replays playerDraftPicks + draftSkips) instead
-    // of the old raw idx/n arithmetic, so Skip/bonus-double-pick turns are
+    // Revision 1/2: turn/round/current-participant are derived via
+    // computeDraftSchedule (counts playerDraftPicks + draftSkips) instead
+    // of the pre-Revision-1 picks-only idx/n arithmetic, so Skip turns are
     // reflected correctly. Still fully derived, still nothing stored.
     const schedule = n > 0 ? computeDraftSchedule(season) : null;
     const currentParticipantId = schedule ? schedule.currentParticipantId : null;
@@ -3516,9 +3464,9 @@ const AdminActions = {
     }
 
     // Revision 1: who's on the clock (and which round) is now derived via
-    // computeDraftSchedule, which accounts for Skip/bonus-double-pick
-    // turns — see its doc comment. `pick` remains a simple incrementing
-    // counter of actual picks made, same meaning as before.
+    // computeDraftSchedule, which accounts for Skip turns — see its doc
+    // comment. `pick` remains a simple incrementing counter of actual
+    // picks made, same meaning as before.
     const schedule = computeDraftSchedule(season);
     if (!schedule.currentParticipantId) {
       throw new Error("No active turn — set the draft order first.");
@@ -3683,10 +3631,8 @@ const AdminActions = {
       ...(isJoker && { isJoker: true, jokerPosition }),
     });
 
-    // Refresh the bonusPicks mirror (see season.bonusPicks doc comment) now
-    // that this pick has been recorded — computeDraftSchedule replays the
-    // updated history and returns the authoritative, up-to-date entitlement
-    // map, whether this pick just consumed a bonus turn or not.
+    // bonusPicks stays {} as of Revision 2 — this refresh is kept only
+    // for shape/back-compat consistency with skipDraftPick/undoLastDraftPick.
     season.bonusPicks = computeDraftSchedule(season).bonusPicks;
 
     // ── A Draft Joker Pick carries NO fee of its own ────────────────────
@@ -3735,8 +3681,7 @@ const AdminActions = {
     if (season.draftComplete) {
       season.draftComplete = false;
     }
-    // Keep the bonusPicks mirror correct — e.g. undoing a bonus turn's
-    // 2nd pick should show that participant as still owed the bonus.
+    // Keep the bonusPicks mirror consistent (always {} as of Revision 2).
     ensureDraftSkipFields(season);
     if (season.playerDraftOrder.length) {
       season.bonusPicks = computeDraftSchedule(season).bonusPicks;
@@ -3760,11 +3705,15 @@ const AdminActions = {
    * has been, since ownPickNumber/roster-cap/position-state/Joker-window
    * logic all depend on it unchanged). Instead this is recorded in
    * draftSkips (its own append-only audit trail, mirroring
-   * playerDraftPicks), the draft immediately moves to the next
-   * participant (computeDraftSchedule advances past a skip
-   * automatically), and the skipping participant is credited a bonus
-   * pick — see season.bonusPicks and computeDraftSchedule's doc comment
-   * for exactly when and how that bonus turn is redeemed.
+   * playerDraftPicks), and the draft immediately moves to the next
+   * participant (computeDraftSchedule advances past a skip exactly like
+   * it advances past a pick).
+   *
+   * Revision 2: a Skip no longer creates any future entitlement — every
+   * turn is an independent Pick-or-Skip choice, with no limit on how
+   * many times a participant may skip, consecutively or otherwise, and
+   * no compensating extra pick owed later. See computeDraftSchedule's
+   * doc comment.
    */
   skipDraftPick(seasonId) {
     const data = loadData();
@@ -3783,14 +3732,6 @@ const AdminActions = {
     if (!schedule.currentParticipantId) {
       throw new Error("No active turn — there is nothing to skip.");
     }
-    if (schedule.isBonusTurn) {
-      // A bonus (double-pick) turn is the redemption of an earlier skip —
-      // it must be filled with its two picks, not skipped again, or the
-      // entitlement could compound indefinitely.
-      throw new Error(
-        "This is a bonus double-pick turn from an earlier skip — it must be filled with two picks, not skipped."
-      );
-    }
 
     season.draftSkips.push({
       participantId: schedule.currentParticipantId,
@@ -3799,9 +3740,8 @@ const AdminActions = {
       timestamp: new Date().toISOString(),
     });
 
-    // Refresh the bonusPicks mirror the same way makeDraftPick does —
-    // computeDraftSchedule replays the now-updated history to produce the
-    // authoritative entitlement map.
+    // bonusPicks stays {} as of Revision 2 — this refresh is kept only
+    // for shape/back-compat consistency with makeDraftPick/undoLastDraftPick.
     season.bonusPicks = computeDraftSchedule(season).bonusPicks;
 
     saveData(data);

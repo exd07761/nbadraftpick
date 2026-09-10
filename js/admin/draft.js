@@ -88,7 +88,7 @@ const AdminDraftView = {
           <div class="draft-topbar-actions">
             <button class="btn btn-ghost" id="btnUndoPick" ${state.totalPicksMade === 0 ? 'disabled' : ''}>Undo Last Pick</button>
             ${!state.draftComplete && state.currentParticipantId ? `
-            <button class="btn btn-ghost" id="btnSkipPick" ${state.isBonusTurn ? 'disabled title="Bonus double-pick turn — must be filled with two picks, not skipped"' : ''}>
+            <button class="btn btn-ghost" id="btnSkipPick">
               Skip
             </button>` : ''}
             ${state.draftComplete
@@ -153,10 +153,6 @@ const AdminDraftView = {
             ${abbr ? `<span class="otc-team-name">${escapeHtml(LeagueData.getNBATeam(abbr)?.name || '')}</span>` : `<span class="otc-team-name muted">No NBA team assigned yet</span>`}
           </div>
         </div>
-        ${state.isBonusTurn ? `
-        <div class="info-banner warn-banner" style="margin-top:0.5rem;padding:0.5rem 0.75rem;font-size:0.85rem;">
-          ⭐ Bonus double-pick turn (earned from an earlier Skip) — pick ${state.picksTakenThisTurn + 1} of ${state.picksNeededThisTurn}.
-        </div>` : ''}
         <div class="otc-stats-grid">
           <div class="draft-status-chip">
             <span class="status-label">Round</span>
