@@ -1,0 +1,17 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "league",
+      "fieldPath": "players",
+      "ttl": false,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "league",
+      "fieldPath": "seasons",
+      "ttl": false,
+      "indexes": []
+    }
+  ]
+}
