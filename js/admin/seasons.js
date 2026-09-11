@@ -72,7 +72,7 @@ const AdminSeasonsView = {
     container.querySelector('#btnCancelSeason').onclick = () => {
       container.querySelector('#newSeasonForm').classList.add('hidden');
     };
-    container.querySelector('#btnCreateSeason').onclick = () => {
+    container.querySelector('#btnCreateSeason').onclick = async () => {
       AuthBoundary.requireAuth();
       const name = container.querySelector('#newSeasonName').value.trim();
       if (!name) { showToast('Enter a season name.', 'error'); return; }
@@ -89,13 +89,73 @@ const AdminSeasonsView = {
       if (freeTradesVal !== '') financialSettings.freeTrades = freeTradesVal;
       if (freeSwapsVal !== '') financialSettings.freeSwaps = freeSwapsVal;
 
+      const scopePool = container.querySelector('#newSeasonScopePool').checked;
+      const createBtn = container.querySelector('#btnCreateSeason');
+
+      // Guard against double-submission for the whole operation (creation,
+      // and — for an NBA2K27-scoped season — the automatic seed that
+      // follows it). Unscoped/non-NBA2K27 creation is otherwise completely
+      // unchanged: it still just creates the season and re-renders.
+      createBtn.disabled = true;
+      createBtn.textContent = 'Creating…';
+
+      let season;
       try {
-        const scopePool = container.querySelector('#newSeasonScopePool').checked;
-        AdminActions.createSeason(name, financialSettings, scopePool);
-        showToast(`"${name}" created.`, 'success');
-        AdminApp.renderView('seasons');
+        season = AdminActions.createSeason(name, financialSettings, scopePool);
       } catch (e) {
         showToast(e.message, 'error');
+        createBtn.disabled = false;
+        createBtn.textContent = 'Create';
+        return;
+      }
+
+      if (!scopePool) {
+        // Unscoped season (e.g. NBA2K26 / any non-seeded season) — identical
+        // to prior behavior, no auto-seed step.
+        showToast(`"${name}" created.`, 'success');
+        AdminApp.renderView('seasons');
+        return;
+      }
+
+      // NBA2K27-scoped season: reuse the existing, unmodified seeding
+      // logic automatically. Wait for the season-creation write to be
+      // confirmed first so the two whole-document /league/main writes
+      // never race each other, and so seeding never proceeds against a
+      // creation write that actually failed (waitForPendingSave() now
+      // rejects in that case instead of silently resolving).
+      createBtn.textContent = 'Seeding…';
+      let creationConfirmed = false;
+      try {
+        await FirebaseSync.waitForPendingSave();
+        creationConfirmed = true;
+        const result = await AdminActions.seedSeasonFromNba2k27Pool(season.id);
+        showToast(`"${name}" created and seeded ${result.seeded} player(s).`, 'success');
+        AdminApp.renderView('seasons');
+        // renderView() above rebuilds the seasons table (and #seedResultPanel)
+        // from scratch, so the result panel is populated after that render,
+        // the same way the manual "Seed NBA2K27 Pool" action populates it.
+        const panel = document.querySelector('#seedResultPanel');
+        if (panel) panel.innerHTML = renderSeedResult(name, result);
+      } catch (e) {
+        if (!creationConfirmed) {
+          // The season-creation write itself failed. It still exists in the
+          // optimistic local cache/UI (save() always updates that
+          // synchronously), but it is NOT confirmed saved to Firestore, and
+          // seeding was correctly never attempted. Don't claim it was
+          // "created" — tell the admin the cloud write failed so they know
+          // to verify/retry rather than assume the season is safely stored.
+          showToast(`"${name}" may not have saved — the cloud write failed: ${e.message}. Seeding was not attempted. Check the Seasons list and retry if needed.`, 'error');
+        } else {
+          // Season creation already succeeded and is NOT rolled back — it
+          // exists with playerPoolScope set and no players yet, which is the
+          // same valid intermediate state the manual flow always allowed.
+          // Say so explicitly rather than implying the season is draft-ready,
+          // and leave the existing manual "Seed NBA2K27 Pool" button (shown
+          // for any playerPoolScope season with no draft picks) as the retry
+          // path — nothing else to wire up for that.
+          showToast(`"${name}" was created, but automatic seeding failed: ${e.message}. Use "Seed NBA2K27 Pool" to retry.`, 'error');
+        }
+        AdminApp.renderView('seasons');
       }
     };
 

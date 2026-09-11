@@ -1637,6 +1637,19 @@ const FirebaseSync = (() => {
   let _readyResolve;
   const ready = new Promise((resolve) => { _readyResolve = resolve; });
   const remoteChangeListeners = [];
+  // Tracks the in-flight fire-and-forget save() write, if any, so a caller
+  // that needs to sequence a second write after it (NBA2K27 auto-seed on
+  // season creation — see AdminSeasonsView) can explicitly wait for it to
+  // land instead of relying on implicit same-client write ordering. This is
+  // the *raw* docRef().set() promise (not the swallowed one save() reports
+  // through), so it rejects when the write actually fails — callers awaiting
+  // it via waitForPendingSave() find out whether the save succeeded, not
+  // just that it settled. save()'s own error reporting (console/toast)
+  // is attached to this same promise separately below, so a caller that
+  // never calls waitForPendingSave() still gets no unhandled-rejection
+  // warning — the promise already has a handler either way. Starts
+  // resolved so waiting before any save() has ever run is a no-op.
+  let _lastSavePromise = Promise.resolve();
 
   function docRef() {
     return firebase.firestore().collection("league").doc("main");
@@ -1705,12 +1718,39 @@ const FirebaseSync = (() => {
     },
     save(data) {
       _cache = data; // optimistic local update, synchronous — see saveData() below
-      docRef().set(data).catch((err) => {
+      const writePromise = docRef().set(data);
+      // Store the raw (un-swallowed) write promise so waitForPendingSave()
+      // can observe a real failure. Attaching this .catch() directly to
+      // writePromise (rather than deriving _lastSavePromise FROM a .catch()
+      // chain, as before) keeps save() itself fire-and-forget and its
+      // existing error reporting intact, while leaving writePromise's
+      // rejection visible to any other consumer — a rejected promise can
+      // have more than one handler attached; each one (this .catch(), and
+      // whatever waitForPendingSave() callers do with it) is notified
+      // independently, and attaching this one synchronously here is enough
+      // to prevent an unhandled-rejection warning even if nobody ever calls
+      // waitForPendingSave().
+      writePromise.catch((err) => {
         console.error("[FirebaseSync] Cloud save failed:", err);
         if (typeof showToast === "function") {
           showToast("Saved locally, but the cloud sync failed — check your connection.", "error");
         }
       });
+      _lastSavePromise = writePromise;
+    },
+    /**
+     * Resolves once the most recently issued save() write has landed, or
+     * rejects with the underlying Firestore error if it failed (see
+     * save() above — the same rejection also drives its own toast/console
+     * reporting, independently). Does not resolve early for
+     * saveAndConfirm() calls, which already return their own awaitable
+     * promise directly to their caller. Additive only — no existing caller
+     * of save()/saveData() is changed; this just exposes a way for a NEW
+     * caller to opt into sequencing AND find out whether that prior save
+     * actually succeeded.
+     */
+    waitForPendingSave() {
+      return _lastSavePromise;
     },
     /**
      * Additive, awaited variant of save() for operations where silently
