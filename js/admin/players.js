@@ -58,8 +58,14 @@ const AdminPlayersView = {
     // Everything else (including every pre-existing player, which has
     // no `edition` field at all) counts as archived/legacy — see
     // isLegacyEditionPlayer() in data.js for the exact rule.
-    const activeCount = allPlayers.filter(p => !isLegacyEditionPlayer(p)).length;
-    const archivedCount = allPlayers.length - activeCount;
+    // Duplicate-2K27-copies fix: `activeCount` is now the DEDUPLICATED
+    // count (see _editionCounts()/_dedupeActiveEditionPlayers() below),
+    // not a plain filter().length, so it matches what the Active tab
+    // actually displays. `archivedCount` is computed directly (not by
+    // `allPlayers.length - activeCount`) since that subtraction would be
+    // wrong now that activeCount no longer equals the raw active filter
+    // count.
+    const { activeCount, archivedCount } = this._editionCounts(allPlayers);
 
     container.innerHTML = `
       <div class="admin-section">
@@ -236,10 +242,100 @@ const AdminPlayersView = {
 
   // Audit Phase 2 — pure display filter, applied before the existing
   // green/blue pool split. 'all' (default) returns players unchanged.
+  // Duplicate-2K27-copies fix: the 'active' branch additionally
+  // deduplicates repeated seasonal copies of the same NBA2K27 source
+  // record — see _dedupeActiveEditionPlayers() for the exact rule. This
+  // is the ONE place that decides what "active" means for display, so
+  // every caller (render()'s tab/grid/badges, _refreshPane(), the CSV
+  // import refresh) automatically stays consistent with each other.
   _editionFiltered(players) {
-    if (this._editionFilter === 'active') return players.filter(p => !isLegacyEditionPlayer(p));
+    if (this._editionFilter === 'active') {
+      return this._dedupeActiveEditionPlayers(players.filter(p => !isLegacyEditionPlayer(p)));
+    }
     if (this._editionFilter === 'archived') return players.filter(p => isLegacyEditionPlayer(p));
     return players;
+  },
+
+  /**
+   * Duplicate-2K27-copies fix (display-layer only — never touches
+   * data.players, never mutates a player object, never performs a
+   * Firestore write).
+   *
+   * WHY THIS EXISTS: NBA2K27 season seeding intentionally creates a NEW,
+   * season-scoped player record every time a season is seeded from the
+   * same nba2k27_pool source (see AdminActions.seedSeasonFromNba2k27Pool
+   * in js/data.js — unchanged by this fix). Across multiple seasons, the
+   * exact same source card can legitimately exist as many separate
+   * `league/main.players` records, all with `edition: "2K27"`. Historical
+   * player IDs are referenced by old season rosters/picks, so none of
+   * those records can ever be deleted/merged/rewritten — but showing all
+   * of them in the "Active — NBA 2K27" tab makes the current pool look
+   * like it has thousands of duplicates, when the actual distinct source
+   * pool is much smaller.
+   *
+   * IDENTITY KEY: `nba2kRef` — the slug of the source nba2k27_pool/
+   * nba2k_players record — NOT `name`. A real player can legitimately
+   * have multiple distinct 2K27 cards/variants (different `nba2kRef`
+   * values, e.g. different season/team variants); those must NOT collapse
+   * into one row. Only records sharing the exact same `nba2kRef` are
+   * duplicates of each other. A player with no `nba2kRef` (shouldn't
+   * happen for a genuinely-2K27 record, since seedSeasonFromNba2k27Pool
+   * always sets both together, but handled defensively) has no
+   * dedup-relevant identity and is passed straight through untouched, one
+   * row per record, never collapsed against anything else.
+   *
+   * WHICH RECORD WINS: for each `nba2kRef`, prefer whichever copy belongs
+   * to the CURRENT season (`LeagueData.getCurrentSeasonId()` — the
+   * existing settings.currentSeasonId accessor; no new global API added).
+   * If neither remaining candidate belongs to the current season (e.g.
+   * viewing this page with no current season set, or the current
+   * season's copy of this particular card was itself deleted), fall back
+   * to the record with the lexicographically smallest `id` — a stable,
+   * fully deterministic choice (ids are opaque generateId() strings, but
+   * comparing them as strings is 100% reproducible across renders) rather
+   * than "whichever the map iteration happened to see first".
+   *
+   * Takes an already-filtered array of ACTIVE (non-legacy) players only —
+   * callers must filter with isLegacyEditionPlayer() first (see
+   * _editionFiltered() above) so archived/legacy 2K26 records are never
+   * even passed in here, and can never be deduplicated against a 2K27
+   * record.
+   */
+  _dedupeActiveEditionPlayers(activePlayers) {
+    const currentSeasonId = LeagueData.getCurrentSeasonId();
+    const bestByRef = new Map();
+    let noRefSeq = 0;
+    activePlayers.forEach(p => {
+      if (!p.nba2kRef) {
+        bestByRef.set(`__no_ref_${noRefSeq++}__`, p); // unique key — never collides, never deduped
+        return;
+      }
+      const existing = bestByRef.get(p.nba2kRef);
+      if (!existing) { bestByRef.set(p.nba2kRef, p); return; }
+      const existingIsCurrent = !!currentSeasonId && existing.seasonId === currentSeasonId;
+      const candidateIsCurrent = !!currentSeasonId && p.seasonId === currentSeasonId;
+      if (candidateIsCurrent && !existingIsCurrent) { bestByRef.set(p.nba2kRef, p); return; }
+      if (existingIsCurrent && !candidateIsCurrent) { return; } // keep existing
+      // Neither (or, in principle, both — shouldn't happen since a
+      // season can only be seeded once per nba2kRef without an explicit
+      // undo — see undoSeasonSeed) is the current season's copy:
+      // deterministic string-id fallback, never a random/iteration-order
+      // pick.
+      if (String(p.id) < String(existing.id)) { bestByRef.set(p.nba2kRef, p); }
+    });
+    return Array.from(bestByRef.values());
+  },
+
+  /**
+   * Single source of truth for the Active/Archived legend + tab counts,
+   * used by both render() and the post-CSV-import refresh — so the two
+   * spots can never drift out of sync with each other or with what
+   * _editionFiltered() actually displays.
+   */
+  _editionCounts(allPlayers) {
+    const archivedCount = allPlayers.filter(p => isLegacyEditionPlayer(p)).length;
+    const activeCount = this._dedupeActiveEditionPlayers(allPlayers.filter(p => !isLegacyEditionPlayer(p))).length;
+    return { activeCount, archivedCount };
   },
 
   _bindEditionFilterEvents(container) {
@@ -670,8 +766,7 @@ const AdminPlayersView = {
       if (blueCount) blueCount.textContent = allPlayers.filter(p => p.pool === 'blue').length;
       const editionTabs = container.querySelectorAll('#editionFilterTabs .pool-tab');
       if (editionTabs.length === 3) {
-        const activeCount = rawAllPlayers.filter(p => !isLegacyEditionPlayer(p)).length;
-        const archivedCount = rawAllPlayers.length - activeCount;
+        const { activeCount, archivedCount } = this._editionCounts(rawAllPlayers);
         editionTabs[0].querySelector('.pool-tab-count').textContent = rawAllPlayers.length;
         editionTabs[1].querySelector('.pool-tab-count').textContent = activeCount;
         editionTabs[2].querySelector('.pool-tab-count').textContent = archivedCount;
