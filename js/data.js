@@ -1539,7 +1539,7 @@ function isPlayoffItemDownstreamLocked(playoffs, itemId, kind) {
  * silently groups unrelated players — see makeDraftPick's `if
  * (player.variantGroup)` truthiness check, which relies on this.
  */
-function createPlayer(id, { name, position, overall, pool, variantGroup, nba2kRef }) {
+function createPlayer(id, { name, position, overall, pool, variantGroup, nba2kRef, edition }) {
   return {
     id,
     name,        // e.g. "M. JORDAN" or "LEBRON JAMES (PRIME)"
@@ -1554,7 +1554,52 @@ function createPlayer(id, { name, position, overall, pool, variantGroup, nba2kRe
     // this, so it's `undefined` for them exactly like `pool`/`variantGroup`
     // already are when omitted — no schema change for any existing player.
     nba2kRef: nba2kRef || undefined,
+    // NBA2K27 archive/active audit, Phase 2 — optional edition marker.
+    // 'edition: "2K27"' is set ONLY by AdminActions.seedSeasonFromNba2k27Pool
+    // (the one caller that passes it). Every other existing caller (manual
+    // Add Player form, CSV import, the single-player 2K26 promotion flow in
+    // Nba2kDatabaseView) never passes this, so it stays `undefined` exactly
+    // like `pool`/`variantGroup`/`nba2kRef` already do when omitted — no
+    // schema change, no behavior change, for any existing player. Per the
+    // approved plan, `undefined` (and the literal string "2K26", never
+    // written by any code path today) both mean legacy/2K26 for display
+    // purposes — see isLegacyEditionPlayer() below. No backfill of existing
+    // records is performed or required.
+    edition: edition || undefined,
   };
+}
+
+/**
+ * NBA2K27 archive/active audit, Phase 2 — single source of truth for "is
+ * this player legacy/2K26 for archive-UI purposes". Order of precedence:
+ *   1. `edition === "2K27"` -> active (the normal case going forward —
+ *      every player seedSeasonFromNba2k27Pool creates from here on).
+ *   2. `edition === "2K26"` -> legacy (never written by any code path
+ *      today, but honored in case it ever is).
+ *   3. No `edition` field at all, but `seasonId` AND `nba2kRef` are both
+ *      set -> active. Compatibility fix: ~744 real production players
+ *      were promoted by seedSeasonFromNba2k27Pool BEFORE this `edition`
+ *      field existed, so they carry no `edition` even though they are
+ *      genuinely 2K27. Treating every missing-`edition` record as legacy
+ *      (the original Phase 2 rule) would have silently reclassified all
+ *      of them as archived. `seasonId && nba2kRef` is exactly the
+ *      signature only seedSeasonFromNba2k27Pool ever produces (see that
+ *      function) — no other player-creation path sets both.
+ *   4. Everything else (no edition, and not both seasonId+nba2kRef) ->
+ *      legacy — every pre-existing 2K26 record, and any future manual
+ *      Add Player/CSV import/single-player 2K26 promotion.
+ * This is a pure, read-only classification helper — it never writes
+ * anything and is never used by draft/swap eligibility (those remain
+ * governed entirely by `playerPoolScope`/`seasonId`, unchanged — see
+ * getAvailablePlayers/getDraftPoolStatus/getSwapEligibleReplacements).
+ * It exists solely for js/admin/players.js's archive/active display.
+ */
+function isLegacyEditionPlayer(player) {
+  if (!player) return true;
+  if (player.edition === "2K27") return false;
+  if (player.edition === "2K26") return true;
+  if (player.seasonId && player.nba2kRef) return false;
+  return true;
 }
 
 /**
@@ -2916,6 +2961,18 @@ const LeagueData = {
    * roster location. (A pool player can never itself be flagged isJoker —
    * that only exists on a live currentRosters entry — so this is always
    * exactly their true RED/YELLOW identity, with nothing to unwrap.)
+   *
+   * Audit Phase 2 fix: this function previously searched the ENTIRE
+   * `data.players` map with no regard for `season.playerPoolScope` — a
+   * 2K27-scoped season's swap-replacement search could surface legacy
+   * 2K26 players and 2K27 players seeded for a DIFFERENT season as valid
+   * targets. Now mirrors the exact same scoping rule already used by
+   * getAvailablePlayers/getDraftPoolStatus above: when `playerPoolScope`
+   * is set, only players with `seasonId === playerPoolScope` are
+   * considered. When it's unset (every pre-existing/unscoped season,
+   * including every historical NBA2K26 season), this is a no-op and
+   * behavior is byte-for-byte identical to before this fix — same
+   * function, same isolated change, nothing else touched.
    */
   getSwapEligibleReplacements(seasonId, pool) {
     const season = this.getSeason(seasonId);
@@ -2925,7 +2982,11 @@ const LeagueData = {
     Object.values(season.currentRosters || {}).forEach((entries) => {
       entries.forEach((e) => ownedIds.add(e.playerId));
     });
-    return Object.values(data.players)
+    let candidates = Object.values(data.players);
+    if (season.playerPoolScope) {
+      candidates = candidates.filter((p) => p.seasonId === season.playerPoolScope);
+    }
+    return candidates
       .filter((p) => !ownedIds.has(p.id) && (!pool || p.pool === pool))
       .map((p) => ({ ...p, classification: getPlayerClassificationInfo(season, p.id).classification }));
   },
@@ -3368,6 +3429,10 @@ const AdminActions = {
         pool: entry.pool,
         variantGroup,
         nba2kRef: slug,
+        // Audit Phase 2: the ONLY call site in the codebase that sets
+        // `edition` — marks every player this function seeds as active
+        // NBA2K27. No other field/behavior of this function changes.
+        edition: "2K27",
       }));
       toAdd[toAdd.length - 1].seasonId = seasonId;
     });

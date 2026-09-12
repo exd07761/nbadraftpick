@@ -41,10 +41,25 @@ const AdminPlayersView = {
   _filter: '',
   _sortMode: 'ovr-desc',
   _activePool: 'green',
+  // Audit Phase 2 — archive/active edition filter. 'all' (default) shows
+  // everything exactly as before this change; 'active'/'archived' narrow
+  // the pool-tab contents below. Purely a display filter over the SAME
+  // LeagueData.getAllPlayers() list — never deletes, moves, or rewrites
+  // anything in data.players. Defaulting to 'all' means nothing is
+  // hidden until the commissioner explicitly chooses to filter.
+  _editionFilter: 'all',
 
   render(container) {
     const allPlayers = LeagueData.getAllPlayers();
     const unassignedCount = allPlayers.filter(p => !p.pool).length;
+    // Audit Phase 2 — counts for the archive/active legend below. A
+    // player is "active" only when isLegacyEditionPlayer() is false,
+    // i.e. edition === "2K27" (set only by seedSeasonFromNba2k27Pool).
+    // Everything else (including every pre-existing player, which has
+    // no `edition` field at all) counts as archived/legacy — see
+    // isLegacyEditionPlayer() in data.js for the exact rule.
+    const activeCount = allPlayers.filter(p => !isLegacyEditionPlayer(p)).length;
+    const archivedCount = allPlayers.length - activeCount;
 
     container.innerHTML = `
       <div class="admin-section">
@@ -130,9 +145,28 @@ const AdminPlayersView = {
 
         <div class="player-db-header" style="margin-top:1.75rem;">
           <p class="player-db-subtitle">
-            Green Pool are active NBA 2K26 players. Blue Pool are legendary and other prime versions.
+            Green Pool and Blue Pool group players by rating tier. Separately,
+            <strong>${activeCount}</strong> player(s) are Active (promoted from the NBA 2K27 pool)
+            and <strong>${archivedCount}</strong> are Archived (legacy NBA 2K26 / manually-added
+            records) — archived players are kept in full for historical seasons/rosters and are
+            never deleted; use the filter below to focus on one or the other.
             ${unassignedCount ? `${unassignedCount} player(s) have no pool set and are not shown in either tab below — set Pool when adding/importing to bring them into view.` : ''}
           </p>
+        </div>
+
+        <!-- Audit Phase 2: Active (2K27) / Archived (2K26) display filter.
+             Display-only — narrows which players _renderPoolTabs shows,
+             never touches data.players. Defaults to "All". -->
+        <div class="pool-tabs" id="editionFilterTabs" style="margin-top:0.75rem;">
+          <button type="button" class="pool-tab ${this._editionFilter === 'all' ? 'active' : ''}" data-edition="all">
+            All <span class="pool-tab-count">${allPlayers.length}</span>
+          </button>
+          <button type="button" class="pool-tab ${this._editionFilter === 'active' ? 'active' : ''}" data-edition="active">
+            Active — NBA 2K27 <span class="pool-tab-count">${activeCount}</span>
+          </button>
+          <button type="button" class="pool-tab ${this._editionFilter === 'archived' ? 'active' : ''}" data-edition="archived">
+            Archived — NBA 2K26 <span class="pool-tab-count">${archivedCount}</span>
+          </button>
         </div>
 
         <!-- Search + sort + count -->
@@ -144,10 +178,10 @@ const AdminPlayersView = {
             <option value="ovr-asc" ${this._sortMode === 'ovr-asc' ? 'selected' : ''}>Sort: OVR (Low–High)</option>
             <option value="name-asc" ${this._sortMode === 'name-asc' ? 'selected' : ''}>Sort: Name (A–Z)</option>
           </select>
-          <span class="player-count">${allPlayers.length} players in database</span>
+          <span class="player-count">${this._editionFiltered(allPlayers).length} players shown</span>
         </div>
 
-        ${this._renderPoolTabs(allPlayers)}
+        ${this._renderPoolTabs(this._editionFiltered(allPlayers))}
       </div>`;
 
     // Wire up search
@@ -161,10 +195,60 @@ const AdminPlayersView = {
     };
 
     this._bindFormEvents(container);
+    this._bindEditionFilterEvents(container);
     this._bindPoolTabEvents(container);
     this._bindTableEvents(container);
     this._bindImportEvents(container);
     this._bindDeleteAllEvents(container);
+    this._applyEditionBadges(container, this._editionFiltered(allPlayers));
+  },
+
+  /**
+   * Audit Phase 2 — per-row Active(2K27)/Archived(2K26) badge. Applied as
+   * a DOM post-process step (find each already-rendered
+   * `.pos-table-row[data-player-id]` and append a small badge into its
+   * `.pos-name`) rather than by changing shared-utils.js's
+   * positionPoolGrid()/_positionPoolRow() — that component is also used,
+   * unchanged, by the public Players page and the admin Draft page, and
+   * this feature is scoped to the admin Player Database page only. Purely
+   * cosmetic: never touches `player` data, never re-orders/hides rows
+   * (hiding is handled separately, before rendering, by
+   * _editionFiltered()).
+   */
+  _applyEditionBadges(container, players) {
+    const byId = new Map(players.map(p => [p.id, p]));
+    container.querySelectorAll('.pos-table-row[data-player-id]').forEach(row => {
+      const player = byId.get(row.dataset.playerId);
+      const nameEl = row.querySelector('.pos-name');
+      if (!player || !nameEl) return;
+      const existing = nameEl.querySelector('.edition-badge');
+      if (existing) existing.remove(); // re-render: avoid stacking duplicates
+      const legacy = isLegacyEditionPlayer(player);
+      const badge = document.createElement('span');
+      badge.className = `edition-badge ${legacy ? 'edition-badge-archived' : 'edition-badge-active'}`;
+      badge.textContent = legacy ? '2K26 ARCHIVED' : '2K27 ACTIVE';
+      badge.style.cssText = legacy
+        ? 'margin-left:0.4rem;font-size:0.62rem;font-weight:700;padding:0.05rem 0.35rem;border-radius:3px;vertical-align:middle;background:#3a3a3a;color:#bbbbbb;letter-spacing:0.02em;'
+        : 'margin-left:0.4rem;font-size:0.62rem;font-weight:700;padding:0.05rem 0.35rem;border-radius:3px;vertical-align:middle;background:#1f7a4d;color:#eafff2;letter-spacing:0.02em;';
+      nameEl.appendChild(badge);
+    });
+  },
+
+  // Audit Phase 2 — pure display filter, applied before the existing
+  // green/blue pool split. 'all' (default) returns players unchanged.
+  _editionFiltered(players) {
+    if (this._editionFilter === 'active') return players.filter(p => !isLegacyEditionPlayer(p));
+    if (this._editionFilter === 'archived') return players.filter(p => isLegacyEditionPlayer(p));
+    return players;
+  },
+
+  _bindEditionFilterEvents(container) {
+    container.querySelectorAll('#editionFilterTabs .pool-tab').forEach(tab => {
+      tab.onclick = () => {
+        this._editionFilter = tab.dataset.edition;
+        this.render(container); // full re-render — counts/legend and tabs all depend on this filter
+      };
+    });
   },
 
   // ── Phase 10: Green Pool / Blue Pool tabs — no Unassigned tab is ever
@@ -189,18 +273,24 @@ const AdminPlayersView = {
   },
 
   _refreshPane(container) {
-    const allPlayers = LeagueData.getAllPlayers();
+    const allPlayers = this._editionFiltered(LeagueData.getAllPlayers());
     const pool = this._activePool;
     const poolPlayers = allPlayers.filter(p => p.pool === pool);
     container.querySelector('#poolPaneWrapper').innerHTML = this._renderGrid(poolPlayers);
     this._bindTableEvents(container);
+    this._applyEditionBadges(container, allPlayers);
   },
 
   _bindPoolTabEvents(container) {
-    container.querySelectorAll('.pool-tab').forEach(tab => {
+    // Audit Phase 2 note: scoped to `[data-pool]` specifically — the new
+    // #editionFilterTabs buttons reuse the same `.pool-tab` CSS class for
+    // visual consistency but carry `data-edition`, not `data-pool`, so
+    // this selector (and its own toggle-active loop below) must not also
+    // match/rebind them; see _bindEditionFilterEvents, which owns those.
+    container.querySelectorAll('.pool-tab[data-pool]').forEach(tab => {
       tab.onclick = () => {
         this._activePool = tab.dataset.pool;
-        container.querySelectorAll('.pool-tab').forEach(t => t.classList.toggle('active', t === tab));
+        container.querySelectorAll('.pool-tab[data-pool]').forEach(t => t.classList.toggle('active', t === tab));
         this._refreshPane(container);
       };
     });
@@ -564,13 +654,28 @@ const AdminPlayersView = {
 
       // Refresh the counts + grid in place so they reflect the newly
       // added players without collapsing the import panel above.
-      const allPlayers = LeagueData.getAllPlayers();
+      // CSV-imported players never carry `edition` (importPlayersFromCSV
+      // never sets it — same as before this audit), so they always land
+      // in the archived/legacy bucket; the edition-filter tab counts and
+      // legend text (rendered once at page-render time) can genuinely go
+      // stale after an import, so they're refreshed here too, not just
+      // the existing pool-tab counts.
+      const rawAllPlayers = LeagueData.getAllPlayers();
+      const allPlayers = this._editionFiltered(rawAllPlayers);
       const countEl = container.querySelector('.player-count');
-      if (countEl) countEl.textContent = `${allPlayers.length} players in database`;
+      if (countEl) countEl.textContent = `${allPlayers.length} players shown`;
       const greenCount = container.querySelector('.pool-tab-green .pool-tab-count');
       const blueCount = container.querySelector('.pool-tab-blue .pool-tab-count');
       if (greenCount) greenCount.textContent = allPlayers.filter(p => p.pool === 'green').length;
       if (blueCount) blueCount.textContent = allPlayers.filter(p => p.pool === 'blue').length;
+      const editionTabs = container.querySelectorAll('#editionFilterTabs .pool-tab');
+      if (editionTabs.length === 3) {
+        const activeCount = rawAllPlayers.filter(p => !isLegacyEditionPlayer(p)).length;
+        const archivedCount = rawAllPlayers.length - activeCount;
+        editionTabs[0].querySelector('.pool-tab-count').textContent = rawAllPlayers.length;
+        editionTabs[1].querySelector('.pool-tab-count').textContent = activeCount;
+        editionTabs[2].querySelector('.pool-tab-count').textContent = archivedCount;
+      }
       this._refreshPane(container);
     };
   },
