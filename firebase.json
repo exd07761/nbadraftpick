@@ -11,5 +11,26 @@
         "node scripts/sync-functions-lib.js"
       ]
     }
-  ]
+  ],
+  "hosting": {
+    "site": "nbadraftpick",
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "backups/**",
+      "functions/**",
+      "scripts/**",
+      "tests_*/**",
+      "test_*/**",
+      "dgggg",
+      "README.md",
+      "BACKUP_RESTORE.md",
+      "package.json",
+      "package-lock.json",
+      "*.patch",
+      "New folder/**"
+    ]
+  }
 }
