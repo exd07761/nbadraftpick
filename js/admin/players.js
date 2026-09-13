@@ -70,7 +70,36 @@ const AdminPlayersView = {
     container.innerHTML = `
       <div class="admin-section">
         <div class="admin-section-header">
-          <h2>Player Database</h2>
+          <h2>Players</h2>
+        </div>
+
+        <!-- Phase 3 UI merge: NBA 2K27 Pool management, delegated to the
+             EXISTING Nba2k27PoolView (js/admin/nba2k-database.js) — full
+             render delegation, not a reimplementation. This mount div is
+             the ONLY thing this file adds for that section; everything
+             inside it (Initialize/Validate/pool tabs/search/sort/grid,
+             the #nba2k27mgmtEdit/#nba2k27mgmtConfirm mount points
+             _openManualEdit()/_showRemoveConfirm() require, and the
+             #nba2kDetailMount the shared detail modal needs) is created
+             by Nba2k27PoolView._renderShell() itself, unmodified — see
+             _mountNba2k27Pool() below. Nba2k27PoolView.render() calls
+             Nba2kDatabaseView._ensureLoaded() itself the first time it's
+             ever opened in this session (loads nba2k_players +
+             nba2k27_pool into the shared cache both admin 2K27 views
+             read), so this file never needs to call that separately. -->
+        <div class="players-nba2k27-primary" id="playersNba2k27PoolMount"></div>
+
+        <hr class="players-section-divider" style="margin:2rem 0;border:none;border-top:1px solid var(--border-light, rgba(255,255,255,0.12));">
+
+        <!-- Historical / Legacy Players — everything below this line is
+             the pre-Phase-3 "Player Database" page, completely unchanged
+             (Audit Phase 2 edition filter + dedup, Add Player, CSV
+             import, per-record Edit/Delete, Delete All), just relocated
+             into its own secondary, clearly-labeled section under the
+             now-primary NBA 2K27 Pool section above. -->
+        <div class="players-historical-section">
+        <div class="admin-section-header">
+          <h3>Historical / Legacy Players</h3>
           <div class="header-actions">
             <button class="btn btn-ghost" id="btnShowAddPlayer">+ Add Player</button>
             <button class="btn btn-primary" id="btnShowImport">↑ Import CSV</button>
@@ -188,6 +217,7 @@ const AdminPlayersView = {
         </div>
 
         ${this._renderPoolTabs(this._editionFiltered(allPlayers))}
+        </div>
       </div>`;
 
     // Wire up search
@@ -207,6 +237,59 @@ const AdminPlayersView = {
     this._bindImportEvents(container);
     this._bindDeleteAllEvents(container);
     this._applyEditionBadges(container, this._editionFiltered(allPlayers));
+    this._mountNba2k27Pool(container);
+  },
+
+  /**
+   * Phase 3 UI merge — mounts the EXISTING Nba2k27PoolView unmodified
+   * into this page's own `#playersNba2k27PoolMount` div. This is a full
+   * render delegation, not a reimplementation: `_openManualEdit()`,
+   * `_showRemoveConfirm()`, `_renderVariantGroupMembers()`, Initialize
+   * Pool, and Validate Pool all run exactly as they already do on the
+   * standalone "NBA 2K27 Pool" admin page, because this literally IS
+   * that same view object, rendering into a div that happens to live
+   * inside Players' own template instead of its own dedicated page.
+   * Nba2k27PoolView itself is completely unmodified by this — see that
+   * file; nothing there changed.
+   *
+   * Not awaited, on purpose: `Nba2k27PoolView.render()` is `async`
+   * (it calls `Nba2kDatabaseView._ensureLoaded()` internally the first
+   * time any 2K27 admin view is opened this session, then resolves) —
+   * but `AdminApp.renderView()` (js/admin.js) already calls every view's
+   * `render()` the same fire-and-forget way when the standalone Pool
+   * page is opened directly, so this matches that existing convention
+   * exactly rather than inventing a new one.
+   */
+  _mountNba2k27Pool(container) {
+    const mount = container.querySelector('#playersNba2k27PoolMount');
+    if (!mount) return;
+    // Defensive only — in the real app (admin.html) js/admin/nba2k-database.js
+    // is always loaded alongside this file, so Nba2k27PoolView always
+    // exists by the time render() actually runs (script tags load before
+    // AdminApp ever calls a view's render()). This guard just keeps a
+    // narrower test harness or an out-of-order load from throwing instead
+    // of degrading to "no 2K27 pool section this render" — it never skips
+    // real functionality in production.
+    if (typeof Nba2k27PoolView === 'undefined') return;
+    Nba2k27PoolView.render(mount);
+  },
+
+  /**
+   * Phase 3 UI merge safety helper — `Nba2k27PoolView`'s own markup
+   * reuses several of THIS file's class names verbatim (`.player-count`,
+   * `.pool-tab`/`.pool-tab-green`/`.pool-tab-blue`, `.pool-tab[data-pool]`,
+   * `.pos-table-row[data-player-id]` — see js/admin/nba2k-database.js
+   * lines ~1975-1987). Now that both sections render into the SAME
+   * `container` (the delegated mount is a descendant of it), any
+   * unscoped `container.querySelector('.pool-tab-green ...')`-style call
+   * in THIS file would risk matching the delegated Nba2k27PoolView
+   * section's element instead of this page's own historical-section
+   * element. Every such call is scoped through this helper instead of
+   * querying `container` directly, so it can never cross into the
+   * delegated section — regardless of DOM order or render timing.
+   */
+  _historicalRoot(container) {
+    return container.querySelector('.players-historical-section') || container;
   },
 
   /**
@@ -223,7 +306,11 @@ const AdminPlayersView = {
    */
   _applyEditionBadges(container, players) {
     const byId = new Map(players.map(p => [p.id, p]));
-    container.querySelectorAll('.pos-table-row[data-player-id]').forEach(row => {
+    // Scoped to the historical section — see _historicalRoot()'s doc
+    // comment: Nba2k27PoolView's own delegated rows also match
+    // `.pos-table-row[data-player-id]`, just keyed by nba2kRef instead of
+    // a real league/main.players id.
+    this._historicalRoot(container).querySelectorAll('.pos-table-row[data-player-id]').forEach(row => {
       const player = byId.get(row.dataset.playerId);
       const nameEl = row.querySelector('.pos-name');
       if (!player || !nameEl) return;
@@ -383,10 +470,21 @@ const AdminPlayersView = {
     // visual consistency but carry `data-edition`, not `data-pool`, so
     // this selector (and its own toggle-active loop below) must not also
     // match/rebind them; see _bindEditionFilterEvents, which owns those.
-    container.querySelectorAll('.pool-tab[data-pool]').forEach(tab => {
+    //
+    // Phase 3 UI merge note: ALSO scoped to the historical section root
+    // (see _historicalRoot()) — Nba2k27PoolView's own delegated pool tabs
+    // (Green/Blue/White) use the exact same `.pool-tab[data-pool]`
+    // convention for its own green/blue/white category filter, and that
+    // section's own code (js/admin/nba2k-database.js) binds its own click
+    // handlers to those buttons independently. Without this scoping, this
+    // function would risk rebinding — or toggling `.active` on — the
+    // delegated section's buttons instead of (or in addition to) this
+    // page's own two.
+    const root = this._historicalRoot(container);
+    root.querySelectorAll('.pool-tab[data-pool]').forEach(tab => {
       tab.onclick = () => {
         this._activePool = tab.dataset.pool;
-        container.querySelectorAll('.pool-tab[data-pool]').forEach(t => t.classList.toggle('active', t === tab));
+        root.querySelectorAll('.pool-tab[data-pool]').forEach(t => t.classList.toggle('active', t === tab));
         this._refreshPane(container);
       };
     });
@@ -758,10 +856,17 @@ const AdminPlayersView = {
       // the existing pool-tab counts.
       const rawAllPlayers = LeagueData.getAllPlayers();
       const allPlayers = this._editionFiltered(rawAllPlayers);
-      const countEl = container.querySelector('.player-count');
+      // Phase 3 UI merge: scoped to the historical section (see
+      // _historicalRoot()) — Nba2k27PoolView's delegated section also has
+      // a `.player-count` span and `.pool-tab-green`/`.pool-tab-blue`
+      // elements of its own (green/blue/white 2K27 category tabs), which
+      // an unscoped container.querySelector() here would risk matching
+      // instead of this page's own historical-section elements.
+      const historicalRoot = this._historicalRoot(container);
+      const countEl = historicalRoot.querySelector('.player-count');
       if (countEl) countEl.textContent = `${allPlayers.length} players shown`;
-      const greenCount = container.querySelector('.pool-tab-green .pool-tab-count');
-      const blueCount = container.querySelector('.pool-tab-blue .pool-tab-count');
+      const greenCount = historicalRoot.querySelector('.pool-tab-green .pool-tab-count');
+      const blueCount = historicalRoot.querySelector('.pool-tab-blue .pool-tab-count');
       if (greenCount) greenCount.textContent = allPlayers.filter(p => p.pool === 'green').length;
       if (blueCount) blueCount.textContent = allPlayers.filter(p => p.pool === 'blue').length;
       const editionTabs = container.querySelectorAll('#editionFilterTabs .pool-tab');
