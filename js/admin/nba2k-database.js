@@ -1769,6 +1769,18 @@ const Nba2k27PoolView = {
   // summary of what the last run just did.
   _initResult: null,
 
+  // Phase A: "Browse Unselected Players". Deliberately its own state,
+  // never folded into `_filterPool` (which must stay exactly one of
+  // 'green'|'blue'|'white' — see that field's own comment) and never
+  // folded into `_search`/`_sortMode` (the existing pool-tab search,
+  // left completely untouched). `_showUnselected` toggles a visually
+  // separate panel; `_unselectedSearch` is that panel's own client-side
+  // search box. Neither reads anything beyond the already-loaded
+  // `Nba2kDatabaseView._players` / `Nba2kDatabaseView._pool27` caches —
+  // no new Firestore read, no new cache.
+  _showUnselected: false,
+  _unselectedSearch: '',
+
   async render(container) {
     if (!Nba2kDatabaseView._players) {
       container.innerHTML = `
@@ -1881,6 +1893,137 @@ const Nba2k27PoolView = {
     return list;
   },
 
+  // ── Phase A: "Browse Unselected Players" ────────────────────────────
+  // A raw NBA 2K27 source player counts as "unselected" exactly when it
+  // has no `nba2k27_pool` entry — the identical definition
+  // `Nba2kDatabaseView._filter27 === 'not-selected'` already uses on its
+  // own page (see `Nba2kDatabaseView._get2k27Entry`). This does not
+  // repoint or read that flag; it re-applies the same underlying check
+  // (`!Nba2kDatabaseView._get2k27Entry(id)`) directly against the
+  // already-loaded shared caches, so this page's own `_filterPool` never
+  // needs to learn about a 4th state. Client-side only — no Firestore
+  // call of any kind.
+  _getUnselectedRows() {
+    const q = this._unselectedSearch.trim().toLowerCase();
+    const players = Nba2kDatabaseView._players || [];
+    let list = players.filter(p => !Nba2kDatabaseView._get2k27Entry(p.id));
+    if (q) {
+      list = list.filter(p => `${p.name || ''} ${p.team || ''}`.toLowerCase().includes(q));
+    }
+    return list.slice().sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
+  },
+
+  // Dedicated, intentionally minimal renderer for this list. NOT
+  // `Nba2kDatabaseView._renderRow` (a different page's row, with its own
+  // Draft Pool/2K27 status pills) and NOT this page's own legacy
+  // `_renderRow`/`_groupRows` (still exercised by tests_p8/tests_p12,
+  // left untouched) — a fresh, small template so neither of those is
+  // ever modified for this feature.
+  _renderUnselectedRow(p) {
+    const positions = Array.isArray(p.positions) && p.positions.length ? p.positions.join(', ') : '—';
+    const ovr = Number(p.overall) || 0;
+    return `
+      <tr data-slug="${escapeHtml(p.id)}" class="nba2k-row nba2k27-unselected-row" tabindex="0" role="button" aria-label="View ${escapeHtml(p.name)} details">
+        <td data-label="Player">${escapeHtml(p.name)}</td>
+        <td data-label="OVR"><span class="pos-ovr ${nba2kOvrTierClass(ovr)}">${ovr}</span></td>
+        <td data-label="Position">${escapeHtml(positions)}</td>
+        <td data-label="Team">${escapeHtml(p.team || '—')}</td>
+      </tr>`;
+  },
+
+  // Toggle button + (when open) its own search box + list mount. Built
+  // as its own function so it can be included, unchanged, in BOTH
+  // `_renderShell` branches below (empty pool and populated pool) — same
+  // reasoning as `initPanelHtml`: browsing unselected players is just as
+  // useful before the pool has any selections as after. Visually
+  // separate from the Green/Blue/White pool-tabs section on purpose —
+  // this is the raw source list, not a 4th pool.
+  _renderUnselectedPanelHtml() {
+    const players = Nba2kDatabaseView._players || [];
+    const unselectedCount = players.filter(p => !Nba2kDatabaseView._get2k27Entry(p.id)).length;
+    return `
+      <div class="nba2k27-unselected-panel" data-testid="nba2k27-unselected-panel">
+        <button type="button" class="btn btn-ghost" id="nba2k27ShowUnselectedBtn">
+          ${this._showUnselected ? 'Hide Unselected Players' : 'Browse Unselected Players'}
+          <span class="pool-tab-count">${unselectedCount}</span>
+        </button>
+        ${this._showUnselected ? `
+          <div class="nba2k27-unselected-body">
+            <p class="nba2k-db-subtitle">Raw NBA 2K27 source players not yet selected for any pool</p>
+            <input type="text" id="nba2k27UnselectedSearch" class="input search-input"
+              placeholder="Search unselected players…" value="${escapeHtml(this._unselectedSearch)}">
+            <div id="nba2k27UnselectedListWrap"></div>
+          </div>` : ''}
+      </div>`;
+  },
+
+  _bindUnselectedEvents(container) {
+    const btn = container.querySelector('#nba2k27ShowUnselectedBtn');
+    if (btn) {
+      btn.onclick = () => {
+        this._showUnselected = !this._showUnselected;
+        this._renderShell(container);
+      };
+    }
+    const searchInput = container.querySelector('#nba2k27UnselectedSearch');
+    if (searchInput) {
+      searchInput.oninput = e => {
+        this._unselectedSearch = e.target.value;
+        this._refreshUnselectedList(container);
+      };
+    }
+    this._refreshUnselectedList(container);
+  },
+
+  // Re-renders just the unselected list body — a no-op if the panel is
+  // currently collapsed (no `#nba2k27UnselectedListWrap` in the DOM).
+  // Clicking a row reuses the exact same shared detail modal every other
+  // "open detail" entry point on this page already uses
+  // (`Nba2kDatabaseView._openDetail`) — no second modal, and the
+  // existing Add to 2K27 Pool / Position Management inside it work
+  // completely unchanged.
+  _refreshUnselectedList(container) {
+    // Keep the toggle button's count badge current too — cheap DOM text
+    // update, not a re-render, and safe to run even when the panel body
+    // itself is currently collapsed (in which case the list wrap lookup
+    // right below is what short-circuits).
+    const btnCount = container.querySelector('#nba2k27ShowUnselectedBtn .pool-tab-count');
+    if (btnCount) {
+      const players = Nba2kDatabaseView._players || [];
+      btnCount.textContent = String(players.filter(p => !Nba2kDatabaseView._get2k27Entry(p.id)).length);
+    }
+
+    const wrap = container.querySelector('#nba2k27UnselectedListWrap');
+    if (!wrap) return;
+    const visible = this._getUnselectedRows();
+
+    if (!visible.length) {
+      wrap.innerHTML = `<p class="backup-muted">No unselected players match these filters.</p>`;
+      return;
+    }
+
+    wrap.innerHTML = `
+      <table class="admin-table nba2k-table nba2k27-unselected-table">
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>OVR</th>
+            <th>Position</th>
+            <th>Team</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${visible.map(p => this._renderUnselectedRow(p)).join('')}
+        </tbody>
+      </table>`;
+
+    wrap.querySelectorAll('[data-slug]').forEach(row => {
+      const open = () => Nba2kDatabaseView._openDetail(container, row.dataset.slug);
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+    });
+  },
+
   _renderShell(container) {
     if (Nba2kDatabaseView._loadError) {
       container.innerHTML = `
@@ -1917,12 +2060,27 @@ const Nba2k27PoolView = {
             Select players individually from the NBA2K Database, or use
             "Initialize 2K27 Pool" above to add every source player at once.
           </p>
-        </div>`;
+          ${this._renderUnselectedPanelHtml()}
+        </div>
+        <div id="nba2kDetailMount"></div>`;
       this._bindInitEvents(container);
+      this._bindUnselectedEvents(container);
       // A prior result/confirm card may still need to render into the
       // now-recreated `#nba2k27InitArea` (e.g. a category-tab-triggered
       // re-render right after initializing a previously-empty pool).
       if (this._initResult) this._renderInitResult(container);
+
+      // Same requirement as the populated-pool branch below: keep the
+      // Browse Unselected panel (and, once a player is added, the
+      // pool-tabs UI that then needs to appear for the first time) in
+      // sync after an add/remove made through the shared detail modal —
+      // without re-fetching or reloading. A full `_renderShell` re-run
+      // is the correct response here specifically because adding the
+      // very first player flips this branch from empty to populated.
+      Nba2kDatabaseView._onPool27Changed = () => {
+        if (!document.body.contains(container)) return;
+        this._renderShell(container);
+      };
       return;
     }
 
@@ -1990,6 +2148,8 @@ const Nba2k27PoolView = {
         <div id="nba2k27mgmtConfirm" class="hidden"></div>
         <div id="nba2k27mgmtEdit" class="hidden"></div>
         <div id="nba2k27mgmtListWrap"></div>
+
+        ${this._renderUnselectedPanelHtml()}
       </div>
       <div id="nba2kDetailMount"></div>`;
 
@@ -2000,6 +2160,7 @@ const Nba2k27PoolView = {
     container.querySelector('#nba2k27mgmtSort').onchange = e => { this._sortMode = e.target.value; this._refreshPoolPane(container); };
     container.querySelector('#nba2k27ValidateBtn').onclick = () => this._runValidation(container);
     this._bindInitEvents(container);
+    this._bindUnselectedEvents(container);
 
     // Whenever the shared detail modal's own 2K27 Add/Remove buttons
     // (Phase 7, `Nba2kDatabaseView._bind2k27Events`) write to
@@ -2010,6 +2171,10 @@ const Nba2k27PoolView = {
     Nba2kDatabaseView._onPool27Changed = () => {
       if (!document.body.contains(container)) return;
       this._refreshPoolPane(container);
+      // Phase A: keep the Browse Unselected list (if open) in sync too —
+      // same cache, no re-fetch, and this doesn't touch _refreshPoolPane
+      // or anything it does above.
+      this._refreshUnselectedList(container);
       // Phase 9: the selection set just changed underneath a previously
       // computed validation report — that report is now stale data, not
       // a re-derivable view, so it is discarded rather than silently
