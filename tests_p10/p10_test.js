@@ -160,7 +160,7 @@ function makeSandbox(opts = {}) {
   vm.runInContext(src, sandbox, { filename: 'nba2k-database.js' });
   vm.runInContext(
     'this.Nba2kDatabaseView = Nba2kDatabaseView; this.Nba2k27PoolView = Nba2k27PoolView; ' +
-    'this.Nba2k27PoolValidator = Nba2k27PoolValidator; this.nba2kPoolForTeamType = nba2kPoolForTeamType; ' +
+    'this.Nba2k27PoolValidator = Nba2k27PoolValidator; ' +
     'this.nba2k27PoolForTeamType = nba2k27PoolForTeamType; this.nba2k27PoolValueValid = nba2k27PoolValueValid; ' +
     'this.nba2k27PoolLabel = nba2k27PoolLabel; this.normalizeNba2kPositions = normalizeNba2kPositions; ' +
     'this.NBA2K_VALID_POSITIONS = NBA2K_VALID_POSITIONS;',
@@ -227,11 +227,9 @@ console.log('Phase 10 tests');
   await check('5. missing teamType -> null (skipped, never guessed)', () => {
     assertEqual(sandbox.nba2k27PoolForTeamType(undefined), null);
   });
-  await check('S4 Draft Pool mapping (nba2kPoolForTeamType) is unchanged by Phase 10', () => {
-    assertEqual(sandbox.nba2kPoolForTeamType('curr'), 'green');
-    assertEqual(sandbox.nba2kPoolForTeamType('class'), 'blue'); // still Blue for the Draft Pool
-    assertEqual(sandbox.nba2kPoolForTeamType('allt'), 'blue');
-  });
+  // Phase C2: "S4 Draft Pool mapping (nba2kPoolForTeamType) is unchanged
+  // by Phase 10" check removed — nba2kPoolForTeamType() itself was
+  // retired along with the "Add to Draft Pool" promotion workflow.
 })();
 
 // ── Full realistic-scale run: 528/455/774, unknown skipped ──────────────

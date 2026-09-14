@@ -128,7 +128,7 @@ function makeSandbox() {
   vm.createContext(sandbox);
   vm.runInContext(src, sandbox, { filename: 'nba2k-database.js' });
   vm.runInContext(
-    'this.Nba2kDatabaseView = Nba2kDatabaseView; this.nba2kPoolForTeamType = nba2kPoolForTeamType; ' +
+    'this.Nba2kDatabaseView = Nba2kDatabaseView; ' +
     'this.nba2kCategoryLabel = nba2kCategoryLabel;',
     sandbox,
     { filename: 'export.js' }
@@ -159,15 +159,10 @@ async function tick() { await new Promise(r => setImmediate(r)); await new Promi
 
 console.log('Phase 7 tests');
 
-// ── Pool derivation (reused Phase 5 helper, not reimplemented) ─────────
-(async () => {
-  const { sandbox } = makeSandbox();
-  await check('curr -> green', () => assertEqual(sandbox.nba2kPoolForTeamType('curr'), 'green'));
-  await check('class -> blue', () => assertEqual(sandbox.nba2kPoolForTeamType('class'), 'blue'));
-  await check('allt -> blue', () => assertEqual(sandbox.nba2kPoolForTeamType('allt'), 'blue'));
-  await check('missing teamType -> not eligible', () => assertNull(sandbox.nba2kPoolForTeamType(undefined)));
-  await check('unrecognized teamType -> not eligible', () => assertNull(sandbox.nba2kPoolForTeamType('bogus')));
-})();
+// ── Pool derivation (Phase C2: nba2kPoolForTeamType — the legacy S4
+// Draft Pool mapping this suite used to test here — was retired along
+// with the "Add to Draft Pool" promotion workflow. The current NBA 2K27
+// pool derivation, nba2k27PoolForTeamType(), is covered in tests_p10.)
 
 // ── _get2k27Entry / _computePool27Counts (pure cache reads) ────────────
 (async () => {

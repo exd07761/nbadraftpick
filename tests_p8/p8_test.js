@@ -148,7 +148,7 @@ function makeSandbox() {
   vm.runInContext(src, sandbox, { filename: 'nba2k-database.js' });
   vm.runInContext(
     'this.Nba2kDatabaseView = Nba2kDatabaseView; this.Nba2k27PoolView = Nba2k27PoolView; ' +
-    'this.nba2kPoolForTeamType = nba2kPoolForTeamType; this.nba2kCategoryLabel = nba2kCategoryLabel; ' +
+    'this.nba2kCategoryLabel = nba2kCategoryLabel; ' +
     'this.normalizeNba2kPositions = normalizeNba2kPositions;',
     sandbox,
     { filename: 'export.js' }
@@ -471,12 +471,9 @@ console.log('Phase 8 tests');
 // ── Regression smoke checks (full suites: tests_p6/, tests_p7/, unmodified) ─
 (async () => {
   const { sandbox } = makeSandbox();
-  await check('Phase 5 pool derivation intact', () => {
-    assertEqual(sandbox.nba2kPoolForTeamType('curr'), 'green');
-    assertEqual(sandbox.nba2kPoolForTeamType('class'), 'blue');
-    assertEqual(sandbox.nba2kPoolForTeamType('allt'), 'blue');
-    assertNull(sandbox.nba2kPoolForTeamType('bogus'));
-  });
+  // Phase C2: "Phase 5 pool derivation intact" check removed —
+  // nba2kPoolForTeamType() (the legacy S4 Draft Pool mapping) was
+  // retired along with the "Add to Draft Pool" promotion workflow.
   await check('Phase 6 position normalization intact', () => {
     assertEqual(JSON.stringify(sandbox.normalizeNba2kPositions(['PF', 'C', 'PF'])), JSON.stringify(['PF', 'C']));
     assertEqual(JSON.stringify(sandbox.normalizeNba2kPositions(['bogus'])), JSON.stringify([]));

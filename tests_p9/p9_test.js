@@ -135,7 +135,7 @@ function makeSandbox() {
   vm.runInContext(src, sandbox, { filename: 'nba2k-database.js' });
   vm.runInContext(
     'this.Nba2kDatabaseView = Nba2kDatabaseView; this.Nba2k27PoolView = Nba2k27PoolView; ' +
-    'this.Nba2k27PoolValidator = Nba2k27PoolValidator; this.nba2kPoolForTeamType = nba2kPoolForTeamType; ' +
+    'this.Nba2k27PoolValidator = Nba2k27PoolValidator; ' +
     'this.normalizeNba2kPositions = normalizeNba2kPositions; this.NBA2K_VALID_POSITIONS = NBA2K_VALID_POSITIONS;',
     sandbox,
     { filename: 'export.js' }

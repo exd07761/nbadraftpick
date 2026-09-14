@@ -2,6 +2,18 @@
  * admin/nba2k-database.js — NBA 2K26 Player Database Browser
  * (Phase 2: browse/search/filter/detail. Phase 3: promote-to-Draft-Pool.)
  *
+ * PHASE C2 UPDATE: the Phase 3 "Add to Draft Pool" promotion feature
+ * described in the "SCOPE (Phase 3 — new)" section just below has been
+ * RETIRED — `_renderPromotionSection()`, `_bindPromotionEvents()`,
+ * `_findNameConflict()`, and the legacy `nba2kPoolForTeamType()` pool
+ * mapping are gone, and `_openDetail()` no longer renders or binds that
+ * section. That section is kept below as a historical record of what
+ * Phase 3 originally built — it no longer reflects current behavior.
+ * `AdminActions.addPlayer()`/`createPlayer()` in data.js were left
+ * untouched (still used by the test suite as fixture-seeding helpers);
+ * `_findPromotedEntry()` was also kept, because Position Management
+ * (Phase 6, below) still uses it for a read-only status line.
+ *
  * PURPOSE
  * Admin-only view over the `nba2k_players` Firestore collection created in
  * Phase 1. Phase 2 made this a read-only "scouting database" browser.
@@ -131,14 +143,11 @@
  *   and never touches an already-promoted Draft Pool player's `position`
  *   -- an existing promotion's position is historical commissioner data
  *   and is left exactly as it was, even after the NBA2K source positions
- *   it was originally chosen from are later corrected. The existing
- *   Phase 3/5 promotion section (`_renderPromotionSection` /
- *   `_bindPromotionEvents`, both otherwise unchanged) reads
- *   `player.positions` from the same in-memory cache entry this phase
- *   updates in place after a successful save, so any *future* promotion
- *   of that player automatically offers the corrected positions with no
- *   separate wiring required -- but still always requires the
- *   commissioner to explicitly pick one, exactly as before.
+ *   it was originally chosen from are later corrected. (Historical note:
+ *   the Phase 3/5 "Add to Draft Pool" promotion section that used to read
+ *   `player.positions` from this same in-memory cache entry was retired
+ *   in Phase C2 — see `_findPromotedEntry` below, kept only for its
+ *   read-only "Draft Pool Position" status display in this section.)
  * - No bulk editing, no history/audit log, and no automatic/inferred
  *   position correction of any kind -- this is intentionally a manual,
  *   one-player-at-a-time data-cleanup tool.
@@ -244,23 +253,11 @@ function nba2kPoolEligibilityLabel(teamType) {
   return (NBA2K_CATEGORY_META[teamType] || {}).poolEligible || null;
 }
 
-// Phase 5: authoritative pool derivation for promotion. Pool eligibility
-// is determined SOLELY by the source teamType — never by overall rating,
-// and never by a value supplied from the UI. Returns 'green' | 'blue' |
-// null (null = unknown/missing teamType — promotion must be blocked, not
-// guessed). This is the single source of truth both the promotion form
-// and the pre-write recheck call, so the two can never disagree.
-//
-// THIS FUNCTION IS THE S4 DRAFT POOL PROMOTION MAPPING ONLY. Phase 10
-// introduced a second, differently-mapped function for the NBA 2K27 pool
-// (`nba2k27PoolForTeamType()`, immediately below) — do not repoint any
-// Phase 3/5 Draft Pool promotion call site at that one, and do not
-// repoint any Phase 7/8/9/10 NBA 2K27 pool call site back at this one.
-function nba2kPoolForTeamType(teamType) {
-  if (teamType === 'curr') return 'green';
-  if (teamType === 'class' || teamType === 'allt') return 'blue';
-  return null;
-}
+// Phase C2: the legacy S4 Draft Pool promotion mapping (`nba2kPoolForTeamType()`)
+// and the "Add to Draft Pool" workflow that was its only caller have been
+// removed — see _openDetail() below. `nba2k27PoolForTeamType()` (the
+// current, differently-mapped NBA 2K27 pool derivation) is unaffected and
+// remains the sole pool-derivation function in this file.
 
 // Phase 10: authoritative pool derivation for the NBA 2K27 pool
 // (`nba2k27_pool`) ONLY — see the function comment above and the file
@@ -791,19 +788,23 @@ const Nba2kDatabaseView = {
     });
   },
 
-  // ── Phase 3: promotion status/lookup helpers ──────────────────────────
-  // Both read from LeagueData.getAllPlayers(), which is a synchronous,
+  // ── Phase 3: promotion status lookup helper ────────────────────────────
+  // Reads from LeagueData.getAllPlayers(), which is a synchronous,
   // no-network read of the already-live-synced local league cache (see
   // file header) — safe to call on every row render and every detail
   // open without worrying about staleness or extra Firestore traffic.
+  //
+  // Phase C2: the "Add to Draft Pool" promotion workflow that used to be
+  // this helper's other caller (_renderPromotionSection/_bindPromotionEvents)
+  // has been removed. `_findPromotedEntry` itself is KEPT — it is still
+  // used by the must-keep Position Management renderer below
+  // (_renderPositionEditor) to display the read-only "Draft Pool
+  // Position" / "Not yet promoted" status line. `_findNameConflict` had
+  // no other caller and has been removed along with the promotion form
+  // it only ever gated.
 
   _findPromotedEntry(slug) {
     return LeagueData.getAllPlayers().find(p => p.nba2kRef === slug) || null;
-  },
-
-  _findNameConflict(name) {
-    const key = normalizePlayerName(name);
-    return LeagueData.getAllPlayers().find(p => !p.nba2kRef && normalizePlayerName(p.name) === key) || null;
   },
 
   // ── Phase 7: 2K27 pool-selection lookup helpers ───────────────────────
@@ -941,8 +942,6 @@ const Nba2kDatabaseView = {
           ${this._renderPositionEditor(player)}
 
           ${this._render2k27Section(player)}
-
-          ${this._renderPromotionSection(player)}
         </div>
       </div>`;
 
@@ -954,7 +953,6 @@ const Nba2kDatabaseView = {
 
     this._bindPositionEditorEvents(container, mount, player);
     this._bind2k27Events(container, mount, player);
-    this._bindPromotionEvents(container, mount, player);
   },
 
   // ── Phase 6: "Position Management" section ────────────────────────────
@@ -1311,186 +1309,6 @@ const Nba2kDatabaseView = {
         };
       };
     }
-  },
-
-  // ── Phase 3/5: "Add to Draft Pool" section ─────────────────────────────
-  // Renders one of four mutually exclusive states for the selected NBA2K
-  // player: already promoted (status only), a name conflict with a
-  // pre-existing non-NBA2K player (warning only), an undeterminable pool
-  // (error only — Phase 5), or the promotion form itself. Phase 5 change:
-  // pool is now derived from `teamType` and displayed locked/read-only —
-  // the commissioner can no longer pick it. Position selection is
-  // unchanged from Phase 3: always an explicit manual choice.
-  _renderPromotionSection(player) {
-    const promoted = this._findPromotedEntry(player.id);
-    if (promoted) {
-      const poolLabel = promoted.pool === 'green' ? 'Green Pool' : promoted.pool === 'blue' ? 'Blue Pool' : 'no pool set';
-      return `
-        <div class="nba2k-promo nba2k-promo-status">
-          <div class="nba2k-promo-eyebrow">In Draft Pool</div>
-          <div class="nba2k-promo-pool-label">${escapeHtml(poolLabel)}</div>
-          <p class="helper-text">Draft Pool Position: ${escapeHtml(promoted.position || '—')} · NBA2K Reference: <code>${escapeHtml(player.id)}</code></p>
-        </div>`;
-    }
-
-    const conflict = this._findNameConflict(player.name);
-    if (conflict) {
-      return `
-        <div class="nba2k-promo">
-          <div class="backup-result backup-result-error">
-            <strong>An existing Draft Pool player with this name already exists.</strong>
-            <div>${escapeHtml(conflict.name)} — ${escapeHtml(conflict.position || 'no position')}, ${escapeHtml(String(conflict.overall ?? '—'))} OVR${conflict.pool ? `, ${conflict.pool === 'green' ? 'Green' : 'Blue'} Pool` : ', no pool set'}.</div>
-            <div style="margin-top:0.4rem;">Resolve this manually on the Players page before promoting — no player was created.</div>
-          </div>
-        </div>`;
-    }
-
-    // Phase 5: pool is derived from teamType, never chosen. An
-    // unrecognized/missing teamType must block promotion entirely rather
-    // than guess — no position selector is shown in that case either,
-    // since there is nothing valid to promote into.
-    const pool = nba2kPoolForTeamType(player.teamType);
-    if (!pool) {
-      return `
-        <div class="nba2k-promo">
-          <h4>Add to Draft Pool</h4>
-          <div class="backup-result backup-result-error">
-            Cannot determine pool eligibility for this NBA2K player.
-          </div>
-        </div>`;
-    }
-    const poolLabel = pool === 'green' ? 'Green Pool' : 'Blue Pool';
-    const poolDot = pool === 'green' ? '🟢' : '🔵';
-    const poolSubtitle = pool === 'green' ? 'Current NBA Player' : 'Classics / All-Time Player';
-
-    const sourcePositions = Array.isArray(player.positions) ? player.positions.filter(Boolean) : [];
-    const noPositions = sourcePositions.length === 0;
-    // Fall back to the same manual 5-position list the existing Add
-    // Player form offers, only when the source has none — never an
-    // automatic pick when the source DOES have positions.
-    const positionOptions = noPositions ? ['PG', 'SG', 'SF', 'PF', 'C'] : sourcePositions;
-
-    return `
-      <div class="nba2k-promo" data-pool="${escapeHtml(pool)}">
-        <h4>Add to Draft Pool</h4>
-
-        <div class="nba2k-promo-row">
-          <label>Pool</label>
-          <div class="nba2k-promo-pool-locked nba2k-promo-pool-locked-${escapeHtml(pool)}">
-            <span class="nba2k-promo-pool-dot">${poolDot}</span>
-            <span>
-              <strong>${escapeHtml(poolLabel)}</strong>
-              <span class="nba2k-promo-pool-sublabel">${escapeHtml(poolSubtitle)}</span>
-            </span>
-          </div>
-        </div>
-
-        ${noPositions ? `<p class="backup-result backup-result-error" style="margin-bottom:0.75rem;">This player has no NBA2K positions on record — choose a Draft Pool position manually.</p>` : ''}
-
-        <div class="nba2k-promo-row">
-          <label for="nba2kPromoPosition">Position</label>
-          <select id="nba2kPromoPosition" class="input">
-            <option value="">Select position</option>
-            ${positionOptions.map(pos => `<option value="${escapeHtml(pos)}">${escapeHtml(pos)}</option>`).join('')}
-          </select>
-        </div>
-        <p class="helper-text" style="margin:-0.4rem 0 0.75rem;">Choose the position this player will use in the Draft Pool.</p>
-
-        <button type="button" class="btn btn-primary" id="nba2kPromoOpenConfirm" disabled>Add to Draft Pool</button>
-
-        <div id="nba2kPromoConfirm" class="hidden"></div>
-      </div>`;
-  },
-
-  _bindPromotionEvents(container, mount, player) {
-    const posEl = mount.querySelector('#nba2kPromoPosition');
-    const confirmBtn = mount.querySelector('#nba2kPromoOpenConfirm');
-    if (!posEl || !confirmBtn) return; // already-promoted, conflict, or undeterminable-pool state — nothing to wire
-
-    const updateEnabled = () => {
-      confirmBtn.disabled = !posEl.value;
-    };
-    posEl.onchange = updateEnabled;
-
-    confirmBtn.onclick = () => {
-      const position = posEl.value;
-      // Pool is always re-derived from the source record here, never read
-      // from any form control — there is no pool input to read from.
-      const pool = nba2kPoolForTeamType(player.teamType);
-      if (!position || !pool) return; // belt-and-suspenders; button is disabled otherwise, and this state shouldn't render a form at all
-
-      const confirmEl = mount.querySelector('#nba2kPromoConfirm');
-      const poolLabel = pool === 'green' ? 'Green' : 'Blue';
-      const categoryLabel = nba2kCategoryLabel(player.teamType);
-      confirmEl.classList.remove('hidden');
-      confirmEl.innerHTML = `
-        <div class="nba2k-promo-confirm-card">
-          <div class="nba2k-promo-eyebrow">Add Player to Draft Pool</div>
-          <div class="nba2k-promo-confirm-row"><span>Name</span><strong>${escapeHtml(player.name)}</strong></div>
-          <div class="nba2k-promo-confirm-row"><span>NBA2K OVR</span><strong>${escapeHtml(String(player.overall ?? '—'))}</strong></div>
-          <div class="nba2k-promo-confirm-row"><span>Source</span><strong>${escapeHtml(categoryLabel)}</strong></div>
-          <div class="nba2k-promo-confirm-row"><span>Position</span><strong>${escapeHtml(position)}</strong></div>
-          <div class="nba2k-promo-confirm-row"><span>Pool</span><strong>${escapeHtml(poolLabel)}</strong></div>
-          <div class="nba2k-promo-confirm-row"><span>NBA2K Reference</span><strong><code>${escapeHtml(player.id)}</code></strong></div>
-          <div class="form-actions">
-            <button type="button" class="btn btn-primary" id="nba2kPromoConfirmBtn">Add Player</button>
-            <button type="button" class="btn btn-ghost" id="nba2kPromoCancelBtn">Cancel</button>
-          </div>
-        </div>`;
-
-      confirmEl.querySelector('#nba2kPromoCancelBtn').onclick = () => {
-        confirmEl.classList.add('hidden');
-        confirmEl.innerHTML = '';
-      };
-
-      confirmEl.querySelector('#nba2kPromoConfirmBtn').onclick = () => {
-        AuthBoundary.requireAuth();
-
-        // Re-check EVERYTHING against the freshest available data
-        // immediately before writing: promotion status, name conflict,
-        // AND pool derivation (re-derived from player.teamType again,
-        // never trusted from a variable captured earlier in this
-        // closure) — never trust a manually-suppliable value, per Phase
-        // 5's source-category-validation requirement. LeagueData.
-        // getAllPlayers() is a synchronous read of the live-synced local
-        // cache, so this costs nothing and closes the window between
-        // opening this detail view and confirming.
-        if (this._findPromotedEntry(player.id)) {
-          confirmEl.innerHTML = `<div class="backup-result backup-result-error">This player was already added to the Draft Pool (in another tab/session) — no duplicate was created.</div>`;
-          setTimeout(() => this._openDetail(container, player.id), 1200);
-          return;
-        }
-        const nowConflict = this._findNameConflict(player.name);
-        if (nowConflict) {
-          confirmEl.innerHTML = `<div class="backup-result backup-result-error">An existing Draft Pool player with this name already exists — no duplicate was created.</div>`;
-          setTimeout(() => this._openDetail(container, player.id), 1200);
-          return;
-        }
-        const recheckedPool = nba2kPoolForTeamType(player.teamType);
-        if (!recheckedPool) {
-          confirmEl.innerHTML = `<div class="backup-result backup-result-error">Cannot determine pool eligibility for this NBA2K player.</div>`;
-          return;
-        }
-
-        AdminActions.addPlayer({
-          name: player.name,
-          position,
-          overall: Number(player.overall) || 0,
-          pool: recheckedPool,
-          nba2kRef: player.id,
-        });
-
-        showToast(`${player.name} added to ${poolLabel} Pool.`, 'success');
-
-        // Reflect the new status without a page reload: re-render this
-        // detail view (now shows "In Draft Pool" with the position/ref
-        // recorded above) and the underlying table row (status pill).
-        // This re-render replaces mount.innerHTML entirely, so there is
-        // no separate "success" block left behind to go stale.
-        this._openDetail(container, player.id);
-        this._refreshList(container);
-      };
-    };
   },
 };
 
