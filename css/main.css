@@ -691,6 +691,7 @@ a:hover { color: var(--accent-hover); }
 }
 .pool-badge-green { background: var(--pool-green-dim); color: var(--pool-green); }
 .pool-badge-blue { background: var(--pool-blue-dim); color: var(--pool-blue); }
+.pool-badge-white { background: var(--pool-white-dim, rgba(215,218,224,0.14)); color: var(--pool-white, #d7dae0); }
 
 /* ─── Player Database header + pool-info cards (Players pages) ──────────── */
 .player-db-header { margin-bottom: 1.5rem; }
@@ -706,9 +707,11 @@ a:hover { color: var(--accent-hover); }
 }
 .pool-info-card.pool-info-green { border-left-color: var(--pool-green); }
 .pool-info-card.pool-info-blue { border-left-color: var(--pool-blue); }
+.pool-info-card.pool-info-white { border-left-color: var(--pool-white, #d7dae0); }
 .pool-info-card-title { display: flex; align-items: center; gap: 0.5rem; font-weight: 800; font-size: 0.85rem; letter-spacing: 0.03em; }
 .pool-info-card.pool-info-green .pool-info-card-title { color: var(--pool-green); }
 .pool-info-card.pool-info-blue .pool-info-card-title { color: var(--pool-blue); }
+.pool-info-card.pool-info-white .pool-info-card-title { color: var(--pool-white, #d7dae0); }
 .pool-info-card-desc { font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
 
 .pool-legend-footer {
@@ -720,6 +723,7 @@ a:hover { color: var(--accent-hover); }
 .pool-legend-footer .legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 .pool-legend-footer .legend-dot.green { background: var(--pool-green); }
 .pool-legend-footer .legend-dot.blue { background: var(--pool-blue); }
+.pool-legend-footer .legend-dot.white { background: var(--pool-white, #d7dae0); }
 .pool-legend-footer .legend-dot.live { background: var(--green); animation: pulse-dot 2s infinite; }
 @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 

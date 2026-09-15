@@ -190,6 +190,8 @@ const PublicPlayersView = {
     const entries = this._buildEntries();
     const green = entries.filter((e) => e.pool === 'green');
     const blue = entries.filter((e) => e.pool === 'blue');
+    const white = entries.filter((e) => e.pool === 'white');
+    const byPool = { green, blue, white };
 
     container.innerHTML = `
       <div class="players-view" style="max-width:none;">
@@ -198,6 +200,7 @@ const PublicPlayersView = {
           <p class="player-db-subtitle">
             All NBA 2K27 players in the league pool. Green Pool are current NBA 2K27 players.
             Blue Pool are legendary and all-time great versions of the player.
+            White Pool are Classic editions of the player.
           </p>
         </div>
 
@@ -209,6 +212,10 @@ const PublicPlayersView = {
           <div class="pool-info-card pool-info-blue">
             <span class="pool-info-card-title"><span class="pool-dot" style="width:9px;height:9px;border-radius:50%;background:var(--pool-blue);display:inline-block;"></span> Blue Pool</span>
             <span class="pool-info-card-desc">Legends and all-time great versions of players.</span>
+          </div>
+          <div class="pool-info-card pool-info-white">
+            <span class="pool-info-card-title"><span class="pool-dot" style="width:9px;height:9px;border-radius:50%;background:var(--pool-white, #d7dae0);display:inline-block;"></span> White Pool</span>
+            <span class="pool-info-card-desc">Classic editions of players.</span>
           </div>
         </div>
 
@@ -224,10 +231,13 @@ const PublicPlayersView = {
           <button type="button" class="pool-tab pool-tab-blue ${this._activePool === 'blue' ? 'active' : ''}" data-pool="blue">
             <span class="pool-dot"></span> Blue Pool <span class="pool-tab-count">(All-Time)</span>
           </button>
+          <button type="button" class="pool-tab pool-tab-white ${this._activePool === 'white' ? 'active' : ''}" data-pool="white">
+            <span class="pool-dot"></span> White Pool <span class="pool-tab-count">(Classics)</span>
+          </button>
         </div>
 
         <div id="publicPlayersGrid">
-          ${this._renderGrid(this._activePool === 'green' ? green : blue)}
+          ${this._renderGrid(byPool[this._activePool] || green)}
         </div>
 
         <div class="drafted-note">
@@ -238,6 +248,7 @@ const PublicPlayersView = {
         <div class="pool-legend-footer">
           <span class="legend-item"><span class="legend-dot green"></span> Green Pool: Current NBA 2K27 players.</span>
           <span class="legend-item"><span class="legend-dot blue"></span> Blue Pool: Legends and all-time great versions of players.</span>
+          <span class="legend-item"><span class="legend-dot white"></span> White Pool: Classic editions of players.</span>
           <span class="legend-item"><span class="legend-dot live"></span> Updated in real time</span>
         </div>
       </div>`;

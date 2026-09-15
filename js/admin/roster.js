@@ -224,7 +224,7 @@ const AdminRosterView = {
             <tr>
               <td class="roster-pick-num">${slotLabel}</td>
               <td>${p ? escapeHtml(p.name) : '<span class="muted">(removed)</span>'}</td>
-              <td>${p ? (p.pool === 'green' ? 'Green' : p.pool === 'blue' ? 'Blue' : '—') : '—'}</td>
+              <td>${p ? poolLabel(p.pool) : '—'}</td>
               <td>${this._classificationBadge(e.isJoker ? 'PINK' : e.classification)}</td>
               <td>${p ? escapeHtml(e.effectivePosition || p.position || '—') : '—'}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
               <td class="ovr">${p ? p.overall : '—'}</td>
@@ -353,6 +353,7 @@ const AdminRosterView = {
         <div class="pool-tabs" style="margin:0.5rem 0;">
           <button type="button" class="pool-tab pool-tab-green ${pool === 'green' ? 'active' : ''}" data-manual-pool="green">Green Pool</button>
           <button type="button" class="pool-tab pool-tab-blue ${pool === 'blue' ? 'active' : ''}" data-manual-pool="blue">Blue Pool</button>
+          <button type="button" class="pool-tab pool-tab-white ${pool === 'white' ? 'active' : ''}" data-manual-pool="white">White Pool</button>
         </div>
         <input type="text" class="input" id="manualPickerSearch" placeholder="Search available players…" value="${escapeHtml(this._manualSearch || '')}" style="margin-bottom:0.5rem;width:100%;">
         <div class="table-scroll" style="max-height:260px;overflow-y:auto;">

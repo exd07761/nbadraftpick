@@ -27,6 +27,7 @@ const HomeView = {
     const allPlayers = LeagueData.getAllPlayers();
     const greenCount = allPlayers.filter(p => p.pool === 'green').length;
     const blueCount = allPlayers.filter(p => p.pool === 'blue').length;
+    const whiteCount = allPlayers.filter(p => p.pool === 'white').length;
 
     const stats = LeagueData.getTeamStatistics(s.id);
     const playoffs = LeagueData.getPlayoffs(s.id);
@@ -84,6 +85,10 @@ const HomeView = {
           <div class="stat-card">
             <span class="stat-num" style="color:var(--pool-blue)">${blueCount}</span>
             <span class="stat-label">Blue Pool Players</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-num" style="color:var(--pool-white, #d7dae0)">${whiteCount}</span>
+            <span class="stat-label">White Pool Players</span>
           </div>
         </div>
 

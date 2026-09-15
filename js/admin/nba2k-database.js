@@ -834,7 +834,7 @@ const Nba2kDatabaseView = {
     const ovr = Number(p.overall) || 0;
     const promoted = this._findPromotedEntry(p.id);
     const statusHtml = promoted
-      ? `<span class="nba2k-status-pill nba2k-status-pill-${promoted.pool || 'none'}">In Draft Pool${promoted.pool ? ` · ${promoted.pool === 'green' ? 'Green' : 'Blue'}` : ''}</span>`
+      ? `<span class="nba2k-status-pill nba2k-status-pill-${promoted.pool || 'none'}">In Draft Pool${promoted.pool ? ` · ${poolLabel(promoted.pool)}` : ''}</span>`
       : '';
     // Phase 7: independent 2K27-selection badge — never conflated with
     // the Phase 3 Draft Pool status pill above; a player can show either,
@@ -2332,67 +2332,115 @@ const Nba2k27PoolView = {
   // writing here and never written to at all — only ever read (via the
   // already-loaded `Nba2kDatabaseView._players` cache) to know what the
   // UN-overridden source value is, for the placeholder text.
+  //
+  // Phase D2: converted from an inline form (permanently taking up
+  // layout space in the pool pane) to the app's existing modal pattern —
+  // `.modal-overlay`/`.modal-card`, same classes `_openDraftConfirm`/
+  // `_openSkipConfirm` (js/admin/draft.js) and every financial modal
+  // already use, plus the close (×) button style from this file's own
+  // `_openDetail()`. `#nba2k27mgmtEdit` remains the mount point (still a
+  // child of `container`, untouched by `_refreshPoolPane`'s search/sort
+  // re-renders exactly as before) — only what gets written into it
+  // changed, from a bare card to an overlay+card. Every field id, every
+  // save/cancel handler, and the entire save() body below are otherwise
+  // byte-for-byte the same as before this phase; only the closing calls
+  // now go through the shared `close()` so Escape/backdrop-click/× all
+  // tear down the same way a successful Save or Cancel already did.
   _openManualEdit(container, slug) {
     const editEl = container.querySelector('#nba2k27mgmtEdit');
     if (!editEl) return;
     const row = this._buildRows().find(r => r.slug === slug);
     if (!row || row.orphan) return; // nothing to edit without a source record to fall back to
 
+    // Tear down a previous Manual Edit modal's Escape-key listener before
+    // opening a new one — e.g. clicking a second player's row while a
+    // Manual Edit modal is already open for the first. The innerHTML
+    // replacement below already detaches the old field DOM (and any
+    // handlers bound directly to it), but a `document`-level keydown
+    // listener isn't attached to that DOM and needs explicit cleanup, or
+    // repeated opens would stack duplicate Escape handlers.
+    if (this._manualEditEscHandler) {
+      document.removeEventListener('keydown', this._manualEditEscHandler);
+      this._manualEditEscHandler = null;
+    }
+
     const entry = row.entry || {};
     const p = row.player;
 
     editEl.classList.remove('hidden');
     editEl.innerHTML = `
-      <div class="nba2k-promo-confirm-card nba2k27edit-card">
-        <div class="nba2k-promo-eyebrow">Manual Edit — ${escapeHtml(p.name)}</div>
-        <p class="helper-text">
-          Overrides apply only to the NBA 2K27 Pool display — the shared source record in
-          <code>nba2k_players</code> is never changed. Leave a field blank to fall back to the source value.
-        </p>
+      <div class="modal-overlay" id="manualEditOverlay">
+        <div class="modal-card manual-edit-modal" role="dialog" aria-modal="true" aria-labelledby="manualEditTitle">
+          <button type="button" class="nba2k-detail-close" id="manualEditCloseBtn" aria-label="Close">×</button>
+          <div class="nba2k27edit-card">
+            <div class="nba2k-promo-eyebrow" id="manualEditTitle">Manual Edit — ${escapeHtml(p.name)}</div>
+            <p class="helper-text">
+              Overrides apply only to the NBA 2K27 Pool display — the shared source record in
+              <code>nba2k_players</code> is never changed. Leave a field blank to fall back to the source value.
+            </p>
 
-        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditName">Display name</label>
-        <input type="text" id="nba2k27EditName" class="input" placeholder="${escapeHtml(p.name)} (source)" value="${entry.nameOverride ? escapeHtml(entry.nameOverride) : ''}">
+            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditName">Display name</label>
+            <input type="text" id="nba2k27EditName" class="input" placeholder="${escapeHtml(p.name)} (source)" value="${entry.nameOverride ? escapeHtml(entry.nameOverride) : ''}">
 
-        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditOverall">Overall</label>
-        <input type="number" id="nba2k27EditOverall" class="input" min="0" max="99" placeholder="${p.overall != null ? p.overall : '—'} (source)" value="${typeof entry.overallOverride === 'number' ? entry.overallOverride : ''}">
+            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditOverall">Overall</label>
+            <input type="number" id="nba2k27EditOverall" class="input" min="0" max="99" placeholder="${p.overall != null ? p.overall : '—'} (source)" value="${typeof entry.overallOverride === 'number' ? entry.overallOverride : ''}">
 
-        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditTeam">NBA team</label>
-        <input type="text" id="nba2k27EditTeam" class="input" placeholder="${escapeHtml(p.team || '—')} (source)" value="${entry.teamOverride ? escapeHtml(entry.teamOverride) : ''}">
+            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditTeam">NBA team</label>
+            <input type="text" id="nba2k27EditTeam" class="input" placeholder="${escapeHtml(p.team || '—')} (source)" value="${entry.teamOverride ? escapeHtml(entry.teamOverride) : ''}">
 
-        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditPosition">2K27 Position</label>
-        <select id="nba2k27EditPosition" class="input">
-          ${NBA2K27_POOL_POSITION_VALUES.map(pos => `<option value="${pos}" ${row.position === pos ? 'selected' : ''}>${pos}</option>`).join('')}
-        </select>
+            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditPosition">2K27 Position</label>
+            <select id="nba2k27EditPosition" class="input">
+              ${NBA2K27_POOL_POSITION_VALUES.map(pos => `<option value="${pos}" ${row.position === pos ? 'selected' : ''}>${pos}</option>`).join('')}
+            </select>
 
-        <div class="nba2k-promo-confirm-row">
-          <span>2K27 Pool</span>
-          <strong>${nba2k27PoolDot(row.poolValue)} ${escapeHtml(nba2k27PoolLabel(row.poolValue) || '—')}</strong>
-        </div>
-        <p class="helper-text">Auto — derived from source category, not editable here.</p>
+            <div class="nba2k-promo-confirm-row">
+              <span>2K27 Pool</span>
+              <strong>${nba2k27PoolDot(row.poolValue)} ${escapeHtml(nba2k27PoolLabel(row.poolValue) || '—')}</strong>
+            </div>
+            <p class="helper-text">Auto — derived from source category, not editable here.</p>
 
-        <hr>
-        <div class="nba2k-promo-eyebrow">Variant grouping</div>
-        <p class="helper-text">
-          Group related but SEPARATE player records (e.g. different-year editions of the same real player)
-          for display only. This never merges, deletes, or duplicates any record, and never changes pool or position.
-        </p>
-        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditVariantGroup">Variant group ID</label>
-        <input type="text" id="nba2k27EditVariantGroup" class="input" placeholder="e.g. michael-jordan (blank = no group)" value="${row.variantGroupId ? escapeHtml(row.variantGroupId) : ''}">
-        <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditVariantLabel">This player's variant label</label>
-        <input type="text" id="nba2k27EditVariantLabel" class="input" placeholder="e.g. 1996 (optional)" value="${row.variantLabel ? escapeHtml(row.variantLabel) : ''}">
-        ${this._renderVariantGroupMembers(row)}
+            <hr>
+            <div class="nba2k-promo-eyebrow">Variant grouping</div>
+            <p class="helper-text">
+              Group related but SEPARATE player records (e.g. different-year editions of the same real player)
+              for display only. This never merges, deletes, or duplicates any record, and never changes pool or position.
+            </p>
+            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditVariantGroup">Variant group ID</label>
+            <input type="text" id="nba2k27EditVariantGroup" class="input" placeholder="e.g. michael-jordan (blank = no group)" value="${row.variantGroupId ? escapeHtml(row.variantGroupId) : ''}">
+            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditVariantLabel">This player's variant label</label>
+            <input type="text" id="nba2k27EditVariantLabel" class="input" placeholder="e.g. 1996 (optional)" value="${row.variantLabel ? escapeHtml(row.variantLabel) : ''}">
+            ${this._renderVariantGroupMembers(row)}
 
-        <div id="nba2k27EditError"></div>
-        <div class="form-actions">
-          <button type="button" class="btn btn-primary" id="nba2k27EditSaveBtn">Save</button>
-          <button type="button" class="btn btn-ghost" id="nba2k27EditCancelBtn">Cancel</button>
+            <div id="nba2k27EditError"></div>
+            <div class="form-actions">
+              <button type="button" class="btn btn-primary" id="nba2k27EditSaveBtn">Save</button>
+              <button type="button" class="btn btn-ghost" id="nba2k27EditCancelBtn">Cancel</button>
+            </div>
+          </div>
         </div>
       </div>`;
 
-    editEl.querySelector('#nba2k27EditCancelBtn').onclick = () => {
+    // Shared teardown for every close path (×, backdrop click, Escape,
+    // Cancel, and a successful Save below) — always the same two steps
+    // the old inline-form Cancel handler already did, plus the Escape
+    // listener cleanup this modal adds.
+    const close = () => {
       editEl.classList.add('hidden');
       editEl.innerHTML = '';
+      if (this._manualEditEscHandler) {
+        document.removeEventListener('keydown', this._manualEditEscHandler);
+        this._manualEditEscHandler = null;
+      }
     };
+
+    editEl.querySelector('#manualEditOverlay').addEventListener('click', e => {
+      if (e.target.id === 'manualEditOverlay') close();
+    });
+    editEl.querySelector('#manualEditCloseBtn').onclick = close;
+    editEl.querySelector('#nba2k27EditCancelBtn').onclick = close;
+
+    this._manualEditEscHandler = e => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', this._manualEditEscHandler);
 
     const saveBtn = editEl.querySelector('#nba2k27EditSaveBtn');
     saveBtn.onclick = async () => {
@@ -2457,8 +2505,7 @@ const Nba2k27PoolView = {
         if (Nba2kDatabaseView._pool27) Nba2kDatabaseView._pool27[slug] = updated;
 
         showToast('Saved.', 'success');
-        editEl.classList.add('hidden');
-        editEl.innerHTML = '';
+        close();
         this._refreshPoolPane(container);
         if (this._validation) {
           this._validation = null;

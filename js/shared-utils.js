@@ -32,6 +32,25 @@ function formatStatus(status) {
 }
 
 /**
+ * poolLabel(pool) — shared player-pool display label, used anywhere a
+ * player's `pool` field ('green' | 'blue' | 'white' | undefined) needs a
+ * human-readable label. Added for NBA2K27 Phase D1 White Pool support to
+ * replace several ad-hoc two-way `pool === 'blue' ? 'Blue' : 'Green'`
+ * ternaries scattered across admin/public draft, roster, and player-DB
+ * views — those all silently mislabeled White as Green (or, in one case,
+ * as Blue). This does not change any eligibility/validation logic
+ * (isBlueLike, validateMinimumRating, etc. are untouched) — it is purely
+ * a display helper. Unknown/missing pool renders as an em dash, matching
+ * the existing roster-table convention.
+ */
+function poolLabel(pool) {
+  if (pool === 'green') return 'Green';
+  if (pool === 'blue') return 'Blue';
+  if (pool === 'white') return 'White';
+  return '—';
+}
+
+/**
  * teamBadge(abbr, options) — shared team-identity component, used
  * everywhere an NBA team appears (Home, Rosters, Schedule, Standings,
  * Draft, Players, Playoffs, Team Assignment, Admin Schedule). There is no

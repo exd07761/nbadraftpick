@@ -57,6 +57,21 @@
 }
 .nba2k-detail-close:hover { color: var(--nb-text, var(--text)); }
 
+/* ─── Manual Edit modal (Phase D2 — converted from an inline form) ───────
+   Reuses .modal-overlay/.modal-card (same classes as the draft-confirm/
+   skip-confirm/financial modals) plus .nba2k-detail-close for the × —
+   same close-button treatment as the detail modal above. max-height +
+   overflow-y keep the (fairly tall — base fields + variant grouping)
+   form from exceeding the viewport, scrolling internally instead of
+   pushing page layout, same technique as .nba2k-detail-modal. */
+.manual-edit-modal {
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+  padding-top: 2.5rem;
+}
+
 .nba2k-detail-header {
   display: flex;
   gap: 1rem;
@@ -175,6 +190,7 @@
 }
 .nba2k-status-pill-green { background: var(--pool-green-dim, rgba(52,209,124,0.14)); color: var(--pool-green, #34d17c); }
 .nba2k-status-pill-blue  { background: var(--pool-blue-dim, rgba(77,155,245,0.14)); color: var(--pool-blue, #4d9bf5); }
+.nba2k-status-pill-white { background: var(--pool-white-dim, rgba(215,218,224,0.14)); color: var(--pool-white, #d7dae0); }
 .nba2k-status-pill-none  { background: var(--nb-surface-border, var(--border)); color: var(--nb-text-muted, var(--text-muted)); }
 
 /* ─── Phase 3: "Add to Draft Pool" section in the detail modal ───────────── */
@@ -366,6 +382,7 @@
   .nba2k-attr-groups { grid-template-columns: 1fr; }
   .nba2k-attr-row { grid-template-columns: 92px 1fr 24px; }
   .nba2k-detail-modal { max-width: 100%; }
+  .manual-edit-modal { max-width: 100%; }
   .nba2k-detail-header { flex-wrap: wrap; }
 
   .nba2k-promo-row { flex-wrap: wrap; }

@@ -1224,6 +1224,7 @@ select.input { cursor: pointer; }
 }
 .pool-heading-green { color: var(--pool-green); border-bottom-color: var(--pool-green-dim); }
 .pool-heading-blue  { color: var(--pool-blue);  border-bottom-color: var(--pool-blue-dim); }
+.pool-heading-white { color: var(--pool-white, #d7dae0); border-bottom-color: var(--pool-white-dim, rgba(215,218,224,0.14)); }
 
 .swap-replacement-list {
   display: flex;

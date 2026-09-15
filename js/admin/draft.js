@@ -262,9 +262,13 @@ const AdminDraftView = {
   // ── Pool tab buttons (topbar) — content panes live in the main column;
   // click handler toggles both by data-pool / data-pool-pane, wherever
   // they are in the DOM, so the two can live in different containers. ────
+  // Phase D1: added the White tab alongside Green/Blue — White players
+  // are Blue-like for every game/league rule (isBlueLike, unchanged) but
+  // are their own pool for display/tab purposes, same as Green/Blue.
   _renderPoolTabButtons(poolStatusList) {
     const green = poolStatusList.filter(e => e.player.pool === 'green');
     const blue = poolStatusList.filter(e => e.player.pool === 'blue');
+    const white = poolStatusList.filter(e => e.player.pool === 'white');
     const active = this._activePool || 'green';
     return `
       <button type="button" class="pool-tab pool-tab-green ${active === 'green' ? 'active' : ''}" data-pool="green">
@@ -272,15 +276,21 @@ const AdminDraftView = {
       </button>
       <button type="button" class="pool-tab pool-tab-blue ${active === 'blue' ? 'active' : ''}" data-pool="blue">
         <span class="pool-dot"></span> Blue Pool <span class="pool-tab-count">${blue.length}</span>
+      </button>
+      <button type="button" class="pool-tab pool-tab-white ${active === 'white' ? 'active' : ''}" data-pool="white">
+        <span class="pool-dot"></span> White Pool <span class="pool-tab-count">${white.length}</span>
       </button>`;
   },
 
   // Players with no pool assigned still exist in the underlying data but
-  // are intentionally excluded from both tabs — no user-facing
-  // "Unassigned Pool" anywhere in Phase 10.
+  // are intentionally excluded from all tabs — no user-facing
+  // "Unassigned Pool" anywhere in Phase 10. Phase D1: added the White
+  // pane, reusing positionPoolGrid() exactly like Green/Blue already do —
+  // no new grid logic.
   _renderPools(poolStatusList, mode) {
     const green = poolStatusList.filter(e => e.player.pool === 'green');
     const blue = poolStatusList.filter(e => e.player.pool === 'blue');
+    const white = poolStatusList.filter(e => e.player.pool === 'white');
     const active = this._activePool || 'green';
 
     return `
@@ -289,6 +299,9 @@ const AdminDraftView = {
       </div>
       <div class="pool-pane ${active === 'blue' ? 'active' : ''}" data-pool-pane="blue">
         ${positionPoolGrid(blue, 'blue', { mode })}
+      </div>
+      <div class="pool-pane ${active === 'white' ? 'active' : ''}" data-pool-pane="white">
+        ${positionPoolGrid(white, 'white', { mode })}
       </div>`;
   },
 
@@ -417,7 +430,7 @@ const AdminDraftView = {
             <span class="dsr-name">${escapeHtml(player.name)}</span>
             <span class="dsr-pos">${player.position || '—'}</span>
             <span class="dsr-ovr">${player.overall ?? '—'}</span>
-            <span class="pool-badge pool-badge-${player.pool === 'blue' ? 'blue' : 'green'}">${player.pool === 'blue' ? 'Blue' : 'Green'}</span>
+            <span class="pool-badge pool-badge-${player.pool || 'green'}">${poolLabel(player.pool)}</span>
             ${label ? `<span class="dsr-status">${label}</span>` : ''}
           </div>`;
       }).join('')}
@@ -505,7 +518,7 @@ const AdminDraftView = {
         <div class="modal-player-name" id="draftConfirmTitle">${escapeHtml(player.name)}</div>
         <div class="modal-player-meta">
           <span>${player.position || '—'}</span> · <span>${player.overall ?? '—'} OVR</span>
-          <span class="pool-badge pool-badge-${player.pool === 'blue' ? 'blue' : 'green'}" style="margin-left:0.5rem;">${player.pool === 'blue' ? 'Blue Pool' : 'Green Pool'}</span>
+          <span class="pool-badge pool-badge-${player.pool || 'green'}" style="margin-left:0.5rem;">${player.pool === 'white' ? 'White Pool' : player.pool === 'blue' ? 'Blue Pool' : 'Green Pool'}</span>
         </div>
         <p class="modal-prompt">Draft ${escapeHtml(player.name)}?</p>
         <label class="draft-joker-toggle">

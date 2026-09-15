@@ -83,7 +83,12 @@ function makeAdminSandbox() {
 
   const sandbox = {
     console,
-    document: { body: { contains: () => true } },
+    // Phase D2: _openManualEdit now attaches/detaches a document-level
+    // Escape-key listener (same pattern as _openDraftConfirm elsewhere in
+    // the app) — stubbed here as no-ops since this sandbox's fake DOM
+    // doesn't model live keyboard events; the modal's field/save/cancel
+    // behavior below is exercised exactly as before.
+    document: { body: { contains: () => true }, addEventListener: () => {}, removeEventListener: () => {} },
     escapeHtml: (s) => String(s),
     showToast: () => {},
     normalizePlayerName: (n) => String(n).trim().toLowerCase(),

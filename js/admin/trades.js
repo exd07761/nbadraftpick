@@ -300,7 +300,7 @@ const AdminTradesView = {
    */
   _buildReplacementGroups(allEligible, outgoingEntry, searchQuery) {
     if (!outgoingEntry || !outgoingEntry.player) {
-      return { position: null, green: [], blue: [], other: [], total: 0 };
+      return { position: null, green: [], blue: [], white: [], other: [], total: 0 };
     }
     const position = outgoingEntry.player.position;
     const currentPlayerId = outgoingEntry.playerId;
@@ -322,12 +322,17 @@ const AdminTradesView = {
     const sortByOvrThenName = (a, b) => (b.overall - a.overall) || a.name.localeCompare(b.name);
     const green = filtered.filter((p) => p.pool === 'green').sort(sortByOvrThenName);
     const blue = filtered.filter((p) => p.pool === 'blue').sort(sortByOvrThenName);
+    // Phase D1: White gets its own labeled section, same as Green/Blue,
+    // instead of falling into the catch-all "other"/"UNASSIGNED POOL"
+    // bucket below — purely a display grouping change, eligibility itself
+    // is untouched (still whatever getSwapEligibleReplacements returned).
+    const white = filtered.filter((p) => p.pool === 'white').sort(sortByOvrThenName);
     // Players with no pool set at all are still eligible under the existing
     // rules and were still selectable in the old flat <select> — keep them
     // visible (in their own section) rather than silently dropping them.
-    const other = filtered.filter((p) => p.pool !== 'green' && p.pool !== 'blue').sort(sortByOvrThenName);
+    const other = filtered.filter((p) => p.pool !== 'green' && p.pool !== 'blue' && p.pool !== 'white').sort(sortByOvrThenName);
 
-    return { position, green, blue, other, total: filtered.length };
+    return { position, green, blue, white, other, total: filtered.length };
   },
 
   _renderReplacementRow(p) {
@@ -397,6 +402,7 @@ const AdminTradesView = {
         </div>` : `
         ${this._renderReplacementPoolSection('GREEN POOL', 'pool-heading-green', groups.green)}
         ${this._renderReplacementPoolSection('BLUE POOL', 'pool-heading-blue', groups.blue)}
+        ${this._renderReplacementPoolSection('WHITE POOL', 'pool-heading-white', groups.white)}
         ${this._renderReplacementPoolSection('UNASSIGNED POOL', '', groups.other)}
       `}`;
   },

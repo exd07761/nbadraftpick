@@ -175,6 +175,7 @@
 .swap-pool-heading { border-bottom: 1px solid var(--nb-surface-border); }
 .pool-heading-green { color: var(--nb-positive); border-bottom-color: rgba(31,169,113,0.3); }
 .pool-heading-blue  { color: var(--nb-primary); border-bottom-color: var(--nb-primary-dim); }
+.pool-heading-white { color: var(--pool-white, #d7dae0); border-bottom-color: var(--pool-white-dim, rgba(215,218,224,0.14)); }
 
 .swap-replacement-row {
   background: var(--nb-surface-card);

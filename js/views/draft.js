@@ -205,6 +205,9 @@ const PublicDraftView = {
         <button type="button" class="pool-tab pool-tab-blue ${this._activePool === 'blue' ? 'active' : ''}" data-pool="blue">
           <span class="pool-dot"></span> Blue Pool <span class="pool-tab-count">(Legends & Primes)</span>
         </button>
+        <button type="button" class="pool-tab pool-tab-white ${this._activePool === 'white' ? 'active' : ''}" data-pool="white">
+          <span class="pool-dot"></span> White Pool <span class="pool-tab-count">(Classics)</span>
+        </button>
       </div>
       <div id="dftPlayerGrid">
         ${this._renderGrid(poolStatus)}

@@ -186,7 +186,7 @@ const PublicRosterView = {
                 <tr>
                   <td>${slotLabel}</td>
                   <td>${p ? escapeHtml(p.name) : '<span class="muted">(removed)</span>'}</td>
-                  <td>${p ? (p.pool === 'green' ? 'Green' : p.pool === 'blue' ? 'Blue' : '—') : '—'}</td>
+                  <td>${p ? poolLabel(p.pool) : '—'}</td>
                   <td>${classificationBadge(e.isJoker ? 'PINK' : e.classification)}</td>
                   <td>${p ? escapeHtml(e.effectivePosition || p.position || '—') : '—'}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
                   <td class="ovr">${p ? p.overall : '—'}</td>

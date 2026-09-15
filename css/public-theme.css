@@ -381,6 +381,7 @@
 .pool-legend-footer { color: var(--nb-text-muted); }
 .pool-legend-footer .legend-dot.green { background: var(--nb-positive); }
 .pool-legend-footer .legend-dot.blue { background: var(--nb-primary); }
+.pool-legend-footer .legend-dot.white { background: var(--pool-white, #b9bec9); }
 .pool-legend-footer .legend-dot.live { background: var(--nb-positive); }
 
 /* teamBadge() abbreviation text — same fix as draft-public.css, applied
