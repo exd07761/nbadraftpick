@@ -519,10 +519,9 @@ const AdminScheduleView = {
             ${state.hasCompletedGames ? 'disabled title="Regeneration is disabled once any game has been completed."' : ''}>
             Regenerate Schedule
           </button>
-          ${state.hasCompletedGames ? `
           <button class="btn btn-sm btn-ghost" data-action="resetSchedule" style="color:var(--red,#e74c3c);">
-            Reset Schedule (clear test data)
-          </button>` : ''}
+            Reset Schedule
+          </button>
         </div>
         <p class="helper-text">
           Generated ${generatedDate} — ${state.totalRounds} rounds,
