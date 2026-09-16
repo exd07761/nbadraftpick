@@ -26,6 +26,7 @@ const AdminScheduleView = {
   _pendingGroups: null,         // { A:[...], B:[...], C:[...], D:[...] } — draft Round 1 group assignment, not yet saved
   _pendingRound2Groups: null,   // { A:[id|null x4], B:[...], C:[...], D:[...] } — draft manual Round 2 assignment (external roulette result), not yet saved
   _round2Error: null,           // last validation error string from a failed "Generate Round 2" attempt, shown until the next edit or retry
+  _pendingConferences: null,    // { A:[...], B:[...] } — draft Conference Round Robin conference split, not yet saved
 
   render(container) {
     const season = LeagueData.getCurrentSeason();
@@ -59,9 +60,13 @@ const AdminScheduleView = {
   _renderFormatPicker(container, season) {
     const assignedCount = Object.keys(season.nbaTeamAssignments).length;
     const isGroupStage = this._pendingFormat === 'groupStage';
+    const isConferenceRoundRobin = this._pendingFormat === 'conferenceRoundRobin';
 
     if (isGroupStage && !this._pendingGroups) {
       this._pendingGroups = this._autoAssignGroups(season);
+    }
+    if (isConferenceRoundRobin && !this._pendingConferences) {
+      this._pendingConferences = this._autoAssignConferences(season);
     }
 
     container.innerHTML = `
@@ -75,6 +80,7 @@ const AdminScheduleView = {
           <div class="pool-tabs" id="formatTabs">
             <button type="button" class="pool-tab ${this._pendingFormat === 'roundRobin' ? 'active' : ''}" data-format="roundRobin">Round Robin</button>
             <button type="button" class="pool-tab ${this._pendingFormat === 'groupStage' ? 'active' : ''}" data-format="groupStage">Group Stage</button>
+            <button type="button" class="pool-tab ${this._pendingFormat === 'conferenceRoundRobin' ? 'active' : ''}" data-format="conferenceRoundRobin">Conference Round Robin</button>
           </div>
         </div>
 
@@ -83,7 +89,7 @@ const AdminScheduleView = {
             (${assignedCount} teams → ${assignedCount > 1 ? assignedCount * (assignedCount - 1) / 2 : 0} games,
             ${assignedCount > 1 ? assignedCount - 1 : 0} games/team).</p>
           <button class="btn btn-primary" data-action="generateRoundRobin">Generate Schedule</button>
-        ` : this._renderGroupStageSetup(season, assignedCount)}
+        ` : isConferenceRoundRobin ? this._renderConferenceRoundRobinSetup(season, assignedCount) : this._renderGroupStageSetup(season, assignedCount)}
       </div>`;
 
     container.querySelector('#formatTabs').addEventListener('click', (e) => {
@@ -92,6 +98,9 @@ const AdminScheduleView = {
       this._pendingFormat = btn.dataset.format;
       if (this._pendingFormat === 'groupStage' && !this._pendingGroups) {
         this._pendingGroups = this._autoAssignGroups(season);
+      }
+      if (this._pendingFormat === 'conferenceRoundRobin' && !this._pendingConferences) {
+        this._pendingConferences = this._autoAssignConferences(season);
       }
       this.render(container);
     });
@@ -109,6 +118,109 @@ const AdminScheduleView = {
     });
 
     this._bindGroupStageSetupEvents(container, season);
+    this._bindConferenceRoundRobinSetupEvents(container, season);
+  },
+
+  /** Automatic assignment: teamAssignmentOrder split in half — first half into Conference A, second half into Conference B. An odd assigned count gives Conference A the extra team. Purely a starting point; the commissioner can move teams between conferences before generating. */
+  _autoAssignConferences(season) {
+    const teamIds = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]);
+    const mid = Math.ceil(teamIds.length / 2);
+    return {
+      A: teamIds.slice(0, mid),
+      B: teamIds.slice(mid),
+    };
+  },
+
+  _renderConferenceRoundRobinSetup(season, assignedCount) {
+    const validCount = assignedCount >= 4;
+    const nameFor = (pid) => season.participants[pid]?.name || '—';
+    const abbrFor = (pid) => season.nbaTeamAssignments[pid];
+
+    const gamesFor = (n) => (n > 1 ? (n * (n - 1)) / 2 : 0);
+    const confACount = (this._pendingConferences?.A || []).length;
+    const confBCount = (this._pendingConferences?.B || []).length;
+    const totalGames = gamesFor(confACount) + gamesFor(confBCount);
+
+    const conferenceCols = CONFERENCE_NAMES.map((c) => {
+      const teamIds = this._pendingConferences[c] || [];
+      const countOk = teamIds.length >= 2;
+      return `
+        <div class="roster-card" style="min-width:220px;">
+          <div class="roster-card-header">
+            <span class="roster-card-name">Conference ${c}</span>
+            <span class="roster-card-count ${countOk ? '' : 'cap-over-text'}">${teamIds.length}</span>
+          </div>
+          <div class="table-scroll">
+            <table class="roster-table">
+              <tbody>
+                ${teamIds.map((pid) => `
+                  <tr>
+                    <td>${teamBadge(abbrFor(pid), { size: 'sm' })}</td>
+                    <td>${escapeHtml(nameFor(pid))}</td>
+                    <td style="text-align:right;">
+                      <select class="input" style="padding:0.15rem 0.4rem;font-size:0.8rem;" data-move-conference-team="${pid}" data-from-conference="${c}">
+                        ${CONFERENCE_NAMES.map((c2) => `<option value="${c2}" ${c2 === c ? 'selected' : ''}>${c2}</option>`).join('')}
+                      </select>
+                    </td>
+                  </tr>`).join('') || `<tr><td class="muted" style="padding:0.5rem">Empty</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>`;
+    }).join('');
+
+    if (!validCount) {
+      return `
+        <div class="info-banner warn-banner">
+          Conference Round Robin requires at least 4 teams with an assigned NBA team, split into two
+          conferences of at least 2 (this season has ${assignedCount}). Use Round Robin instead, or
+          adjust NBA Team Assignment.
+        </div>`;
+    }
+
+    return `
+      <div class="info-banner" style="margin-bottom:0.75rem;">
+        Each team plays every other team in its own conference exactly once. A Conference A team never
+        plays a Conference B team in this stage. Current split: Conference A (${confACount} teams,
+        ${gamesFor(confACount)} games), Conference B (${confBCount} teams, ${gamesFor(confBCount)} games) —
+        <strong>Total: ${totalGames} games</strong>.
+      </div>
+      <p class="helper-text">Conferences are auto-assigned from the existing NBA Team Assignment order,
+        split in half. Use the dropdown next to a team to move them to the other conference before generating.</p>
+      <div class="roster-cards" id="conferenceSetupCols" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+        ${conferenceCols}
+      </div>
+      <p id="conferenceSetupError" class="error-text"></p>
+      <button class="btn btn-primary" data-action="generateConferenceRoundRobin" style="margin-top:0.75rem;">Generate Conference Round Robin</button>`;
+  },
+
+  _bindConferenceRoundRobinSetupEvents(container, season) {
+    container.querySelectorAll('[data-move-conference-team]').forEach((select) => {
+      select.onchange = () => {
+        const pid = select.dataset.moveConferenceTeam;
+        const fromConference = select.dataset.fromConference;
+        const toConference = select.value;
+        if (toConference === fromConference) return;
+        this._pendingConferences[fromConference] = this._pendingConferences[fromConference].filter((id) => id !== pid);
+        this._pendingConferences[toConference] = [...(this._pendingConferences[toConference] || []), pid];
+        this.render(container);
+      };
+    });
+
+    container.querySelector('[data-action="generateConferenceRoundRobin"]')?.addEventListener('click', () => {
+      AuthBoundary.requireAuth();
+      const errEl = container.querySelector('#conferenceSetupError');
+      try {
+        AdminActions.generateConferenceRoundRobinSchedule(season.id, this._pendingConferences);
+        showToast('Conference Round Robin generated.', 'success');
+        this._selectedRound = 1;
+        this._pendingConferences = null;
+        this.render(container);
+      } catch (e) {
+        if (errEl) errEl.textContent = e.message;
+        else showToast(e.message, 'error');
+      }
+    });
   },
 
   /** Automatic assignment: teamAssignmentOrder sliced into 4 consecutive groups of 4 — the "official" existing team order (DuckRace #2), per the ticket's guidance. */
@@ -341,7 +453,47 @@ const AdminScheduleView = {
       </div>`;
   },
 
+  /**
+   * Conference Round Robin-only panel shown above the round tabs: the
+   * two conferences' standings, side by side. This panel is standings-only
+   * for now; playoff qualification is intentionally not displayed until
+   * the conference playoff system is implemented.
+   */
+  _renderConferenceRoundRobinPanel(season) {
+    const standings = LeagueData.getConferenceRoundRobinStandings(season.id);
+    if (!standings) return '';
 
+    const confTable = (rows) => `
+      <div class="roster-card" style="min-width:260px;">
+        <div class="table-scroll">
+          <table class="roster-table">
+            <thead><tr><th>#</th><th>Team</th><th>W-L</th><th>+/-</th></tr></thead>
+            <tbody>
+              ${rows.map((row, i) => `
+                <tr>
+                  <td>${i + 1}</td>
+                  <td>${escapeHtml(row.participantName || '—')}</td>
+                  <td>${row.wins}-${row.losses}</td>
+                  <td>${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+
+    return `
+      <div class="info-banner" style="margin:0.75rem 0;">
+        <strong>Conference Round Robin</strong> — each conference plays its own round robin.
+        Conference A teams do not play Conference B teams in the regular season.
+      </div>
+      <div class="roster-cards" style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+        ${CONFERENCE_NAMES.map((c) => `
+          <div>
+            <h3 class="section-title" style="font-size:0.95rem;margin-bottom:0.35rem;">Conference ${c}</h3>
+            ${confTable(standings[c] || [])}
+          </div>`).join('')}
+      </div>`;
+  },
 
   _renderGenerated(container, season, state) {
     const rounds = LeagueData.getSchedule(season.id);
@@ -353,14 +505,16 @@ const AdminScheduleView = {
       ? new Date(state.generatedAt).toLocaleString()
       : '';
     const isGroupStage = season.scheduleFormat === 'groupStage' && !!season.groupStageState;
+    const isConferenceRoundRobin = season.scheduleFormat === 'conferenceRoundRobin' && !!season.conferenceRoundRobinState;
     const roundStage = isGroupStage
       ? (activeRound.matchups[0]?.stage || (this._selectedRound <= 3 ? 1 : 2))
       : null;
+    const formatLabel = isGroupStage ? ' (Group Stage)' : isConferenceRoundRobin ? ' (Conference Round Robin)' : '';
 
     container.innerHTML = `
       <div class="admin-section">
         <div class="admin-section-header">
-          <h2>Regular Season Schedule — ${escapeHtml(season.name)}${isGroupStage ? ' (Group Stage)' : ''}</h2>
+          <h2>Regular Season Schedule — ${escapeHtml(season.name)}${formatLabel}</h2>
           <button class="btn btn-sm btn-ghost" data-action="regenerate"
             ${state.hasCompletedGames ? 'disabled title="Regeneration is disabled once any game has been completed."' : ''}>
             Regenerate Schedule
@@ -376,6 +530,7 @@ const AdminScheduleView = {
         </p>
 
         ${isGroupStage ? this._renderGroupStagePanel(season, state) : ''}
+        ${isConferenceRoundRobin ? this._renderConferenceRoundRobinPanel(season) : ''}
 
         <div class="round-tabs" id="roundTabs">
           ${rounds.map((r) => `
@@ -412,6 +567,15 @@ const AdminScheduleView = {
         this._renderFormatPicker(container, season);
         return;
       }
+      if (isConferenceRoundRobin) {
+        // Same reasoning as Group Stage above: reopen the conference-
+        // assignment screen pre-filled with the current split, rather than
+        // an immediate one-click regenerate.
+        this._pendingFormat = 'conferenceRoundRobin';
+        this._pendingConferences = season.conferenceRoundRobinState.conferences;
+        this._renderFormatPicker(container, season);
+        return;
+      }
       try {
         AdminActions.generateSchedule(season.id);
         showToast('Schedule regenerated.', 'success');
@@ -436,6 +600,7 @@ const AdminScheduleView = {
         this._pendingGroups = null;
         this._pendingRound2Groups = null;
         this._round2Error = null;
+        this._pendingConferences = null;
         this._selectedRound = 1;
         this.render(container);
       } catch (e) {
@@ -500,7 +665,11 @@ const AdminScheduleView = {
 
     const isCompleted = m.status === 'completed';
     const round1Locked = m.stage === 1 && season.groupStageState && season.groupStageState.stage === 2;
-    const groupBadge = m.group ? `<span class="status-chip" style="margin-right:0.5rem;">Group ${m.group}</span>` : '';
+    const groupBadge = m.group
+      ? `<span class="status-chip" style="margin-right:0.5rem;">Group ${m.group}</span>`
+      : m.conference
+        ? `<span class="status-chip" style="margin-right:0.5rem;">Conference ${m.conference}</span>`
+        : '';
     const { leftId, rightId, leftScore, rightScore, leftIsWinner, rightIsWinner, hasHomeCourt } = matchupHomeAway(m);
     return `
       <div class="matchup-row ${isCompleted ? 'completed' : ''}">

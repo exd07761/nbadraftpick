@@ -218,6 +218,9 @@ function createSeason(id, name) {
     //                            // so nothing that reads a Matchup needs to
     //                            // change for Round Robin to keep working.
     //                            // stage: 1 | 2. group: 'A'|'B'|'C'|'D'.
+    //   conference,              // Conference Round Robin only — absent/
+    //                            // undefined on every other format's
+    //                            // matchup. conference: 'A'|'B'.
     //   home, away,              // Group Stage only — explicit home/away
     //                            // participantIds (see assignRound1HomeCourt/
     //                            // assignRound2HomeCourt below). Absent on
@@ -232,13 +235,16 @@ function createSeason(id, name) {
     scheduleGeneratedAt: null, // ISO string, set each time generateSchedule() runs
 
     // Which scheduler produced season.schedule — 'roundRobin' (default/
-    // legacy, every existing season implicitly means this) or 'groupStage'
-    // (Revision — Group Stage format). Every reader of season.schedule
+    // legacy, every existing season implicitly means this), 'groupStage'
+    // (Revision — Group Stage format), or 'conferenceRoundRobin' (New
+    // Scheduling System #3). Every reader of season.schedule
     // (getScheduleState, getTeamStatistics, getStreamerStatistics,
     // recordMatchResult, playoffs) works identically regardless of this
     // value — it only matters to the schedule UI (which display/generate
-    // flow to show) and to recordMatchResult's Round-1-lock guard below.
-    scheduleFormat: null, // null until a schedule is generated; 'roundRobin' | 'groupStage'
+    // flow to show) and to recordMatchResult's Round-1-lock guard below
+    // (Group Stage only; Conference Round Robin has no such lock, since it
+    // has only one stage).
+    scheduleFormat: null, // null until a schedule is generated; 'roundRobin' | 'groupStage' | 'conferenceRoundRobin'
 
     // Group Stage-only bookkeeping — null for a Round Robin season (or any
     // season before a schedule is generated). Never read by anything
@@ -261,6 +267,22 @@ function createSeason(id, name) {
     //     entered Round 2 assignment (the external roulette result) —
     //     never computed by this app from round1Standings.
     groupStageState: null,
+
+    // Conference Round Robin-only bookkeeping (New Scheduling System #3) —
+    // null for any other format (or any season before a schedule is
+    // generated). Never read by anything outside the Conference Round
+    // Robin generation/display code; the actual games always live in
+    // `schedule` above, in the exact same Matchup shape Round Robin uses
+    // (each real matchup additionally carries `conference: 'A'|'B'`),
+    // so every other system (standings, streamers, financial) is
+    // unaffected by whichever format produced them. Playoff generation
+    // (AdminActions.generatePlayoffs) is intentionally NOT conference-aware
+    // yet — see that function's doc comment.
+    //   conferences: { A: [participantId, ...], B: [...] } — the
+    //     commissioner's chosen (or auto-assigned) conference split,
+    //     frozen at generation time. Sizes are whatever the commissioner
+    //     assigned — never assumed to be 7/7.
+    conferenceRoundRobinState: null,
 
     // Reserved for Phase 8 (e.g. precomputed standings snapshots).
     // Completed matchups already carry their full result inline in
@@ -1212,6 +1234,74 @@ function findGroupStageRematches(round1Matchups, round2Groups) {
     }
   }
   return rematches;
+}
+
+// ─── Conference Round Robin (New Scheduling System #3) ─────────────────────
+//
+// A single round robin played independently within each of two
+// conferences — a Conference A team never plays a Conference B team in
+// this stage. Reuses generateRoundRobinRounds() UNCHANGED for each
+// conference's own round robin (exactly like Group Stage's mini
+// round-robins above) — no pairing/rotation logic is duplicated. The
+// only new logic here is combining the two independent conference
+// schedules into shared "global" rounds, same interleaving technique as
+// generateGroupStageRounds, so this format reuses the exact same
+// round-tabs UI Round Robin and Group Stage already use.
+//
+// Deliberately NOT hard-coded to any fixed team count or conference
+// size — CONFERENCE_NAMES is fixed at exactly two conferences (that's
+// the format definition), but each conference's actual size comes
+// entirely from the commissioner's assignment (see
+// generateConferenceRoundRobinSchedule's validation). The two
+// conferences do not need to be the same size for this to work: each
+// conference's own round-robin round count can differ (an odd-sized
+// conference gets a synthetic BYE, same as generateRoundRobinRounds
+// always has), and interleaving simply pairs up round i of each
+// conference, leaving a conference's slot empty for any global round
+// past its own last round.
+//
+// There is deliberately no "stage 2" / manual reseeding step here (no
+// external roulette) — Conference Round Robin is a single round robin,
+// full stop. That's why this section (unlike Group Stage) has no
+// find-rematches or Round-2 concept.
+
+const CONFERENCE_NAMES = ["A", "B"];
+
+/**
+ * Builds the full Conference Round Robin schedule: runs a mini round
+ * robin (via the existing generateRoundRobinRounds) independently for
+ * each conference, then interleaves them into shared global rounds —
+ * global round N contains conference A's Nth round (if it has one) and
+ * conference B's Nth round (if it has one).
+ *
+ * conferences: { A: [participantId, ...], B: [...] } — each array must
+ * have at least 2 entries (validated by the caller, not here — this is
+ * a pure function with no throwing/validation of its own, matching
+ * generateRoundRobinRounds' and generateGroupStageRounds' own contract).
+ *
+ * Returns `schedule`-shaped rounds: [{ round, matchups }], with every
+ * matchup tagged with { conference }. No `stage` field is set — this
+ * format has only one stage, so nothing needs to distinguish stages the
+ * way Group Stage's `stage: 1 | 2` does.
+ */
+function generateConferenceRoundRobinRounds(conferences) {
+  const perConference = CONFERENCE_NAMES.map((c) => ({
+    conference: c,
+    rounds: generateRoundRobinRounds(conferences[c]),
+  }));
+  const numGlobalRounds = Math.max(...perConference.map((pc) => pc.rounds.length));
+  const combined = [];
+  for (let i = 0; i < numGlobalRounds; i++) {
+    const matchups = [];
+    for (const { conference, rounds } of perConference) {
+      if (!rounds[i]) continue; // this conference's round robin finished early (unequal conference sizes)
+      for (const m of rounds[i].matchups) {
+        matchups.push({ ...m, conference });
+      }
+    }
+    combined.push({ round: i + 1, matchups });
+  }
+  return combined;
 }
 
 // ─── Group Stage home-court rule (Revision — Home Court Rule) ──────────────
@@ -2476,6 +2566,35 @@ const LeagueData = {
         ? allMatchups.filter((m) => m.stage === 1 && m.group === g)
         : allMatchups.filter((m) => m.stage === 1 || (m.stage === 2 && m.group === g));
       result[g] = computeTeamStandings(groups[g], stageMatchups, season.participants, season.nbaTeamAssignments);
+    }
+    return result;
+  },
+
+  /**
+   * Conference Round Robin-only: per-conference standings, using the exact
+   * same computeTeamStandings ranking rule as getTeamStatistics/
+   * getGroupStageStandings above — this is NOT a second standings engine,
+   * just the same pure function scoped to each conference's own real
+   * matchups. There is only ever one stage here (no Stage 1/Stage 2 split
+   * like Group Stage), so unlike getGroupStageStandings this never
+   * combines a carried-forward record from an earlier stage.
+   *
+   * Returns null if this season isn't a Conference Round Robin season.
+   * Returns { A: [...], B: [...] }, each an array of ranked stat rows
+   * (same shape getTeamStatistics rows have), scoped to that conference's
+   * own teams and games only — a Conference A team never appears in
+   * Conference B's array or vice versa.
+   */
+  getConferenceRoundRobinStandings(seasonId) {
+    const season = this.getSeason(seasonId);
+    if (!season || !season.conferenceRoundRobinState) return null;
+    const { conferences } = season.conferenceRoundRobinState;
+
+    const allMatchups = season.schedule.flatMap((r) => r.matchups);
+    const result = {};
+    for (const c of CONFERENCE_NAMES) {
+      const conferenceMatchups = allMatchups.filter((m) => m.conference === c);
+      result[c] = computeTeamStandings(conferences[c], conferenceMatchups, season.participants, season.nbaTeamAssignments);
     }
     return result;
   },
@@ -4041,10 +4160,11 @@ const AdminActions = {
    * runs — there is no undo) and is NOT wired to any button that fires
    * without an explicit confirmation in the UI.
    *
-   * Clears schedule, scheduleGeneratedAt, scheduleFormat, and
-   * groupStageState back to their fresh-season defaults, so the season
-   * lands exactly back at "no schedule generated yet" — generateSchedule/
-   * generateGroupStageSchedule can be called again immediately afterward
+   * Clears schedule, scheduleGeneratedAt, scheduleFormat,
+   * groupStageState, and conferenceRoundRobinState back to their
+   * fresh-season defaults, so the season lands exactly back at "no
+   * schedule generated yet" — generateSchedule/generateGroupStageSchedule/
+   * generateConferenceRoundRobinSchedule can be called again immediately afterward
    * with a clean slate. Does not touch anything else (draft, rosters,
    * financials, playoffs) — if playoffs were already generated from this
    * schedule's standings, season.playoffs is left as-is (stale) since
@@ -4059,6 +4179,7 @@ const AdminActions = {
     season.scheduleGeneratedAt = null;
     season.scheduleFormat = null;
     season.groupStageState = null;
+    season.conferenceRoundRobinState = null;
     saveData(data);
   },
 
@@ -4218,6 +4339,139 @@ const AdminActions = {
       round1Standings: null,
       round2Groups: null,
     };
+    saveData(data);
+    return season.schedule;
+  },
+
+  /**
+   * Conference Round Robin (New Scheduling System #3): a single round
+   * robin played independently within each of two conferences — a
+   * Conference A team never plays a Conference B team. Reuses
+   * generateConferenceRoundRobinRounds (which itself reuses
+   * generateRoundRobinRounds unmodified per conference) — this is a
+   * third entry point into the same scheduling infrastructure
+   * generateSchedule/generateGroupStageSchedule use, not a parallel
+   * implementation.
+   *
+   * conferences: { A: [participantId, ...], B: [...] } — the
+   * commissioner's chosen (or auto-generated from teamAssignmentOrder)
+   * conference split. Deliberately NOT required to be any specific size
+   * (e.g. 7/7) — validated generically below against however many teams
+   * are actually assigned this season, so the existing variable-team-count
+   * behavior (13-16 teams) is unaffected.
+   *
+   * Same regeneration-safety guard as generateSchedule/
+   * generateGroupStageSchedule: refuses to overwrite a schedule that
+   * already has a completed game.
+   */
+  generateConferenceRoundRobinSchedule(seasonId, conferences) {
+    const data = loadData();
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+
+    if (season.schedule.length > 0) {
+      const hasCompleted = season.schedule.some((round) =>
+        round.matchups.some((m) => m.status === "completed")
+      );
+      if (hasCompleted) {
+        throw new Error(
+          "Cannot regenerate: this season already has completed games. " +
+          "Regeneration is disabled to protect existing results."
+        );
+      }
+    }
+
+    const assignedTeamIds = season.teamAssignmentOrder.filter(
+      (pid) => !!season.nbaTeamAssignments[pid]
+    );
+    if (assignedTeamIds.length < 4) {
+      throw new Error(
+        "At least 4 participants with an assigned NBA team are required for Conference Round Robin " +
+        "(2 conferences of at least 2 teams each)."
+      );
+    }
+
+    if (!conferences || CONFERENCE_NAMES.some((c) => !Array.isArray(conferences[c]))) {
+      throw new Error("Both conferences (A and B) are required.");
+    }
+    for (const c of CONFERENCE_NAMES) {
+      if (conferences[c].length < 2) {
+        throw new Error(`Conference ${c} must contain at least 2 teams (has ${conferences[c].length}).`);
+      }
+    }
+    const allConferenceIds = CONFERENCE_NAMES.flatMap((c) => conferences[c]);
+    const uniqueConferenceIds = new Set(allConferenceIds);
+    if (uniqueConferenceIds.size !== allConferenceIds.length) {
+      throw new Error("Each team must appear in exactly one conference — a team is duplicated across conferences.");
+    }
+    if (uniqueConferenceIds.size !== assignedTeamIds.length) {
+      throw new Error(
+        `Every currently assigned team must appear in exactly one conference — ` +
+        `expected ${assignedTeamIds.length} teams across both conferences, got ${uniqueConferenceIds.size}.`
+      );
+    }
+    const assignedSet = new Set(assignedTeamIds);
+    for (const pid of allConferenceIds) {
+      if (!assignedSet.has(pid)) {
+        throw new Error("A team in the conference assignment does not have an assigned NBA team on this roster.");
+      }
+    }
+    for (const pid of assignedTeamIds) {
+      if (!uniqueConferenceIds.has(pid)) {
+        throw new Error("Every assigned team must appear in a conference — one or more teams are missing.");
+      }
+    }
+
+    const rounds = generateConferenceRoundRobinRounds(conferences);
+    const allMatchups = rounds.flatMap((r) => r.matchups);
+    const realMatchups = allMatchups.filter((m) => m.teamB !== null);
+
+    // Sanity-check the generator's own output before writing anything —
+    // belt-and-suspenders against a future edit to
+    // generateConferenceRoundRobinRounds silently breaking these
+    // invariants. Expected game counts are derived from each conference's
+    // ACTUAL size (n*(n-1)/2), never a hard-coded 21/42.
+    const seenPairs = new Set();
+    for (const m of realMatchups) {
+      if (m.teamA === m.teamB) {
+        throw new Error("Internal error: a matchup pairs a team against itself.");
+      }
+      const pairKey = [m.teamA, m.teamB].sort().join("::");
+      if (seenPairs.has(pairKey)) {
+        throw new Error("Internal error: a matchup is duplicated.");
+      }
+      seenPairs.add(pairKey);
+      const confA = CONFERENCE_NAMES.find((c) => conferences[c].includes(m.teamA));
+      const confB = CONFERENCE_NAMES.find((c) => conferences[c].includes(m.teamB));
+      if (confA !== confB) {
+        throw new Error("Internal error: a matchup crosses conferences.");
+      }
+    }
+    let expectedTotalGames = 0;
+    for (const c of CONFERENCE_NAMES) {
+      const n = conferences[c].length;
+      const expectedGames = (n * (n - 1)) / 2;
+      expectedTotalGames += expectedGames;
+      const actualGames = realMatchups.filter((m) => m.conference === c).length;
+      if (actualGames !== expectedGames) {
+        throw new Error(`Internal error: Conference ${c} has ${actualGames} games, expected ${expectedGames}.`);
+      }
+      for (const pid of conferences[c]) {
+        const played = realMatchups.filter((m) => m.teamA === pid || m.teamB === pid).length;
+        if (played !== n - 1) {
+          throw new Error(`Internal error: a Conference ${c} team has ${played} games, expected ${n - 1}.`);
+        }
+      }
+    }
+    if (realMatchups.length !== expectedTotalGames) {
+      throw new Error(`Internal error: expected ${expectedTotalGames} total games, generated ${realMatchups.length}.`);
+    }
+
+    season.schedule = rounds;
+    season.scheduleGeneratedAt = new Date().toISOString();
+    season.scheduleFormat = "conferenceRoundRobin";
+    season.groupStageState = null;
+    season.conferenceRoundRobinState = { conferences };
     saveData(data);
     return season.schedule;
   },

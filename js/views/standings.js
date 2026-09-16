@@ -44,6 +44,14 @@ const StandingsView = {
     // combined table/cards below are Round Robin only.
     const isGroupStage = season.scheduleFormat === 'groupStage' && !!season.groupStageState;
 
+    // Conference Round Robin standings are scoped per conference (see
+    // _renderConferenceRoundRobinSection) for the same reason: combining
+    // Conference A and Conference B into one table would rank teams that
+    // never played each other against one another, which this stage does
+    // not define.
+    const isConferenceRoundRobin = season.scheduleFormat === 'conferenceRoundRobin' && !!season.conferenceRoundRobinState;
+    const isSplitFormat = isGroupStage || isConferenceRoundRobin;
+
     // Assign display rank: ties on BOTH Win% and PD share a rank number,
     // since no further tie-breaker exists for this league.
     let rank = 0;
@@ -59,8 +67,9 @@ const StandingsView = {
         <h2 class="section-title">Standings</h2>
 
         ${this._renderGroupStageSection(season)}
+        ${this._renderConferenceRoundRobinSection(season)}
 
-        ${isGroupStage ? '' : `
+        ${isSplitFormat ? '' : `
         <!-- Desktop/tablet: full table (hidden below 700px, see main.css) -->
         <div class="standings-table-wrap table-scroll">
           <table class="standings-table" id="teamStandingsTable">
@@ -124,11 +133,12 @@ const StandingsView = {
         </div>` : ''}
       </div>`;
 
-    // Group Stage only: the group cards' collapse/expand toggle (mobile
-    // only — see the .is-collapsed rule, which only exists inside the
-    // ≤700px media query in css/main.css, so this click handler has no
-    // visible effect at all above that width).
-    if (isGroupStage) {
+    // Group Stage / Conference Round Robin only: the group/conference
+    // cards' collapse/expand toggle (mobile only — see the .is-collapsed
+    // rule, which only exists inside the ≤700px media query in
+    // css/main.css, so this click handler has no visible effect at all
+    // above that width).
+    if (isSplitFormat) {
       container.querySelectorAll('.group-card-summary').forEach((el) => {
         el.addEventListener('click', () => this._toggleGroupCard(el));
         el.addEventListener('keydown', (e) => {
@@ -217,6 +227,79 @@ const StandingsView = {
       ${stageSections}
       <p class="helper-text" style="margin-bottom:1.5rem;">
         Stage 1 standings reflect Stage 1 games only.${hasStage2 ? ' Stage 2 standings are cumulative — each team\'s Stage 1 record carries forward into their new Stage 2 group, so a Stage 2 row shows the combined Stage 1 + Stage 2 record.' : ''} Groups never combine with each other.
+      </p>`;
+  },
+
+  /**
+   * Conference Round Robin-only: renders both conferences as their own
+   * independent tables — Conference → Team, never combined with each
+   * other. Standings come straight from
+   * LeagueData.getConferenceRoundRobinStandings(seasonId), which already
+   * scopes matchups to that exact conference (see data.js) — this
+   * function does no filtering of its own.
+   *
+   * The last row in each conference's table is marked "Eliminated" and
+   * every other row "Qualifies" — generalized as "all but the last-place
+   * team in the conference" rather than a hard-coded "top 6 of 7", so it
+   * stays correct if a conference's size ever changes.
+   *
+   * Returns '' for any other format, so that season's rendering is
+   * byte-for-byte what it always was.
+   */
+  _renderConferenceRoundRobinSection(season) {
+    if (season.scheduleFormat !== 'conferenceRoundRobin' || !season.conferenceRoundRobinState) return '';
+
+    const standings = LeagueData.getConferenceRoundRobinStandings(season.id);
+    if (!standings) return '';
+
+    return `
+      <h3 class="section-title" style="margin-bottom:0.5rem;">
+        Conference Standings
+      </h3>
+      <div class="group-stage-grid" style="margin-bottom:0.5rem;">
+        ${['A', 'B'].map((c) => {
+          const rows = standings[c] || [];
+          return `
+          <div class="group-card">
+            <div class="group-card-summary" role="button" tabindex="0" aria-expanded="true">Conference ${c}</div>
+            <div class="group-card-body">
+              <div class="table-scroll">
+                <table class="standings-table group-standings-table">
+                  <thead>
+                    <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>+/-</th><th></th></tr>
+                  </thead>
+                  <tbody>
+                    ${rows.map((row, i) => {
+                      const eliminated = i === rows.length - 1 && rows.length > 1;
+                      return `
+                      <tr>
+                        <td>${i + 1}</td>
+                        <td>
+                          <div class="group-team-cell">
+                            ${teamBadge(row.nbaTeam, { size: 'sm' })}
+                            <span class="group-team-name">${escapeHtml(row.participantName || '—')}</span>
+                          </div>
+                        </td>
+                        <td>${row.wins}</td>
+                        <td>${row.losses}</td>
+                        <td class="${row.pointDifferential > 0 ? 'pd-pos' : row.pointDifferential < 0 ? 'pd-neg' : ''}">
+                          ${row.pointDifferential > 0 ? '+' : ''}${row.pointDifferential}
+                        </td>
+                        <td class="${eliminated ? 'cap-over-text' : 'muted'}" style="font-size:0.75rem;">
+                          ${eliminated ? 'Eliminated' : 'Qualifies'}
+                        </td>
+                      </tr>`;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+      <p class="helper-text" style="margin-bottom:1.5rem;">
+        Conference Round Robin standings reflect each conference's own games only. Conferences never
+        combine with each other. All but the last-place team in each conference qualify for the playoffs.
       </p>`;
   },
 };
