@@ -348,6 +348,12 @@ function computePositionState(season, playersById, participantId) {
 
 const BLUE_MIN_RATING = 84;
 const GREEN_MIN_RATING = 75;
+const WHITE_MIN_RATING = 75; // Phase D3: White's rating FLOOR is 75, same numeric value as
+                              // Green but tracked as its own constant (not an alias) so the
+                              // two can diverge independently in the future. White stays
+                              // Blue-like everywhere else (isBlueLike() below, unchanged) —
+                              // composition caps, phased draft caps, and trade fees. Rating
+                              // minimum is the ONE exception: see minRatingFor() below.
 const MAX_BLUE_PLAYERS = 5;
 const MAX_FIRST_THREE_BLUE_TOTAL = 380;
 const MAX_FOURTH_BLUE_RATING = 99;
@@ -369,6 +375,24 @@ const REGULAR_SWAP_FEE = 100;
  */
 function isBlueLike(player) {
   return !!player && (player.pool === "blue" || player.pool === "white");
+}
+
+/**
+ * Phase D3: the ONE place White is deliberately NOT treated as Blue-like.
+ * isBlueLike() above stays a flat blue-or-white bucket on purpose — it's
+ * still correct for composition caps, phased draft caps, and trade fees
+ * (see validateBlueComposition's count/total/fourth-player checks,
+ * makeDraftPick's phased cap, and getPoolTradeFee, none of which call
+ * this). Only a player's RATING FLOOR depends on pool specifically:
+ * Green and White both floor at 75, Blue floors at 84. Returns null for
+ * any other/missing pool (nothing to enforce).
+ */
+function minRatingFor(player) {
+  if (!player) return null;
+  if (player.pool === "blue") return BLUE_MIN_RATING;
+  if (player.pool === "white") return WHITE_MIN_RATING;
+  if (player.pool === "green") return GREEN_MIN_RATING;
+  return null;
 }
 const JOKER_SWAP_FEE = 300;
 const TRADE_FEE_DOUBLE_DAYS = [9, 10, 11];
@@ -670,7 +694,7 @@ function validateResultingPositions(beforeEntries, afterEntries, playersById) {
   return { valid: true, reason: null };
 }
 
-/** Rule 4: max 4 Blue, each Blue >= 84 OVR, first 3 combined <= 280, 4th <= 94 OVR. White ("Classics") counts as Blue-like here — see isBlueLike(). */
+/** Rule 4: max 5 Blue-like (Blue+White), first 3 combined <= 380, 4th <= 99 OVR. White ("Classics") counts as Blue-like for ALL of that — see isBlueLike(). The per-player rating floor below is the one exception: it's pool-specific (minRatingFor), not a flat Blue-like 84 — see Phase D3. */
 function validateBlueComposition(afterEntries, playersById) {
   const blues = afterEntries
     .map((e) => playersById[e.playerId])
@@ -683,10 +707,11 @@ function validateBlueComposition(afterEntries, playersById) {
     };
   }
   for (const p of blues) {
-    if (p.overall < BLUE_MIN_RATING) {
+    const minRating = minRatingFor(p);
+    if (minRating !== null && p.overall < minRating) {
       return {
         valid: false,
-        reason: `${p.name} (${p.overall} OVR) is below the Blue minimum rating (${BLUE_MIN_RATING}).`,
+        reason: `${p.name} (${p.overall} OVR) is below the ${p.pool === "white" ? "White" : "Blue"} minimum rating (${minRating}).`,
       };
     }
   }
@@ -708,19 +733,15 @@ function validateBlueComposition(afterEntries, playersById) {
   return { valid: true, reason: null };
 }
 
-/** Rule 2: minimum rating for a player entering a roster, by pool. White ("Classics") counts as Blue-like here — see isBlueLike(). */
+/** Rule 2: minimum rating for a player entering a roster, by pool — Green 75, Blue 84, White 75 (Phase D3: White floors at 75, NOT the Blue 84 isBlueLike() would otherwise imply; see minRatingFor()). */
 function validateMinimumRating(player) {
   if (!player) return { valid: false, reason: "Unknown player." };
-  if (player.pool === "green" && player.overall < GREEN_MIN_RATING) {
+  const minRating = minRatingFor(player);
+  if (minRating !== null && player.overall < minRating) {
+    const label = player.pool === "white" ? "White" : player.pool === "blue" ? "Blue" : "Green";
     return {
       valid: false,
-      reason: `${player.name} (${player.overall} OVR) is below the Green minimum rating (${GREEN_MIN_RATING}).`,
-    };
-  }
-  if (isBlueLike(player) && player.overall < BLUE_MIN_RATING) {
-    return {
-      valid: false,
-      reason: `${player.name} (${player.overall} OVR) is below the Blue minimum rating (${BLUE_MIN_RATING}).`,
+      reason: `${player.name} (${player.overall} OVR) is below the ${label} minimum rating (${minRating}).`,
     };
   }
   return { valid: true, reason: null };

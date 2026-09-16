@@ -428,14 +428,54 @@ console.log('NBA2K27 season-cutover tests');
   });
 
   // ── 26-29. White pool policy ─────────────────────────────────────────
-  await test('26. White minimum-rating behavior matches Blue (84), not Green (75)', () => {
+  // Phase D3: White's rating FLOOR was changed from Blue's 84 to its own
+  // 75 (matching Green) — minRatingFor()/js/data.js. White stays
+  // Blue-like for EVERYTHING else (composition/phase/fee — tests 27-29
+  // below, unchanged). This replaces the old test 26, which asserted the
+  // pre-D3 behavior (White floored at 84) that is no longer correct.
+  await test('26a. White minimum-rating behavior now matches Green (75), NOT Blue (84)', () => {
     const seasons = { s1: baseSeason({
-      currentRosters: { p1: [{ playerId: 'whiteLow', source: 'draft' }] },
+      currentRosters: { p1: [{ playerId: 'whiteMid', source: 'draft' }] },
     }) };
-    const players = { whiteLow: { id: 'whiteLow', name: 'White Low', overall: 80, pool: 'white', position: 'PG' } }; // below Blue's 84
+    // 80 OVR: below Blue's 84, but above White/Green's 75 — should PASS.
+    const players = { whiteMid: { id: 'whiteMid', name: 'White Mid', overall: 80, pool: 'white', position: 'PG' } };
     const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
     const result = LeagueData.validateAllRosters('s1');
-    assert.ok(result.errors.some(e => e.type === 'MINIMUM_RATING'), 'a sub-84 White player should trip the Blue minimum-rating rule');
+    assert.ok(!result.errors.some(e => e.type === 'MINIMUM_RATING'), 'an 80 OVR White player should NOT trip minimum-rating (White floors at 75)');
+  });
+
+  await test('26b. Blue minimum-rating behavior is unaffected — still floors at 84, not White\'s 75', () => {
+    const seasons = { s1: baseSeason({
+      currentRosters: { p1: [{ playerId: 'blueMid', source: 'draft' }] },
+    }) };
+    // Same 80 OVR as 26a, but pool: 'blue' — must still FAIL, proving the
+    // fix is pool-specific and didn't accidentally loosen Blue's own 84.
+    const players = { blueMid: { id: 'blueMid', name: 'Blue Mid', overall: 80, pool: 'blue', position: 'PG' } };
+    const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
+    const result = LeagueData.validateAllRosters('s1');
+    assert.ok(result.errors.some(e => e.type === 'MINIMUM_RATING'), 'an 80 OVR Blue player should still trip the Blue minimum-rating rule (84)');
+  });
+
+  await test('26c. White at exactly 75 passes; White at 74 fails — the floor is 75, not merely "below 84"', () => {
+    const seasonsPass = { s1: baseSeason({ currentRosters: { p1: [{ playerId: 'w75', source: 'draft' }] } }) };
+    const playersPass = { w75: { id: 'w75', name: 'White 75', overall: 75, pool: 'white', position: 'PG' } };
+    const { LeagueData: passLD } = makeSandbox({ leagueSeasons: seasonsPass, leaguePlayers: playersPass });
+    assert.ok(!passLD.validateAllRosters('s1').errors.some(e => e.type === 'MINIMUM_RATING'), 'White at exactly 75 should pass (floor is inclusive)');
+
+    const seasonsFail = { s1: baseSeason({ currentRosters: { p1: [{ playerId: 'w74', source: 'draft' }] } }) };
+    const playersFail = { w74: { id: 'w74', name: 'White 74', overall: 74, pool: 'white', position: 'PG' } };
+    const { LeagueData: failLD } = makeSandbox({ leagueSeasons: seasonsFail, leaguePlayers: playersFail });
+    assert.ok(failLD.validateAllRosters('s1').errors.some(e => e.type === 'MINIMUM_RATING'), 'White at 74 should fail — one point below the 75 floor');
+  });
+
+  await test('26d. a failing White player\'s error message says "White", not "Blue"', () => {
+    const seasons = { s1: baseSeason({ currentRosters: { p1: [{ playerId: 'w60', source: 'draft' }] } }) };
+    const players = { w60: { id: 'w60', name: 'White Sixty', overall: 60, pool: 'white', position: 'PG' } };
+    const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
+    const err = LeagueData.validateAllRosters('s1').errors.find(e => e.type === 'MINIMUM_RATING');
+    assert.ok(err, 'expected a MINIMUM_RATING error');
+    assert.ok(/White minimum rating/.test(err.message), `error text should say "White minimum rating", got: ${err.message}`);
+    assert.ok(!/Blue minimum rating/.test(err.message), 'error text must not mislabel a White player as Blue');
   });
 
   await test('27. White composition behavior counts toward the Blue-pool composition cap', () => {
