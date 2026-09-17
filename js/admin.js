@@ -122,10 +122,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Wait for both the Firestore data cache and Firebase Auth's initial
   // session check before showing anything — otherwise loadData() has
   // nothing to return yet, and we'd flash the login screen even for an
-  // already-signed-in admin.
+  // already-signed-in admin. LiveNba2k27PoolCache.ensureLoaded() joins
+  // this same gate (NBA2K27 live-pool redesign, js/data.js) so that by
+  // the time any view renders, a live-pool-scoped season's players are
+  // already resolvable — no view file needs its own loading state for
+  // this. A failure here is logged but does NOT block the rest of the
+  // admin UI from loading (a non-2K27 task like Participants or Financial
+  // shouldn't be blocked by a pool fetch it doesn't need); any view that
+  // does need it (Draft/Roster/Seasons) will simply show no NBA2K27
+  // players until a retry succeeds.
   const [, isSignedIn] = await Promise.all([
     FirebaseSync.init(),
     AuthBoundary.ready(),
+    LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
+      console.error('[AdminApp] Failed to load the live NBA2K27 pool:', err);
+    }),
   ]);
 
   if (bootEl) bootEl.classList.add('hidden');

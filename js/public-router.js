@@ -71,7 +71,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   const bootEl = document.getElementById('bootLoading');
-  await FirebaseSync.init();
+  // LiveNba2k27PoolCache.ensureLoaded() joins the same boot gate as
+  // FirebaseSync.init() (NBA2K27 live-pool redesign, js/data.js) so the
+  // public Draft/Roster/Players pages can resolve a live-pool-scoped
+  // season's players the moment they first render, with no per-view
+  // loading state of their own. Logged, not fatal, on failure — the rest
+  // of the public site (schedule, standings, financial...) doesn't depend
+  // on it and shouldn't be blocked by it.
+  await Promise.all([
+    FirebaseSync.init(),
+    LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
+      console.error('[public-router] Failed to load the live NBA2K27 pool:', err);
+    }),
+  ]);
   if (bootEl) bootEl.classList.add('hidden');
 
   // Live updates: when an admin saves a change (a trade, a score, a new

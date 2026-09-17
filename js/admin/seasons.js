@@ -1,5 +1,24 @@
 /**
  * admin/seasons.js — Season management view
+ *
+ * NBA2K27 live-pool redesign: a new season no longer has a "Use NBA2K27
+ * seeded pool" checkbox, and creating one no longer copies the curated
+ * NBA2K27 pool into `data.players`/`league/main` at all (that's what
+ * pushed that single Firestore document past its 1 MiB limit). Every new
+ * season is automatically scoped to LiveNba2k27PoolCache's live pool
+ * (js/data.js) the moment it's created — the Draft immediately shows the
+ * NBA2K27 players, with no manual seed step and nothing to undo.
+ *
+ * The OLD manual "Seed NBA2K27 Pool" / "Undo Seed" buttons are gone from
+ * this form entirely, but AdminActions.seedSeasonFromNba2k27Pool()/
+ * undoSeasonSeed() are UNCHANGED and still exported — every season that
+ * was already created the old way (`playerPoolScope` set to its own id,
+ * with real records copied into `data.players`) keeps resolving its
+ * players exactly as before. This view only stops OFFERING that old path
+ * for new seasons; it still shows the retry buttons for any existing
+ * season still in that old, not-yet-fully-seeded state (playerPoolScope
+ * set to its own id — not the live-pool sentinel — with no draft picks
+ * yet), so nothing that already depended on them breaks.
  */
 const AdminSeasonsView = {
   render(container) {
@@ -18,9 +37,6 @@ const AdminSeasonsView = {
           <input type="number" id="newSeasonEntryFee" class="input input-sm" placeholder="Entry Fee" min="0" step="1" value="300" title="Entry Fee (₱)">
           <input type="number" id="newSeasonFreeTrades" class="input input-sm" placeholder="Free Trades" min="0" step="1" value="2" title="Free Trades">
           <input type="number" id="newSeasonFreeSwaps" class="input input-sm" placeholder="Free Swaps" min="0" step="1" value="2" title="Free Swaps">
-          <label class="checkbox-label" title="Seeds this season's draft pool from the curated NBA2K27 pool instead of the shared NBA2K26 player database.">
-            <input type="checkbox" id="newSeasonScopePool"> Use NBA2K27 seeded pool
-          </label>
           <button class="btn btn-primary" id="btnCreateSeason">Create</button>
           <button class="btn btn-ghost" id="btnCancelSeason">Cancel</button>
         </div>
@@ -40,19 +56,25 @@ const AdminSeasonsView = {
             ${seasons.map(s => {
               const count = LeagueData.getParticipants(s.id).length;
               const hasPicks = (s.playerDraftPicks || []).length > 0;
+              // Old-workflow season: playerPoolScope is set, but to its OWN
+              // id rather than the live-pool sentinel — meaning it was
+              // (or still needs to be) seeded via the retired manual flow.
+              // A brand-new season's playerPoolScope is always the live
+              // sentinel, so this is never true for it.
+              const isOldWorkflowScope = s.playerPoolScope && s.playerPoolScope !== LIVE_NBA2K27_POOL_SCOPE;
               return `
                 <tr class="${s.id === currentId ? 'row-active' : ''}">
                   <td>
                     ${escapeHtml(s.name)}
                     ${s.id === currentId ? '<span class="badge-current">CURRENT</span>' : ''}
-                    ${s.playerPoolScope ? '<span class="status-chip" title="Drafts only from its own seeded NBA2K27 pool">NBA2K27 POOL</span>' : ''}
+                    ${s.playerPoolScope ? '<span class="status-chip" title="Drafts from the NBA2K27 player pool">NBA2K27 POOL</span>' : ''}
                   </td>
                   <td><span class="status-chip status-${s.status}">${formatStatus(s.status)}</span></td>
                   <td>${count}</td>
                   <td class="action-cell">
                     ${s.id !== currentId ? `<button class="btn btn-sm btn-ghost" data-action="setCurrent" data-id="${s.id}">Set Current</button>` : ''}
-                    ${s.playerPoolScope && !hasPicks ? `<button class="btn btn-sm btn-secondary" data-action="seedPool" data-id="${s.id}" data-name="${escapeHtml(s.name)}">Seed NBA2K27 Pool</button>` : ''}
-                    ${s.playerPoolScope && !hasPicks ? `<button class="btn btn-sm btn-ghost" data-action="undoSeed" data-id="${s.id}" data-name="${escapeHtml(s.name)}">Undo Seed</button>` : ''}
+                    ${isOldWorkflowScope && !hasPicks ? `<button class="btn btn-sm btn-secondary" data-action="seedPool" data-id="${s.id}" data-name="${escapeHtml(s.name)}">Seed NBA2K27 Pool</button>` : ''}
+                    ${isOldWorkflowScope && !hasPicks ? `<button class="btn btn-sm btn-ghost" data-action="undoSeed" data-id="${s.id}" data-name="${escapeHtml(s.name)}">Undo Seed</button>` : ''}
                     <button class="btn btn-sm btn-danger" data-action="deleteSeason" data-id="${s.id}" data-name="${escapeHtml(s.name)}">Delete</button>
                   </td>
                 </tr>`;
@@ -89,19 +111,18 @@ const AdminSeasonsView = {
       if (freeTradesVal !== '') financialSettings.freeTrades = freeTradesVal;
       if (freeSwapsVal !== '') financialSettings.freeSwaps = freeSwapsVal;
 
-      const scopePool = container.querySelector('#newSeasonScopePool').checked;
       const createBtn = container.querySelector('#btnCreateSeason');
-
-      // Guard against double-submission for the whole operation (creation,
-      // and — for an NBA2K27-scoped season — the automatic seed that
-      // follows it). Unscoped/non-NBA2K27 creation is otherwise completely
-      // unchanged: it still just creates the season and re-renders.
       createBtn.disabled = true;
       createBtn.textContent = 'Creating…';
 
+      // Every new season is scoped to the live NBA2K27 pool automatically
+      // (see AdminActions.createSeason's `scopePlayerPool` doc) — no
+      // checkbox, no seed step. The Draft/Roster/Players pages resolve its
+      // players from LiveNba2k27PoolCache the moment this season exists;
+      // nothing is copied into `data.players`/`league/main` here.
       let season;
       try {
-        season = AdminActions.createSeason(name, financialSettings, scopePool);
+        season = AdminActions.createSeason(name, financialSettings, true);
       } catch (e) {
         showToast(e.message, 'error');
         createBtn.disabled = false;
@@ -109,54 +130,22 @@ const AdminSeasonsView = {
         return;
       }
 
-      if (!scopePool) {
-        // Unscoped season (e.g. NBA2K26 / any non-seeded season) — identical
-        // to prior behavior, no auto-seed step.
-        showToast(`"${name}" created.`, 'success');
+      // Make sure the live pool is actually in memory before handing
+      // control back — normally already true (the app bootstrap awaits
+      // LiveNba2k27PoolCache.ensureLoaded() before any view ever renders,
+      // same as it does for FirebaseSync), so this typically resolves
+      // immediately. Guards the rare case of an admin clicking Create
+      // before that bootstrap step has settled.
+      try {
+        await LiveNba2k27PoolCache.ensureLoaded();
+      } catch (e) {
+        showToast(`"${name}" created, but the NBA2K27 pool failed to load: ${e.message}. Reload and try the Draft page again.`, 'error');
         AdminApp.renderView('seasons');
         return;
       }
 
-      // NBA2K27-scoped season: reuse the existing, unmodified seeding
-      // logic automatically. Wait for the season-creation write to be
-      // confirmed first so the two whole-document /league/main writes
-      // never race each other, and so seeding never proceeds against a
-      // creation write that actually failed (waitForPendingSave() now
-      // rejects in that case instead of silently resolving).
-      createBtn.textContent = 'Seeding…';
-      let creationConfirmed = false;
-      try {
-        await FirebaseSync.waitForPendingSave();
-        creationConfirmed = true;
-        const result = await AdminActions.seedSeasonFromNba2k27Pool(season.id);
-        showToast(`"${name}" created and seeded ${result.seeded} player(s).`, 'success');
-        AdminApp.renderView('seasons');
-        // renderView() above rebuilds the seasons table (and #seedResultPanel)
-        // from scratch, so the result panel is populated after that render,
-        // the same way the manual "Seed NBA2K27 Pool" action populates it.
-        const panel = document.querySelector('#seedResultPanel');
-        if (panel) panel.innerHTML = renderSeedResult(name, result);
-      } catch (e) {
-        if (!creationConfirmed) {
-          // The season-creation write itself failed. It still exists in the
-          // optimistic local cache/UI (save() always updates that
-          // synchronously), but it is NOT confirmed saved to Firestore, and
-          // seeding was correctly never attempted. Don't claim it was
-          // "created" — tell the admin the cloud write failed so they know
-          // to verify/retry rather than assume the season is safely stored.
-          showToast(`"${name}" may not have saved — the cloud write failed: ${e.message}. Seeding was not attempted. Check the Seasons list and retry if needed.`, 'error');
-        } else {
-          // Season creation already succeeded and is NOT rolled back — it
-          // exists with playerPoolScope set and no players yet, which is the
-          // same valid intermediate state the manual flow always allowed.
-          // Say so explicitly rather than implying the season is draft-ready,
-          // and leave the existing manual "Seed NBA2K27 Pool" button (shown
-          // for any playerPoolScope season with no draft picks) as the retry
-          // path — nothing else to wire up for that.
-          showToast(`"${name}" was created, but automatic seeding failed: ${e.message}. Use "Seed NBA2K27 Pool" to retry.`, 'error');
-        }
-        AdminApp.renderView('seasons');
-      }
+      showToast(`"${name}" created — NBA2K27 players are ready to draft.`, 'success');
+      AdminApp.renderView('seasons');
     };
 
     // Table actions
@@ -174,6 +163,9 @@ const AdminSeasonsView = {
           showToast(`Season deleted.`, 'success');
           AdminApp.renderView('seasons');
         } else if (action === 'seedPool') {
+          // Retained only for a season still in the OLD manual-seed state
+          // (see isOldWorkflowScope above) — never rendered for a new
+          // season, which is always live-pool scoped from creation.
           btn.disabled = true;
           btn.textContent = 'Seeding…';
           try {

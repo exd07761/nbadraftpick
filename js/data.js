@@ -1671,6 +1671,161 @@ function getDefaultData() {
   };
 }
 
+// ─── Live NBA2K27 Pool Cache (in-memory only — never written to league/main) ──
+//
+// NBA2K27 season-creation redesign: `/league/main` hit Firestore's 1 MiB
+// single-document limit because AdminActions.seedSeasonFromNba2k27Pool
+// (still below, unmodified, kept for backward compatibility with every
+// season that already used it) copies the entire curated NBA2K27 pool
+// (`nba2k27_pool` joined against `nba2k_players`) into `data.players`,
+// which lives inside that one document. A new season no longer does this.
+// Instead it's scoped to the sentinel LIVE_NBA2K27_POOL_SCOPE (see
+// AdminActions.createSeason), and this module fetches the pool ONCE per
+// page load into an in-memory cache of synthetic player records that are
+// NEVER persisted. Each record's id is deterministic —
+// nba2k27LivePlayerId(slug) — so the same pool entry always resolves to
+// the same id across reloads/devices, which matters because
+// season.playerDraftPicks stores exactly this id once a pick is made.
+//
+// loadData() (below) merges this cache into `data.players` on every call,
+// once it's loaded — completely transparently to every existing
+// LeagueData/AdminActions function that reads `data.players` (~60 call
+// sites in this file: getAvailablePlayers, getDraftPoolStatus,
+// getSwapEligibleReplacements, computePositionState, trade/Joker/roster
+// validation, etc.) — none of them change. FirebaseSync.save()/
+// saveAndConfirm() do the reverse immediately before every write: they
+// strip any entry whose id is a live-pool id back out of `data.players`,
+// so these ~2,000 records are never written to `league/main` — only real
+// stored records (manual players, legacy 2K26, and any season already
+// seeded the old way) are ever persisted there, exactly as before.
+//
+// This is fully additive and backward-compatible: a season seeded the old
+// way has `playerPoolScope` set to its OWN season id, with real
+// `data.players` records carrying that same id as `seasonId` — untouched,
+// and still resolved via `p.seasonId === season.playerPoolScope` exactly
+// as before. generateId("s") can never produce the sentinel string below,
+// so an old-style scope value can never collide with it.
+const LIVE_NBA2K27_POOL_SCOPE = "__LIVE_NBA2K27_POOL__";
+
+function nba2k27LivePlayerId(slug) {
+  return `p27live_${slug}`;
+}
+
+const LiveNba2k27PoolCache = (() => {
+  let _entries = null; // null = not loaded yet; an object (possibly {}) once it is
+  let _loadPromise = null;
+
+  // Minimal standalone duplicates of js/admin/nba2k-database.js's
+  // nba2k27PoolPositionValid/nba2k27EffectiveName/nba2k27EffectiveOverall —
+  // NOT imported from there, because that file is admin-only (never
+  // loaded on the public site — see index.html) while this cache also
+  // backs the public Draft/Roster pages. Same "duplicate rather than
+  // couple admin and public" call js/views/players.js already documents
+  // for its own copy of this exact logic. Kept in lockstep by hand if the
+  // source ever changes.
+  const VALID_POSITIONS = ["PG", "SG", "SF", "PF", "C"];
+  function effectiveName(entry, player) {
+    const o = entry && typeof entry.nameOverride === "string" ? entry.nameOverride.trim() : "";
+    return o || (player && player.name) || "";
+  }
+  function effectiveOverall(entry, player) {
+    const o = entry && entry.overallOverride;
+    return (typeof o === "number" && Number.isFinite(o)) ? o : (player ? player.overall : null);
+  }
+
+  // Same eligibility rules as the old seedSeasonFromNba2k27Pool: skip
+  // orphans (no matching nba2k_players record), UNASSIGNED/invalid
+  // positions, invalid pool values, a missing effective name, and an
+  // out-of-range effective overall. Nothing here writes anywhere.
+  function buildEntries(poolSnap, playersSnap) {
+    const sourcePlayers = {};
+    playersSnap.docs.forEach((d) => { sourcePlayers[d.id] = { id: d.id, ...d.data() }; });
+
+    const entries = {};
+    poolSnap.docs.forEach((doc) => {
+      const slug = doc.id;
+      const entry = doc.data() || {};
+      const sourcePlayer = sourcePlayers[slug];
+      if (!sourcePlayer) return;
+      const position = entry.position;
+      if (!position || position === "UNASSIGNED" || !VALID_POSITIONS.includes(position)) return;
+      if (!["green", "blue", "white"].includes(entry.pool)) return;
+      const name = effectiveName(entry, sourcePlayer);
+      if (!name) return;
+      const overall = effectiveOverall(entry, sourcePlayer);
+      if (typeof overall !== "number" || !Number.isFinite(overall) || overall < 40 || overall > 99) return;
+      const variantGroup = (typeof entry.variantGroupId === "string" && entry.variantGroupId.trim())
+        ? entry.variantGroupId.trim()
+        : undefined;
+
+      const id = nba2k27LivePlayerId(slug);
+      const player = createPlayer(id, {
+        name,
+        position,
+        overall,
+        pool: entry.pool,
+        variantGroup,
+        nba2kRef: slug,
+        edition: "2K27",
+      });
+      player.seasonId = LIVE_NBA2K27_POOL_SCOPE;
+      entries[id] = player;
+    });
+    return entries;
+  }
+
+  return {
+    LIVE_NBA2K27_POOL_SCOPE,
+    livePlayerId: nba2k27LivePlayerId,
+    isLoaded() { return _entries !== null; },
+    getEntries() { return _entries || {}; },
+    /**
+     * Fetches nba2k27_pool + nba2k_players once per page load and builds
+     * the in-memory cache. Safe to call repeatedly/concurrently — every
+     * caller shares the same in-flight fetch (or the already-resolved
+     * cache) rather than issuing duplicate Firestore reads.
+     */
+    ensureLoaded() {
+      if (_entries !== null) return Promise.resolve(_entries);
+      if (_loadPromise) return _loadPromise;
+      _loadPromise = Promise.all([
+        firebase.firestore().collection("nba2k27_pool").get(),
+        firebase.firestore().collection("nba2k_players").get(),
+      ]).then(([poolSnap, playersSnap]) => {
+        _entries = buildEntries(poolSnap, playersSnap);
+        return _entries;
+      }).catch((err) => {
+        _loadPromise = null; // allow a retry on the next call
+        throw err;
+      });
+      return _loadPromise;
+    },
+    // Test-only escape hatch — never called by app code.
+    _resetForTests() { _entries = null; _loadPromise = null; },
+  };
+})();
+
+/**
+ * Removes any LiveNba2k27PoolCache-sourced entry from `data.players`
+ * before a write — see the module comment above. A no-op (returns `data`
+ * itself, no copy) whenever the cache isn't loaded or nothing in
+ * `data.players` actually came from it, which is the common case for
+ * every write that isn't touching a live-pool-scoped season.
+ */
+function stripLiveNba2k27PoolPlayers(data) {
+  const liveEntries = LiveNba2k27PoolCache.getEntries();
+  const liveIds = Object.keys(liveEntries);
+  if (liveIds.length === 0) return data;
+  let found = false;
+  for (const id of liveIds) {
+    if (Object.prototype.hasOwnProperty.call(data.players, id)) { found = true; break; }
+  }
+  if (!found) return data;
+  const players = Object.assign({}, data.players);
+  liveIds.forEach((id) => { delete players[id]; });
+  return Object.assign({}, data, { players });
+}
+
 // ─── Storage (Firestore-backed, single-document sync) ─────────────────────
 //
 // This app has always stored its entire state as one JSON blob under a
@@ -1783,8 +1938,14 @@ const FirebaseSync = (() => {
       return _cache;
     },
     save(data) {
-      _cache = data; // optimistic local update, synchronous — see saveData() below
-      const writePromise = docRef().set(data);
+      // Strip any LiveNba2k27PoolCache-sourced player before this ever
+      // reaches Firestore — see that module's comment above. `_cache` is
+      // set to the stripped version too, so it accurately reflects what
+      // is actually stored; loadData() re-merges the live cache back in
+      // on every read regardless, so this is invisible to every caller.
+      const toPersist = stripLiveNba2k27PoolPlayers(data);
+      _cache = toPersist; // optimistic local update, synchronous — see saveData() below
+      const writePromise = docRef().set(toPersist);
       // Store the raw (un-swallowed) write promise so waitForPendingSave()
       // can observe a real failure. Attaching this .catch() directly to
       // writePromise (rather than deriving _lastSavePromise FROM a .catch()
@@ -1835,7 +1996,9 @@ const FirebaseSync = (() => {
      * accidentally persist it forward.
      */
     saveAndConfirm(data) {
-      return docRef().set(data).then(() => { _cache = data; return data; });
+      // Same strip-before-write as save() above.
+      const toPersist = stripLiveNba2k27PoolPlayers(data);
+      return docRef().set(toPersist).then(() => { _cache = toPersist; return data; });
     },
     onRemoteChange(fn) {
       remoteChangeListeners.push(fn);
@@ -1843,7 +2006,7 @@ const FirebaseSync = (() => {
   };
 })();
 
-function loadData() {
+function loadData(seasonId) {
   const cache = FirebaseSync.getCache();
   if (!cache) return getDefaultData();
   // Deep clone on every call — every caller must get an independent copy,
@@ -1853,7 +2016,28 @@ function loadData() {
   // never touching shared state. Returning a live reference to the cache
   // here would let a function that mutates-then-throws permanently corrupt
   // data nothing ever actually saved.
-  return JSON.parse(JSON.stringify(cache));
+  const data = JSON.parse(JSON.stringify(cache));
+  // Merge in the live NBA2K27 pool cache — see LiveNba2k27PoolCache above —
+  // but ONLY when `seasonId` names a season that is ITSELF scoped to the
+  // live sentinel. This is intentionally season-aware, not global: an
+  // unscoped call (no `seasonId` — e.g. the public Home dashboard's
+  // LeagueData.getAllPlayers(), or any admin tool that manages the master
+  // player list directly) NEVER sees a live-pool entry, and neither does
+  // an unscoped legacy season or an old-style season whose
+  // `playerPoolScope` is its own id rather than the sentinel — both keep
+  // reading exactly their own stored `data.players`, untouched. Real
+  // stored records win on an id collision (should never happen — separate
+  // id namespaces — but stored data is authoritative if it ever did).
+  if (seasonId) {
+    const season = data.seasons[seasonId];
+    if (season && season.playerPoolScope === LIVE_NBA2K27_POOL_SCOPE) {
+      const liveEntries = LiveNba2k27PoolCache.getEntries();
+      if (Object.keys(liveEntries).length > 0) {
+        data.players = Object.assign({}, liveEntries, data.players);
+      }
+    }
+  }
+  return data;
 }
 
 function saveData(data) {
@@ -1990,13 +2174,22 @@ const LeagueData = {
   },
 
   // Player Database
-  getAllPlayers() {
-    const data = loadData();
+  //
+  // Both take an OPTIONAL `seasonId` — see loadData()'s own comment above
+  // for exactly what that does and doesn't expose. Every existing caller
+  // that omits it (the admin Players/master-player-list tooling, the
+  // public Home dashboard's pool counts, the legacy NBA2K database
+  // "already promoted" checks) keeps reading ONLY real stored players,
+  // never a live-pool synthetic entry — that omission is what Fix 1 in
+  // the NBA2K27 live-pool audit relies on to stop the pool from leaking
+  // into contexts that aren't a specific live-pool season's Draft/Roster.
+  getAllPlayers(seasonId) {
+    const data = loadData(seasonId);
     return Object.values(data.players);
   },
 
-  getPlayer(playerId) {
-    const data = loadData();
+  getPlayer(playerId, seasonId) {
+    const data = loadData(seasonId);
     return data.players[playerId] || null;
   },
 
@@ -2035,7 +2228,7 @@ const LeagueData = {
     const season = this.getSeason(seasonId);
     if (!season) return [];
     const drafted = new Set(season.playerDraftPicks.map((p) => p.playerId));
-    let players = this.getAllPlayers().filter((p) => !drafted.has(p.id));
+    let players = this.getAllPlayers(seasonId).filter((p) => !drafted.has(p.id));
     if (season.playerPoolScope) {
       players = players.filter((p) => p.seasonId === season.playerPoolScope);
     }
@@ -2097,7 +2290,7 @@ const LeagueData = {
   getParticipantRoster(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const data = loadData();
+    const data = loadData(seasonId);
     const picks = season.playerDraftPicks.filter(
       (p) => p.participantId === participantId
     );
@@ -2123,7 +2316,7 @@ const LeagueData = {
   getCurrentRoster(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const data = loadData();
+    const data = loadData(seasonId);
 
     if (season.rostersInitialized && season.currentRosters[participantId]) {
       const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
@@ -2258,7 +2451,7 @@ const LeagueData = {
   getPositionState(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return null;
-    const data = loadData();
+    const data = loadData(seasonId);
     return computePositionState(season, data.players, participantId);
   },
 
@@ -2282,7 +2475,7 @@ const LeagueData = {
   getDraftPoolStatus(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const data = loadData();
+    const data = loadData(seasonId);
     // NBA2K27 season-cutover feature: when `season.playerPoolScope` is
     // set, restrict to players seeded for THIS season only. Absent for
     // every season that existed before this feature (including the
@@ -2955,7 +3148,7 @@ const LeagueData = {
   getRosterForTransactions(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const data = loadData();
+    const data = loadData(seasonId);
     const entries = (season.currentRosters && season.currentRosters[participantId]) || [];
     return entries.map((entry) => {
       const player = data.players[entry.playerId] || null;
@@ -2998,7 +3191,7 @@ const LeagueData = {
   getSwapEligibleReplacements(seasonId, pool) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const data = loadData();
+    const data = loadData(seasonId);
     const ownedIds = new Set();
     Object.values(season.currentRosters || {}).forEach((entries) => {
       entries.forEach((e) => ownedIds.add(e.playerId));
@@ -3022,7 +3215,7 @@ const LeagueData = {
     const entries = (season.currentRosters && season.currentRosters[participantId]) || [];
     const entry = entries.find((e) => e.isJoker);
     if (!entry) return null;
-    const data = loadData();
+    const data = loadData(seasonId);
     return { ...entry, player: data.players[entry.playerId] || null };
   },
 
@@ -3049,7 +3242,7 @@ const LeagueData = {
   getJokerEligiblePlayers(seasonId, participantId) {
     const season = this.getSeason(seasonId);
     if (!season) return [];
-    const data = loadData();
+    const data = loadData(seasonId);
     const roster = (season.currentRosters && season.currentRosters[participantId]) || [];
     // Legacy fallback for rosters saved before the "Preserve Original
     // Draft Pick Slot" revision (mirrors getCurrentRoster/
@@ -3102,7 +3295,7 @@ const LeagueData = {
         warnings: [],
       };
     }
-    const data = loadData();
+    const data = loadData(seasonId);
     const playersById = data.players;
     const cap = season.ratingCap ?? 875;
     const currentRosters = season.currentRosters || {};
@@ -3270,15 +3463,28 @@ const AdminActions = {
    * @param scopePlayerPool — optional boolean (NBA2K27 season-cutover
    *   feature). Every existing caller omits this (defaults falsy), which
    *   leaves `season.playerPoolScope` unset — byte-for-byte the same
-   *   season shape createSeason() has always produced. Pass `true` only
-   *   for a season meant to draft from a seeded NBA2K27 snapshot; this
-   *   sets `playerPoolScope` to the season's own new id, nothing else.
+   *   season shape createSeason() has always produced.
+   *
+   *   Pass `true` for a season meant to draft NBA2K27 players: this now
+   *   sets `playerPoolScope` to LiveNba2k27PoolCache.LIVE_NBA2K27_POOL_SCOPE
+   *   (a fixed sentinel, NOT the season's own id) so the season reads its
+   *   draftable players live from LiveNba2k27PoolCache — see that module
+   *   above — with no manual seed step and nothing copied into
+   *   `data.players`/`league/main`. This is the "old/simple workflow"
+   *   restore: create -> draft immediately.
+   *
+   *   The OLD behavior (`playerPoolScope` set to the season's own id, then
+   *   AdminActions.seedSeasonFromNba2k27Pool() copying real records into
+   *   `data.players`) is no longer reachable from here — it remains fully
+   *   supported for every season that already used it (that function is
+   *   unmodified and still callable directly for a manual/retry seed of
+   *   such a season), but is no longer how a NEW season gets scoped.
    */
   createSeason(name, financialSettings, scopePlayerPool) {
     const data = loadData();
     const id = generateId("s");
     const season = createSeason(id, name);
-    if (scopePlayerPool) season.playerPoolScope = id;
+    if (scopePlayerPool) season.playerPoolScope = LIVE_NBA2K27_POOL_SCOPE;
 
     if (financialSettings && typeof financialSettings === "object") {
       for (const key of ["entryFee", "freeTrades", "freeSwaps"]) {
@@ -3320,12 +3526,45 @@ const AdminActions = {
 
   deleteSeason(seasonId) {
     const data = loadData();
-    if (!data.seasons[seasonId]) throw new Error("Season not found");
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
     delete data.seasons[seasonId];
     if (data.settings.currentSeasonId === seasonId) {
       const remaining = Object.keys(data.seasons);
       data.settings.currentSeasonId = remaining.length ? remaining[0] : null;
     }
+
+    // NBA2K27 live-pool audit — Fix 2: also remove ONLY this season's own
+    // stored player records, using the seasonId relationship the old
+    // seedSeasonFromNba2k27Pool() workflow already tags them with — never
+    // leave them behind as permanent dead weight in `data.players`
+    // (exactly the leak a production backup showed: thousands of orphaned
+    // records from already-deleted seasons, a real contributor to
+    // `/league/main` exceeding Firestore's 1 MiB document limit).
+    //
+    // The condition below (`season.playerPoolScope === seasonId`) is true
+    // ONLY for a season scoped the OLD way, where that invariant always
+    // holds by construction (seedSeasonFromNba2k27Pool sets both to the
+    // same value) — deliberately excluding:
+    //   - a live-pool season (`playerPoolScope === LIVE_NBA2K27_POOL_SCOPE`,
+    //     a fixed sentinel that can never equal a real `seasonId`): it has
+    //     no real stored player carrying that scope to begin with — its
+    //     players are synthetic and never persisted (LiveNba2k27PoolCache /
+    //     stripLiveNba2k27PoolPlayers above) — so this is naturally a
+    //     no-op for it, not a special case that needs its own branch.
+    //   - an unscoped season (`playerPoolScope` unset): its players (if
+    //     any) carry NO `seasonId` at all and may belong to the same
+    //     shared/global player pool other unscoped seasons also draft
+    //     from (confirmed against a real production backup — e.g. the
+    //     legacy NBA2K26 pool). Deleting every player with no `seasonId`
+    //     would silently wipe that shared pool out from under every other
+    //     season still using it — never done here.
+    if (season.playerPoolScope === seasonId) {
+      Object.keys(data.players).forEach((id) => {
+        if (data.players[id].seasonId === seasonId) delete data.players[id];
+      });
+    }
+
     saveData(data);
   },
 
@@ -3360,6 +3599,15 @@ const AdminActions = {
     const data = loadData();
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
+    if (season.playerPoolScope === LIVE_NBA2K27_POOL_SCOPE) {
+      // This season already reads live from LiveNba2k27PoolCache (the new
+      // AdminActions.createSeason default) — running the old manual seed
+      // against it would copy the whole pool into `data.players`/
+      // `league/main`, exactly the 1 MiB failure this feature replaced.
+      // Retained for every season that already used the OLD workflow
+      // (playerPoolScope === that season's own id); never for this one.
+      throw new Error("This season already uses the live NBA2K27 pool — manual seeding is not available (and not needed) for it.");
+    }
     if (season.playerDraftPicks && season.playerDraftPicks.length > 0) {
       throw new Error("Cannot seed — this season already has draft picks.");
     }
@@ -3495,11 +3743,19 @@ const AdminActions = {
    * pre-draft-only safety valve, not a way to undo an in-progress draft.
    */
   undoSeasonSeed(seasonId) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     if (!season.playerPoolScope) {
       throw new Error("This season has no NBA2K27 seed to undo.");
+    }
+    if (season.playerPoolScope === LIVE_NBA2K27_POOL_SCOPE) {
+      // This season reads live from LiveNba2k27PoolCache (see
+      // AdminActions.createSeason) — no manual seedSeasonFromNba2k27Pool()
+      // ever ran for it, so there's nothing stored in `data.players` to
+      // remove. Guard explicitly rather than letting this silently "undo"
+      // zero real records while misreporting success.
+      throw new Error("This season uses the live NBA2K27 pool — there is no manual seed to undo.");
     }
     if (season.playerDraftPicks && season.playerDraftPicks.length > 0) {
       throw new Error("Cannot undo the seed — this season already has draft picks.");
@@ -3639,7 +3895,7 @@ const AdminActions = {
    * unaffected.
    */
   makeDraftPick(seasonId, playerId, options = {}) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
@@ -5307,7 +5563,7 @@ const AdminActions = {
    * live preview in the UI and, re-run, as the gate inside commitTrade.
    */
   evaluateTrade(seasonId, { teamA, playersOutA, teamB, playersOutB }) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     const checks = [];
     const fail = (label, reason) => checks.push({ label, valid: false, reason });
@@ -5431,7 +5687,7 @@ const AdminActions = {
       throw new Error(reasons || "Trade failed validation.");
     }
 
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
     const rosterA = season.currentRosters[teamA];
@@ -5557,7 +5813,7 @@ const AdminActions = {
    * different Joker gets cleared in the same transaction.
    */
   evaluateSwap(seasonId, { participantId, outgoingPlayerId, incomingPlayerId, isJokerSwap, jokerPosition }) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     const checks = [];
     const fail = (label, reason) => checks.push({ label, valid: false, reason });
@@ -5654,7 +5910,7 @@ const AdminActions = {
       throw new Error(reasons || "Swap failed validation.");
     }
 
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
     const roster = season.currentRosters[participantId];
@@ -5738,7 +5994,7 @@ const AdminActions = {
    */
   designateJoker(seasonId, participantId, playerId, jokerPosition, options = {}) {
     if (!jokerPosition) throw new Error("A Joker requires an assigned roster position.");
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season); // backfill for seasons created before Phase 5
@@ -5850,7 +6106,7 @@ const AdminActions = {
    * null) — e.g. when there is no vacancy to fill.
    */
   manualAddPlayerToRoster(seasonId, participantId, playerId, targetDraftSlot = null) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season);
@@ -5939,7 +6195,7 @@ const AdminActions = {
    * (draftSlot: null) has nothing to preserve, so it's removed outright.
    */
   manualRemovePlayerFromRoster(seasonId, participantId, playerId) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season);
@@ -6022,7 +6278,7 @@ const AdminActions = {
    * accidentally made a Joker just by occupying a Joker's old spot.
    */
   manualReplacePlayerOnRoster(seasonId, participantId, outgoingPlayerId, incomingPlayerId) {
-    const data = loadData();
+    const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season);
