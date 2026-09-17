@@ -392,7 +392,7 @@ const AdminDraftView = {
   _bindBoardEvents(container, season) {
     container.querySelectorAll('[data-action="selectPlayer"]').forEach(row => {
       const open = () => {
-        const player = LeagueData.getPlayer(row.dataset.playerId);
+      const player = LeagueData.getPlayer(row.dataset.playerId, season.id);
         if (player) this._openDraftConfirm(season, player);
       };
       row.onclick = open;
@@ -440,7 +440,7 @@ const AdminDraftView = {
 
     dropdown.querySelectorAll('[data-action="selectPlayer"]').forEach(row => {
       row.onclick = () => {
-        const player = LeagueData.getPlayer(row.dataset.playerId);
+        const player = LeagueData.getPlayer(row.dataset.playerId, season.id);
         dropdown.classList.add('hidden');
         if (player) this._openDraftConfirm(season, player);
       };
