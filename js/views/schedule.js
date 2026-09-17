@@ -37,12 +37,14 @@ const ScheduleView = {
     }
     const activeRound = rounds.find((r) => r.round === this._selectedRound);
     const isGroupStage = season.scheduleFormat === 'groupStage';
+    const isConferenceRoundRobin = season.scheduleFormat === 'conferenceRoundRobin';
     const activeStage = activeRound.matchups[0]?.stage || null;
 
     container.innerHTML = `
       <div class="schedule-view" style="max-width:none;">
-        <h2 class="section-title">Regular Season Schedule${isGroupStage ? ' — Group Stage' : ''}</h2>
+        <h2 class="section-title">Regular Season Schedule${isGroupStage ? ' — Group Stage' : isConferenceRoundRobin ? ' — Conference Round Robin' : ''}</h2>
         ${isGroupStage ? `<p class="helper-text">Stage ${activeStage} of 2 — 4 groups of 4, 3 games/team per stage.</p>` : ''}
+        ${isConferenceRoundRobin ? `<p class="helper-text">Each team plays every other team in its own conference exactly once.</p>` : ''}
 
         <div class="round-tabs" id="roundTabs">
           ${rounds.map((r) => `
@@ -91,6 +93,7 @@ const ScheduleView = {
             ${isCompleted ? 'Final' : 'Scheduled'}
           </span>
           ${m.group ? `<span class="matchup-card-streamer">Group ${m.group}</span>` : ''}
+          ${m.conference ? `<span class="matchup-card-streamer">Conference ${m.conference}</span>` : ''}
           ${isCompleted ? `<span class="matchup-card-streamer">🎥 ${escapeHtml(m.streamer)}</span>` : ''}
         </div>
         <div class="matchup-card-body">
