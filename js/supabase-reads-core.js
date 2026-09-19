@@ -94,6 +94,47 @@ const SupabaseReadsCore = (() => {
     };
   }
 
+  /**
+   * Phase 6.7c: maps an `nba2k27_effective_players` row (the Phase 6.7a
+   * view — nba2k27_pool joined to nba2k_players, with overrides already
+   * resolved and invalid/UNASSIGNED rows already filtered out server-side)
+   * to the same effective-player shape LiveNba2k27PoolCache.getEntries()
+   * already returns in js/data.js, so a later caller can treat a
+   * Supabase-sourced live player identically to an in-memory one.
+   *
+   * Deliberately separate from mapPlayerRow() above and never reused by
+   * getAllPlayers()/getPlayer(): this is the LIVE NBA2K27 pool
+   * (nba2k27_pool + nba2k_players, computed), not the old/promoted
+   * `players` table those two functions read — see this file's 2K26/2K27
+   * HISTORICAL DATA SAFETY note. The two mappers, and the two read paths
+   * they back, stay independent.
+   *
+   * seasonId is always the LIVE_NBA2K27_POOL_SCOPE sentinel, exactly as
+   * LiveNba2k27PoolCache.buildEntries() sets it in js/data.js — never a
+   * per-call argument, since the live pool itself is global, not season-
+   * specific (see the Phase 6.7b design note on where the season-scoping
+   * decision actually belongs — NOT in this file). LIVE_NBA2K27_POOL_SCOPE
+   * is defined in js/data.js, which loads AFTER this file in both
+   * index.html and admin.html — safe here because this identifier is
+   * only resolved at CALL time, when one of the three functions below
+   * actually runs, not when this file itself loads; nothing calls them
+   * yet (this whole file remains dormant), and by the time anything ever
+   * does, data.js will already have run.
+   */
+  function mapEffectiveLivePlayerRow(row) {
+    if (!row) return null;
+    return {
+      id: row.live_id,
+      name: row.name,
+      position: row.position,
+      overall: row.overall,
+      pool: row.pool,
+      variantGroup: row.variant_group_id,
+      nba2kRef: row.nba2k_ref,
+      seasonId: LIVE_NBA2K27_POOL_SCOPE,
+    };
+  }
+
   // ── Settings / current season ─────────────────────────────────────────
   // getSettings() in Firebase is just { currentSeasonId }. There is no
   // settings table in Supabase (per your Decision 2 — is_current lives
@@ -160,6 +201,40 @@ const SupabaseReadsCore = (() => {
     return rows.length ? mapPlayerRow(rows[0]) : null;
   }
 
+  // ── Live NBA2K27 pool (Phase 6.7c — nba2k27_effective_players view) ───
+  // Dormant, exactly like every other function in this file: nothing
+  // calls these yet. GLOBAL, not season-scoped — these three functions
+  // take no seasonId, matching the live pool's own nature (see
+  // mapEffectiveLivePlayerRow's comment above and the Phase 6.7b design).
+  // Whether a given season should even ask for this pool
+  // (playerPoolScope === LIVE_NBA2K27_POOL_SCOPE) is a decision for the
+  // future LeagueData-equivalent data layer to make BEFORE calling
+  // getLiveNba2k27Players() — that integration is a later phase and is
+  // NOT implemented here.
+  async function getLiveNba2k27Players() {
+    const rows = await SupabaseQuery.select(
+      "nba2k27_effective_players",
+      (qb) => qb
+    );
+    return rows.map(mapEffectiveLivePlayerRow);
+  }
+
+  async function getLiveNba2k27Player(liveId) {
+    const rows = await SupabaseQuery.select(
+      "nba2k27_effective_players",
+      (qb) => qb.eq("live_id", liveId).limit(1)
+    );
+    return rows.length ? mapEffectiveLivePlayerRow(rows[0]) : null;
+  }
+
+  async function getLiveNba2k27PlayerBySlug(slug) {
+    const rows = await SupabaseQuery.select(
+      "nba2k27_effective_players",
+      (qb) => qb.eq("nba2k_ref", slug).limit(1)
+    );
+    return rows.length ? mapEffectiveLivePlayerRow(rows[0]) : null;
+  }
+
   return {
     getSettings,
     getCurrentSeasonId,
@@ -170,5 +245,8 @@ const SupabaseReadsCore = (() => {
     getParticipant,
     getAllPlayers,
     getPlayer,
+    getLiveNba2k27Players,
+    getLiveNba2k27Player,
+    getLiveNba2k27PlayerBySlug,
   };
 })();

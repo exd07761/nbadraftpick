@@ -1903,7 +1903,7 @@ const LiveNba2k27PoolCache = (() => {
  * every write that isn't touching a live-pool-scoped season.
  */
 function stripLiveNba2k27PoolPlayers(data) {
-  const liveEntries = LiveNba2k27PoolCache.getEntries();
+  const liveEntries = SupabaseLiveNba2k27PoolCache.getEntries();
   const liveIds = Object.keys(liveEntries);
   if (liveIds.length === 0) return data;
   let found = false;
@@ -1915,6 +1915,77 @@ function stripLiveNba2k27PoolPlayers(data) {
   liveIds.forEach((id) => { delete players[id]; });
   return Object.assign({}, data, { players });
 }
+
+/**
+ * Phase 6.7f: SHADOW/INERT Supabase-backed counterpart to
+ * LiveNba2k27PoolCache above. Same shape (private in-memory entries map,
+ * async ensureLoaded(), synchronous getEntries()/isLoaded()) so that a
+ * later, separately-reviewed phase could eventually swap what loadData()
+ * reads from without changing loadData()'s own logic — see the Phase
+ * 6.7e audit's "Replace vs Augment Analysis" for why this mirrors that
+ * module's shape rather than replacing it.
+ *
+ * NOT CONSUMED BY ANYTHING YET. loadData()/getAllPlayers()/getPlayer()/
+ * getAvailablePlayers()/getDraftPoolStatus() are all UNCHANGED by this
+ * phase and still read ONLY LiveNba2k27PoolCache, exactly as before this
+ * phase. This cache exists solely to prove the boot-time async plumbing
+ * works (see the boot Promise.all() in js/public-router.js and
+ * js/admin.js) — nothing calls
+ * SupabaseLiveNba2k27PoolCache.getEntries() anywhere in the application.
+ *
+ * Reads through the existing, still-dormant SupabaseReadsCore
+ * (js/supabase-reads-core.js), which loads BEFORE this file in both
+ * index.html and admin.html, so SupabaseReadsCore is already a defined
+ * global by the time this file's own top-level code runs — no
+ * call-time-only reference is needed here (contrast
+ * LIVE_NBA2K27_POOL_SCOPE's situation over in supabase-reads-core.js,
+ * which has the opposite load order and does need one).
+ */
+const SupabaseLiveNba2k27PoolCache = (() => {
+  let _entries = null; // null = not loaded yet; an object (possibly {}) once it is
+  let _loadPromise = null;
+
+  return {
+    isLoaded() { return _entries !== null; },
+    getEntries() { return _entries || {}; },
+    /**
+     * Fetches the live effective-player list from Supabase once and
+     * builds the in-memory cache, keyed by each player's `id` (the
+     * `p27live_<slug>` value SupabaseReadsCore.getLiveNba2k27Players()
+     * already returns) — the same key shape a loadData()-style merge
+     * would expect, matching LiveNba2k27PoolCache.getEntries()'s own
+     * keying. Safe to call repeatedly/concurrently — every caller shares
+     * the same in-flight fetch (or the already-resolved cache) rather
+     * than issuing duplicate reads, mirroring
+     * LiveNba2k27PoolCache.ensureLoaded() above exactly.
+     *
+     * Never writes to Supabase or Firebase. A rejected Supabase read
+     * clears the in-flight promise so a later retry is possible, and the
+     * rejection is NOT swallowed here — the boot Promise.all() callers
+     * (public-router.js/admin.js) attach their own .catch(), exactly as
+     * they already do for LiveNba2k27PoolCache, so a Supabase outage is
+     * logged there, non-fatal, and never blocks application boot.
+     */
+    ensureLoaded() {
+      if (_entries !== null) return Promise.resolve(_entries);
+      if (_loadPromise) return _loadPromise;
+      _loadPromise = SupabaseReadsCore.getLiveNba2k27Players()
+        .then((players) => {
+          const entries = {};
+          players.forEach((p) => { entries[p.id] = p; });
+          _entries = entries; // an empty successful result ({}) is still a valid loaded state
+          return _entries;
+        })
+        .catch((err) => {
+          _loadPromise = null; // allow a retry on the next call
+          throw err;
+        });
+      return _loadPromise;
+    },
+    // Test-only escape hatch — never called by app code.
+    _resetForTests() { _entries = null; _loadPromise = null; },
+  };
+})();
 
 // ─── Storage (Firestore-backed, single-document sync) ─────────────────────
 //
@@ -2121,7 +2192,7 @@ function loadData(seasonId) {
   if (seasonId) {
     const season = data.seasons[seasonId];
     if (season && season.playerPoolScope === LIVE_NBA2K27_POOL_SCOPE) {
-      const liveEntries = LiveNba2k27PoolCache.getEntries();
+      const liveEntries = SupabaseLiveNba2k27PoolCache.getEntries();
       if (Object.keys(liveEntries).length > 0) {
         data.players = Object.assign({}, liveEntries, data.players);
       }

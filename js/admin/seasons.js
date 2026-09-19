@@ -137,7 +137,7 @@ const AdminSeasonsView = {
       // immediately. Guards the rare case of an admin clicking Create
       // before that bootstrap step has settled.
       try {
-        await LiveNba2k27PoolCache.ensureLoaded();
+        await SupabaseLiveNba2k27PoolCache.ensureLoaded();
       } catch (e) {
         showToast(`"${name}" created, but the NBA2K27 pool failed to load: ${e.message}. Reload and try the Draft page again.`, 'error');
         AdminApp.renderView('seasons');
