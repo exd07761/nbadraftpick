@@ -8,7 +8,9 @@
  * PlayoffsView, PublicRosterView, PublicPlayersView (Phase 10), and
  * PublicDraftView (Phase 2 redesign — read-only spectator view of the
  * live draft; see js/views/draft.js), and PublicNba2k27View (Phase 11 —
- * read-only NBA 2K27 player view; see js/views/nba2k27.js), which are
+ * read-only NBA 2K27 player view; see js/views/nba2k27.js), and
+ * PublicRosterSimulatorView (Roster Simulator Phase 1 — a temporary,
+ * in-memory what-if roster; see js/views/roster-simulator.js), which are
  * defined in js/views/*.js. Only index.html loads those view files —
  * admin.html must NOT include this file, or the `routes` object below
  * will throw a ReferenceError for every view global it can't find.
@@ -33,6 +35,7 @@ const routes = {
   players: PublicPlayersView,
   draft: PublicDraftView, // Phase 2 redesign — read-only, see js/views/draft.js
   nba2k27: PublicNba2k27View, // Phase 11 — read-only, see js/views/nba2k27.js
+  'roster-simulator': PublicRosterSimulatorView, // Roster Simulator Phase 1 — client-side only, no writes; see js/views/roster-simulator.js
 };
 
 let currentRoute = null;
@@ -82,6 +85,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     FirebaseSync.init(),
     LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
       console.error('[public-router] Failed to load the live NBA2K27 pool:', err);
+    }),
+    // Supabase live pool: this is the cache loadData() actually merges for a
+    // live-scoped season (bafcde3 moved it off LiveNba2k27PoolCache above), so
+    // it must be loaded before the first render. Hardened so it can never hurt
+    // boot: bounded to 8s (a hung request must not hold the whole site hostage)
+    // and wrapped in Promise.resolve().then() so a synchronous throw from
+    // ensureLoaded() becomes a handled rejection instead of aborting boot.
+    // Same promise the Draft views' guards share, so no duplicate request.
+    Promise.race([
+      Promise.resolve().then(() => SupabaseLiveNba2k27PoolCache.ensureLoaded()),
+      new Promise((resolve) => setTimeout(resolve, 8000)),
+    ]).catch((err) => {
+      console.error('[public-router] Failed to load the Supabase live NBA2K27 pool:', err);
     }),
   ]);
   if (bootEl) bootEl.classList.add('hidden');

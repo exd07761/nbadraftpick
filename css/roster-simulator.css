@@ -1,0 +1,226 @@
+/**
+ * roster-simulator.css — styles for the public Roster Simulator page
+ * (js/views/roster-simulator.js).
+ *
+ * Loaded only by index.html, after public-theme.css. Every class is
+ * prefixed `rsim-`, so nothing here can affect another page. It reuses
+ * the existing public tokens (--nb-*) and the existing roster/table/badge
+ * classes (.roster-table, .table-scroll, .pick-color-*, .search-input,
+ * .all-rosters-*) rather than introducing a new look.
+ */
+
+.rsim-view { max-width: none; }
+
+/* ─── Header / manager row ───────────────────────────────────────────── */
+.rsim-header {
+  display: flex; align-items: baseline; gap: 0.75rem; flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.rsim-pill {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--nb-primary-dim);
+  color: var(--nb-primary);
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+}
+.rsim-season { font-size: 0.82rem; }
+
+.rsim-manager-row {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+}
+.rsim-team { display: inline-flex; align-items: center; }
+.rsim-team .team-identity-name { color: var(--nb-text); font-weight: 700; }
+
+.rsim-notice {
+  margin-bottom: 1rem;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--nb-r);
+  background: var(--nb-gold-dim);
+  color: #7a5a00;
+  font-size: 0.85rem; font-weight: 600;
+}
+
+/* ─── BEFORE / AFTER cards ───────────────────────────────────────────── */
+/* Side-by-side only when the CONTENT column is wide enough (the sidebar can
+   be expanded or collapsed, so viewport width is the wrong signal). The host
+   wraps only the grid: a container on .rsim-view itself would make it the
+   containing block for the position:fixed picker. Stacked BEFORE-above-AFTER
+   is the default and the narrow-screen layout. */
+.rsim-grid-host { container-type: inline-size; margin-bottom: 1.25rem; }
+.rsim-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.25rem;
+}
+@container (min-width: 1240px) {
+  .rsim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.rsim-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  padding: 1rem 1.1rem;
+  min-width: 0;
+}
+.rsim-card--after { border-color: var(--nb-primary); }
+
+.rsim-card-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+.rsim-eyebrow {
+  font-size: 0.7rem; font-weight: 800; letter-spacing: 0.12em;
+  color: var(--nb-text-muted);
+}
+.rsim-eyebrow--after { color: var(--nb-primary); }
+.rsim-card-title { font-size: 1.05rem; font-weight: 800; color: var(--nb-text); }
+.rsim-lock { font-size: 0.75rem; font-weight: 700; color: var(--nb-text-muted); white-space: nowrap; }
+.rsim-foot { font-size: 0.75rem; margin: 0.75rem 0 0; }
+
+/* ─── Tables ─────────────────────────────────────────────────────────── */
+.rsim-table { font-size: 0.8rem; }
+.rsim-table th, .rsim-table td { padding: 0.45rem 0.5rem; }
+.rsim-table th { white-space: nowrap; }
+.rsim-col-pos { white-space: nowrap; }            /* Pos (+ Joker mark) never wraps */
+.rsim-name-pool, .rsim-h-short, .rsim-ico { display: none; }
+.rsim-table td.rsim-actions { white-space: nowrap; text-align: right; }
+.rsim-table td.rsim-actions .rsim-btn + .rsim-btn { margin-left: 0.3rem; }
+.rsim-row-new { background: rgba(31, 169, 113, 0.08); }
+.rsim-row-open td { background: var(--nb-surface); }
+/* One full-width cell holding the text AND the Add button, so the button can
+   never be pushed into a horizontally scrolled-away column on small screens. */
+.rsim-open { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem 0.75rem; flex-wrap: wrap; }
+.rsim-new {
+  display: inline-block; margin-left: 0.3rem;
+  padding: 0.05rem 0.4rem; border-radius: 999px;
+  background: rgba(31, 169, 113, 0.14); color: var(--nb-positive);
+  font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em;
+}
+.rsim-sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────── */
+.rsim-btn {
+  font-family: var(--font-ui);
+  font-size: 0.75rem; font-weight: 700;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--nb-r);
+  border: 1px solid var(--nb-surface-border);
+  background: var(--nb-surface-card);
+  color: var(--nb-text);
+  cursor: pointer;
+}
+.rsim-btn:hover:not(:disabled) { border-color: var(--nb-primary); color: var(--nb-primary); }
+.rsim-btn:focus-visible { outline: 2px solid var(--nb-primary); outline-offset: 2px; }
+.rsim-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.rsim-btn-primary { background: var(--nb-primary); border-color: var(--nb-primary); color: #fff; }
+.rsim-btn-primary:hover:not(:disabled) { background: var(--nb-primary-hover); border-color: var(--nb-primary-hover); color: #fff; }
+.rsim-btn-danger:hover:not(:disabled) { border-color: var(--nb-negative); color: var(--nb-negative); }
+
+/* ─── OVR tiles ──────────────────────────────────────────────────────── */
+.rsim-stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+.rsim-stat {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  padding: 0.85rem 1rem; text-align: center;
+}
+.rsim-stat-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.1em; color: var(--nb-text-muted); }
+.rsim-stat-num { font-size: 1.9rem; font-weight: 800; color: var(--nb-text); font-variant-numeric: tabular-nums; }
+.rsim-pos { color: var(--nb-positive) !important; }
+.rsim-neg { color: var(--nb-negative) !important; }
+
+/* ─── Changes ────────────────────────────────────────────────────────── */
+.rsim-changes { margin-bottom: 1.5rem; }
+.rsim-change-block { margin-top: 0.85rem; }
+.rsim-change-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; color: var(--nb-text-muted); margin-bottom: 0.25rem; }
+.rsim-change-line { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; padding: 0.15rem 0; font-size: 0.9rem; color: var(--nb-text); }
+.rsim-change-name { font-weight: 700; }
+.rsim-sign { font-weight: 800; width: 0.9rem; text-align: center; }
+.rsim-change-pool { font-size: 0.75rem; }
+.rsim-change-none, .rsim-nochange { font-size: 0.85rem; }
+.rsim-change-ovr { margin-top: 0.85rem; font-size: 0.95rem; font-weight: 700; color: var(--nb-text); }
+.rsim-actions-bar {
+  display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  margin-top: 1.1rem; padding-top: 0.9rem;
+  border-top: 1px solid var(--nb-surface-border);
+}
+.rsim-soon { font-size: 0.75rem; }
+.rsim-btn-reset { margin-left: auto; }
+
+/* ─── Player picker (modal) ──────────────────────────────────────────── */
+.rsim-picker-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(20, 22, 30, 0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 6vh 1rem 1rem;
+  overflow-y: auto;
+}
+.rsim-picker {
+  width: 100%; max-width: 560px;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: 0 12px 40px rgba(20, 22, 30, 0.25);
+  padding: 1rem 1.1rem;
+}
+.rsim-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; }
+.rsim-picker-controls { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.rsim-picker-search { flex: 1; min-width: 0; padding: 0.5rem 0.7rem; font-size: 0.9rem; }
+.rsim-picker-list { max-height: 55vh; overflow-y: auto; border: 1px solid var(--nb-surface-border); border-radius: var(--nb-r); }
+.rsim-picker-empty, .rsim-picker-more { padding: 0.9rem; font-size: 0.85rem; text-align: center; }
+
+.rsim-cand {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.2rem 2.2rem 3.4rem 3.6rem;
+  align-items: center; gap: 0.5rem;
+  width: 100%; text-align: left;
+  padding: 0.55rem 0.7rem;
+  font-family: var(--font-ui); font-size: 0.85rem;
+  background: transparent; color: var(--nb-text);
+  border: 0; border-bottom: 1px solid var(--nb-surface-border);
+  cursor: pointer;
+}
+.rsim-cand:last-child { border-bottom: 0; }
+.rsim-cand:hover, .rsim-cand:focus-visible { background: var(--nb-surface); outline: none; }
+.rsim-cand-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rsim-cand-pos, .rsim-cand-pool { font-size: 0.75rem; }
+.rsim-cand-ovr { text-align: right; color: var(--nb-primary); }
+.rsim-was {
+  margin-left: 0.3rem; padding: 0.05rem 0.4rem; border-radius: 999px;
+  background: var(--nb-surface-border); color: var(--nb-text-muted);
+  font-size: 0.62rem; font-weight: 700;
+}
+
+/* ─── Small screens ──────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .rsim-stat-num { font-size: 1.4rem; }
+  .rsim-stat { padding: 0.65rem 0.5rem; }
+  .rsim-card { padding: 0.85rem 0.75rem; }
+  .rsim-table { font-size: 0.74rem; }
+  .rsim-table th, .rsim-table td { padding: 0.35rem 0.25rem; }
+  /* Fit a ~300px card without hiding OVR/Pos: pool moves under the name,
+     the header shortens, and row actions become compact icon buttons. */
+  .rsim-col-pool { display: none; }
+  .rsim-name-pool { display: block; font-size: 0.66rem; }
+  .rsim-h-full { display: none; }
+  .rsim-h-short { display: inline; }
+  .rsim-lbl { display: none; }
+  .rsim-ico { display: inline; }
+  .rsim-table td.rsim-actions .rsim-btn { padding: 0.25rem 0.4rem; }
+  .rsim-table td.rsim-actions .rsim-btn + .rsim-btn { margin-left: 0.15rem; }
+  .rsim-table .pick-color-badge { padding: 0.1rem 0.4rem; font-size: 0.64rem; }
+  .rsim-picker-backdrop { padding-top: 3vh; }
+  .rsim-cand { grid-template-columns: minmax(0, 1fr) 1.8rem 1.8rem 2.8rem auto; gap: 0.35rem; padding: 0.5rem 0.5rem; }
+  .rsim-cand-name { white-space: normal; overflow: visible; text-overflow: clip; } /* wrap long names instead of truncating */
+}

@@ -137,6 +137,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
       console.error('[AdminApp] Failed to load the live NBA2K27 pool:', err);
     }),
+    // Supabase live pool: this is the cache loadData() actually merges for a
+    // live-scoped season (bafcde3 moved it off LiveNba2k27PoolCache above), so
+    // it must be loaded before the first render. Hardened so it can never hurt
+    // boot: bounded to 8s (a hung request must not hold the whole site hostage)
+    // and wrapped in Promise.resolve().then() so a synchronous throw from
+    // ensureLoaded() becomes a handled rejection instead of aborting boot.
+    // Same promise the Draft views' guards share, so no duplicate request.
+    Promise.race([
+      Promise.resolve().then(() => SupabaseLiveNba2k27PoolCache.ensureLoaded()),
+      new Promise((resolve) => setTimeout(resolve, 8000)),
+    ]).catch((err) => {
+      console.error('[AdminApp] Failed to load the Supabase live NBA2K27 pool:', err);
+    }),
   ]);
 
   if (bootEl) bootEl.classList.add('hidden');
