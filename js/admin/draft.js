@@ -41,6 +41,27 @@ const AdminDraftView = {
       return;
     }
 
+    // Phase 6.8G: same defensive live-pool readiness check as
+    // PublicDraftView (js/views/draft.js) — see that file's comment for
+    // the full reasoning. admin.js's own boot Promise.all normally
+    // already loads this, and js/admin/seasons.js has its own narrower
+    // guard right after creating a live-scoped season, but neither
+    // covers every later visit to this page, so this check is
+    // independently defensive. isLoaded() only ever goes false→true, so
+    // this cannot re-trigger once loaded, and rejection renders a
+    // terminal error state instead of retrying automatically.
+    if (season.playerPoolScope === LIVE_NBA2K27_POOL_SCOPE && !SupabaseLiveNba2k27PoolCache.isLoaded()) {
+      container.innerHTML = `<div class="empty-state"><p>Loading the NBA2K27 player pool…</p></div>`;
+      SupabaseLiveNba2k27PoolCache.ensureLoaded().then(
+        () => { this.render(container); },
+        (err) => {
+          console.error('[AdminDraftView] Failed to load the live NBA2K27 pool:', err);
+          container.innerHTML = `<div class="empty-state"><p>Couldn't load the NBA2K27 player pool. Please reload this page to try again.</p></div>`;
+        }
+      );
+      return;
+    }
+
     const draftOrder = LeagueData.getPlayerDraftOrder(season.id);
     if (!draftOrder.length) {
       container.innerHTML = `

@@ -44,6 +44,30 @@ const PublicDraftView = {
       return;
     }
 
+    // Phase 6.8G: a live-scoped season's player pool comes from
+    // SupabaseLiveNba2k27PoolCache (see loadData() in js/data.js). The
+    // boot-time Promise.all in public-router.js normally already loads
+    // it, but nothing previously re-checked or retried that here, so a
+    // page that renders before boot finishes (or after a one-time boot
+    // failure that boot's own .catch() swallowed) would silently show 0
+    // players forever. Guard against both: if this season needs the
+    // live pool and it isn't loaded yet, show a loading state, kick off
+    // ensureLoaded() (safe — it dedupes/won't double-fetch if boot's own
+    // call is still in flight), and re-render once it settles. Once
+    // isLoaded() is true this branch is never entered again for the
+    // life of the page, so this cannot loop.
+    if (season.playerPoolScope === LIVE_NBA2K27_POOL_SCOPE && !SupabaseLiveNba2k27PoolCache.isLoaded()) {
+      container.innerHTML = `<div class="empty-state"><p>Loading the NBA2K27 player pool…</p></div>`;
+      SupabaseLiveNba2k27PoolCache.ensureLoaded().then(
+        () => { this.render(container); },
+        (err) => {
+          console.error('[PublicDraftView] Failed to load the live NBA2K27 pool:', err);
+          container.innerHTML = `<div class="empty-state"><p>Couldn't load the NBA2K27 player pool. Please refresh the page to try again.</p></div>`;
+        }
+      );
+      return;
+    }
+
     const draftOrder = LeagueData.getPlayerDraftOrder(season.id);
     if (!draftOrder.length) {
       container.innerHTML = `<div class="empty-state"><p>The draft order hasn't been set yet. Check back once the commissioner starts the draft.</p></div>`;
