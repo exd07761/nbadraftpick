@@ -47,14 +47,16 @@
    be expanded or collapsed, so viewport width is the wrong signal). The host
    wraps only the grid: a container on .rsim-view itself would make it the
    containing block for the position:fixed picker. Stacked BEFORE-above-AFTER
-   is the default and the narrow-screen layout. */
+   is the default and the narrow-screen layout. 1500px is measured: with the
+   AFTER table's Joker toggle + position picker, two columns clip the actions
+   column below ~1475px of content width (63-108px at 1258-1347px). */
 .rsim-grid-host { container-type: inline-size; margin-bottom: 1.25rem; }
 .rsim-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
 }
-@container (min-width: 1240px) {
+@container (min-width: 1500px) {
   .rsim-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -122,6 +124,16 @@
 .rsim-btn-primary { background: var(--nb-primary); border-color: var(--nb-primary); color: #fff; }
 .rsim-btn-primary:hover:not(:disabled) { background: var(--nb-primary-hover); border-color: var(--nb-primary-hover); color: #fff; }
 .rsim-btn-danger:hover:not(:disabled) { border-color: var(--nb-negative); color: var(--nb-negative); }
+/* Joker toggle: pink, matching the existing PINK classification badge. */
+.rsim-btn-joker:hover:not(:disabled) { border-color: #c2185b; color: #c2185b; }
+.rsim-btn-joker.is-on { background: rgba(255, 105, 180, 0.15); border-color: #c2185b; color: #c2185b; }
+/* A simulated Joker's position picker (a Joker's position is freely assigned). */
+.rsim-jpos {
+  font-family: var(--font-ui); font-size: 0.78rem; font-weight: 700;
+  padding: 0.1rem 0.15rem;
+  border: 1px solid var(--nb-surface-border); border-radius: var(--nb-r);
+  background: var(--nb-surface-card); color: var(--nb-text);
+}
 
 /* ─── OVR tiles ──────────────────────────────────────────────────────── */
 .rsim-stats {
@@ -136,7 +148,12 @@
   padding: 0.85rem 1rem; text-align: center;
 }
 .rsim-stat-label { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.1em; color: var(--nb-text-muted); }
+.rsim-stat-line { display: flex; align-items: baseline; justify-content: center; gap: 0.4rem; }
 .rsim-stat-num { font-size: 1.9rem; font-weight: 800; color: var(--nb-text); font-variant-numeric: tabular-nums; }
+.rsim-stat-cap { font-size: 1rem; font-weight: 700; color: var(--nb-text-muted); font-variant-numeric: tabular-nums; }
+/* Rating budget line: informational only, never blocks anything. */
+.rsim-budget { margin-top: 0.1rem; font-size: 0.78rem; font-weight: 700; color: var(--nb-text-muted); }
+.rsim-budget.is-over { color: var(--nb-negative); }
 .rsim-pos { color: var(--nb-positive) !important; }
 .rsim-neg { color: var(--nb-negative) !important; }
 
@@ -206,6 +223,13 @@
 @media (max-width: 640px) {
   .rsim-stat-num { font-size: 1.4rem; }
   .rsim-stat { padding: 0.65rem 0.5rem; }
+  /* Three tiles are too narrow for "554 / 560" + the budget line: BEFORE and AFTER
+     share a row, OVR CHANGE gets its own full-width row. */
+  .rsim-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rsim-stat:last-child { grid-column: 1 / -1; }
+  .rsim-stat-line { flex-wrap: nowrap; white-space: nowrap; }
+  .rsim-stat-cap { font-size: 0.8rem; }
+  .rsim-budget { font-size: 0.72rem; }
   .rsim-card { padding: 0.85rem 0.75rem; }
   .rsim-table { font-size: 0.74rem; }
   .rsim-table th, .rsim-table td { padding: 0.35rem 0.25rem; }
@@ -217,10 +241,42 @@
   .rsim-h-short { display: inline; }
   .rsim-lbl { display: none; }
   .rsim-ico { display: inline; }
-  .rsim-table td.rsim-actions .rsim-btn { padding: 0.25rem 0.4rem; }
+  .rsim-table td.rsim-actions .rsim-btn { padding: 0.25rem 0.3rem; }
+  .rsim-jpos { font-size: 0.7rem; padding: 0; width: 2.7rem; }
+  .rsim-mark-after { display: none; } /* phones: the pressed pink Joker toggle + picker already say "Joker" */
+  /* Header letter-spacing, not content, was setting the Color/OVR column widths. */
+  .rsim-table th { font-size: 0.62rem; letter-spacing: 0; padding-left: 0.2rem; padding-right: 0.2rem; }
+  .rsim-table td.rsim-actions { padding-left: 0.1rem; padding-right: 0.1rem; }
+  .rsim-card { padding-left: 0.6rem; padding-right: 0.6rem; }
   .rsim-table td.rsim-actions .rsim-btn + .rsim-btn { margin-left: 0.15rem; }
-  .rsim-table .pick-color-badge { padding: 0.1rem 0.4rem; font-size: 0.64rem; }
+  /* The widest badge (YELLOW) sets the whole Color column's width. */
+  .rsim-table .pick-color-badge { padding: 0.08rem 0.3rem; font-size: 0.6rem; letter-spacing: 0; }
   .rsim-picker-backdrop { padding-top: 3vh; }
   .rsim-cand { grid-template-columns: minmax(0, 1fr) 1.8rem 1.8rem 2.8rem auto; gap: 0.35rem; padding: 0.5rem 0.5rem; }
   .rsim-cand-name { white-space: normal; overflow: visible; text-overflow: clip; } /* wrap long names instead of truncating */
+}
+
+/* ─── Narrow phones (<= 400px) ───────────────────────────────────────────
+   Measured with the AFTER table (icon buttons + Joker picker): it needs a few
+   more pixels than a 360-375px card offers, and the right-most Remove button
+   was being clipped. These trims are all cosmetic; no controls are removed. */
+@media (max-width: 400px) {
+  .rsim-card { padding-left: 0.45rem; padding-right: 0.45rem; }
+  .rsim-table td.rsim-actions .rsim-btn { padding: 0.22rem 0.22rem; font-size: 0.68rem; }
+  .rsim-table td.rsim-actions .rsim-btn + .rsim-btn { margin-left: 0.1rem; }
+  .rsim-table th, .rsim-table td { padding-left: 0.15rem; padding-right: 0.15rem; }
+  .rsim-table .pick-color-badge { padding-left: 0.25rem; padding-right: 0.25rem; }
+  /* A long single word (e.g. "Antetokounmpo") must wrap instead of widening the
+     Player column (2nd column) and pushing the table past the card. */
+  .rsim-table td:nth-child(2) { overflow-wrap: anywhere; word-break: break-word; }
+}
+
+/* ─── Very narrow phones (<= 340px, e.g. 320px) ──────────────────────────
+   At 320px the shell's own side padding (~20px per side) leaves the AFTER
+   table 24px short even after the trims above. The cards use part of that
+   padding (edge-to-edge cards are normal on small phones); the title and
+   manager row keep the normal gutter. Nothing is hidden or removed. */
+@media (max-width: 340px) {
+  .rsim-grid-host, .rsim-stats, .rsim-changes { margin-left: -0.9rem; margin-right: -0.9rem; }
+  .rsim-card { padding-left: 0.35rem; padding-right: 0.35rem; }
 }

@@ -1,6 +1,8 @@
 'use strict';
 /**
- * Roster Simulator (Phase 1) — regression tests.
+ * Roster Simulator (Phase 1 + 1.1) — regression tests.
+ * Phase 1.1 adds: informational rating-budget display against the season cap
+ * (875 by default) and a Joker sandbox — see the "Phase 1.1" sections below.
  *
  * Covers js/views/roster-simulator.js (`PublicRosterSimulatorView`).
  *
@@ -74,7 +76,9 @@ function makeSandbox() {
     'this.LeagueData = LeagueData; this.AdminActions = AdminActions; ' +
     'this.FirebaseSync = FirebaseSync; this.getDefaultData = getDefaultData; ' +
     'this.PublicRosterSimulatorView = PublicRosterSimulatorView; ' +
-    'this.classificationBadge = classificationBadge;',
+    'this.classificationBadge = classificationBadge; ' +
+    'this.validateRatingCap = validateRatingCap; this.getEffectivePosition = getEffectivePosition; ' +
+    'this.CORE_POSITIONS = CORE_POSITIONS;',
     sandbox, { filename: 'export.js' }
   );
 
@@ -86,6 +90,35 @@ function makeSandbox() {
   sandbox._cacheJson = () => JSON.stringify(cache);
   return sandbox;
 }
+
+// Phase 1.1 fixture: ONE manager with a full 10-man roster totalling exactly 861 (BEFORE 861 / 875),
+// plus pool players with the ratings needed to land on 857, 874, 875, 876 and 890 precisely.
+function buildBudgetEnv({ cap } = {}) {
+  const b = makeSandbox();
+  const A = b.AdminActions, S = b.PublicRosterSimulatorView;
+  const season = A.createSeason('Budget Season'); const sid = season.id;
+  const m = A.addParticipant(sid, 'Budgeter');
+  const POS = ['PG', 'SG', 'SF', 'PF', 'C'];
+  const ovrs = [95, 92, 90, 88, 86, 85, 84, 82, 80, 79];                       // sum = 861
+  const roster = ovrs.map((o, i) => A.addPlayer({ name: `Budget ${i + 1}`, position: POS[i % 5], overall: o, pool: 'green' }));
+  const pool = {};
+  [50, 60, 78, 89, 92, 93, 94, 99].forEach((o) => { pool[o] = A.addPlayer({ name: `Pool ${o}`, position: POS[o % 5], overall: o, pool: 'green' }); });
+  { const cache = b.FirebaseSync.getCache(); const st = cache.seasons[sid];
+    st.playerDraftPicks = roster.map((p, i) => ({ round: i + 1, pick: 1, participantId: m.id, playerId: p.id }));
+    st.playerDraftOrder = [m.id]; st.draftComplete = true; b.FirebaseSync.save(cache); }
+  A.initializeRostersFromDraft(sid); A.assignNBATeam(sid, m.id, 'LAL'); A.setCurrentSeason(sid);
+  if (cap) A.setRatingCap(sid, cap);
+  b._counters.rawSet = b._counters.save = b._counters.saveAndConfirm = 0;      // instrument from here on
+  const c = new FakeContainer(); S.render(c); S.selectManager(m.id); S.render(c);
+  return { b, S, c, sid, m, roster, pool, ovrs };
+}
+// What the OVR AFTER / BEFORE tile actually shows, read back from the rendered HTML.
+function tile(html, which) {
+  const re = new RegExp(`OVR ${which}</div>\\s*<div class="rsim-stat-line"><div class="rsim-stat-num">(\\d+)</div>(?:<div class="rsim-stat-cap">/ (\\d+)</div>)?</div>\\s*(?:<div class="rsim-budget( is-over)?" id="rsimBudget\\w+"[^>]*>([^<]*)</div>)?`);
+  const m = html.match(re);
+  return m ? { total: Number(m[1]), cap: m[2] ? Number(m[2]) : null, over: !!m[3], text: m[4] || '' } : null;
+}
+const countOf = (h, needle) => h.split(needle).length - 1;
 
 let pass = 0, fail = 0;
 function check(name, fn) {
@@ -354,16 +387,17 @@ check('6. OVR BEFORE / AFTER / CHANGE render with sign and are computed from the
   sim.reset();
 });
 
-check('6b. Phase 1 shows numbers only — no cap/validation output, no transaction classification', () => {
+check('6b. Phase 1.1: the cap is informational only — nothing is blocked or disabled, no transaction classification', () => {
+  // (Phase 1 asserted the cap was NOT shown at all; Phase 1.1 deliberately reverses that. What still holds:
+  //  no trade/swap/release/sign wording, and nothing is ever refused or disabled because of the cap.)
   const c = new FakeContainer();
   sim.selectManager(alpha.id);
   sim.placePlayerAt(idxOfPlayer(sim._after, A3.id), P_BLUE_STAR.id);
   sim.render(c);
-  assertNotIncludes(c.innerHTML, '875');
-  assertNotIncludes(c.innerHTML, 'over cap');
-  assertNotIncludes(c.innerHTML, 'remaining');
+  assertIncludes(c.innerHTML, 'id="rsimBudgetAfter"', 'the budget line is now shown');
   assertFalsy(/\b(trade|swap|release|signing|signed)\b/i.test(c.innerHTML.replace('Transaction builder coming next', '')),
     'UI must not label the change as a trade/swap/release/signing');
+  assertFalsy(/data-rsim-action="(open-picker|remove|toggle-joker)"[^>]*disabled/.test(c.innerHTML), 'no editing action is ever disabled by the cap');
   sim.reset();
 });
 
@@ -666,6 +700,303 @@ check('S4. Empty states: no season / no teams do not crash', () => {
   s2.AdminActions.setCurrentSeason(sn.id);
   s2.PublicRosterSimulatorView.render(c);
   assertIncludes(c.innerHTML, 'No Teams Yet');
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 1.1 — rating budget (informational) against the season cap
+// ═══════════════════════════════════════════════════════════════════════════
+check('B1. budget maths: 857/875 -> 18 remaining; exactly 875 -> 0 remaining (not over); 890/875 -> 15 over; singular at +/-1', () => {
+  const g = (t, cap = 875) => sim._budget(t, cap);
+  assertJsonEqual([g(857).remaining, g(857).isOverCap, g(857).text], [18, false, '18 ratings remaining']);
+  assertJsonEqual([g(875).remaining, g(875).isOverCap, g(875).text], [0, false, '0 ratings remaining']);
+  assertJsonEqual([g(890).remaining, g(890).isOverCap, g(890).text], [-15, true, '15 ratings over cap']);
+  assertEqual(g(874).text, '1 rating remaining'); assertEqual(g(876).text, '1 rating over cap');
+  assertJsonEqual(sim._budget(861, undefined), { total: 861, cap: null, remaining: null, isOverCap: false, text: '' }, 'no cap known -> number only, no invented 875');
+});
+
+check('B2. BEFORE 861 / 875 renders with "14 ratings remaining", and getBudget() agrees', () => {
+  const e = buildBudgetEnv(); const h = e.c.innerHTML;
+  assertEqual(e.ovrs.reduce((a, v) => a + v, 0), 861, 'fixture sanity');
+  assertJsonEqual(tile(h, 'BEFORE'), { total: 861, cap: 875, over: false, text: '14 ratings remaining' });
+  assertJsonEqual(tile(h, 'AFTER'), { total: 861, cap: 875, over: false, text: '14 ratings remaining' }, 'a fresh AFTER equals BEFORE');
+  const gb = e.S.getBudget();
+  assertJsonEqual([gb.cap, gb.before.remaining, gb.after.remaining], [875, 14, 14]);
+});
+
+check('B3. AFTER 857 / 875 -> "18 ratings remaining" (replace an 82 with a 78)', () => {
+  const e = buildBudgetEnv(); const i = e.roster.findIndex((p) => p.overall === 82);
+  assertTruthy(e.S.placePlayerAt(i, e.pool[78].id).ok);
+  e.S.render(e.c);
+  assertJsonEqual(tile(e.c.innerHTML, 'AFTER'), { total: 857, cap: 875, over: false, text: '18 ratings remaining' });
+  assertJsonEqual(tile(e.c.innerHTML, 'BEFORE'), { total: 861, cap: 875, over: false, text: '14 ratings remaining' }, 'BEFORE unaffected');
+});
+
+check('B4. rating usage AT 875 -> "0 ratings remaining", not flagged over cap (replace a 79 with a 93)', () => {
+  const e = buildBudgetEnv(); const i = e.roster.findIndex((p) => p.overall === 79);
+  assertTruthy(e.S.placePlayerAt(i, e.pool[93].id).ok); e.S.render(e.c);
+  assertJsonEqual(tile(e.c.innerHTML, 'AFTER'), { total: 875, cap: 875, over: false, text: '0 ratings remaining' });
+});
+
+check('B5. OVER the cap -> "890 / 875", "15 ratings over cap", styled over — and NOTHING is blocked', () => {
+  const e = buildBudgetEnv();
+  const i79 = e.roster.findIndex((p) => p.overall === 79), i80 = e.roster.findIndex((p) => p.overall === 80);
+  assertTruthy(e.S.placePlayerAt(i79, e.pool[99].id).ok, 'add refused at/over cap?');   // +20 -> 881
+  assertTruthy(e.S.placePlayerAt(i80, e.pool[89].id).ok, 'replace refused over cap?');  // +9  -> 890
+  e.S.render(e.c);
+  assertJsonEqual(tile(e.c.innerHTML, 'AFTER'), { total: 890, cap: 875, over: true, text: '15 ratings over cap' });
+  assertFalsy(/data-rsim-action="(open-picker|remove|toggle-joker)"[^>]*disabled/.test(e.c.innerHTML), 'no action disabled while over cap');
+  assertTruthy(e.S.openPicker(0), 'the picker still opens while over the cap'); e.S.closePicker();
+  assertEqual(e.S.getDiff().added.length, 2, 'both over-cap additions are kept in AFTER');
+  assertTruthy(e.S.reset()); e.S.render(e.c);
+  assertEqual(tile(e.c.innerHTML, 'AFTER').text, '14 ratings remaining', 'reset always works');
+});
+
+check('B6. live updates through the REAL click handlers: remove -> add -> replace -> reset each update the tile immediately', () => {
+  const e = buildBudgetEnv(); const c = e.c;
+  const i79 = e.roster.findIndex((p) => p.overall === 79), i95 = e.roster.findIndex((p) => p.overall === 95);
+  const after = () => tile(c.innerHTML, 'AFTER');
+  c.root.fire('click', { target: el('remove', { slot: String(i79) }) });
+  assertJsonEqual([after().total, after().text], [782, '93 ratings remaining']);
+  c.root.fire('click', { target: el('open-picker', { slot: String(i79) }) });
+  c.root.fire('click', { target: el('pick-player', { playerId: e.pool[93].id }) });
+  assertJsonEqual([after().total, after().text], [875, '0 ratings remaining']);
+  c.root.fire('click', { target: el('open-picker', { slot: String(i95) }) });
+  c.root.fire('click', { target: el('pick-player', { playerId: e.pool[60].id }) });
+  assertJsonEqual([after().total, after().text], [840, '35 ratings remaining']);
+  c.root.fire('click', { target: el('reset') });
+  assertJsonEqual([after().total, after().text], [861, '14 ratings remaining']);
+});
+
+check('B7. singular wording at the boundary: 874 -> "1 rating remaining", 876 -> "1 rating over cap"', () => {
+  const e = buildBudgetEnv(); const i = e.roster.findIndex((p) => p.overall === 79);
+  e.S.placePlayerAt(i, e.pool[92].id); e.S.render(e.c);
+  assertEqual(tile(e.c.innerHTML, 'AFTER').text, '1 rating remaining');
+  e.S.placePlayerAt(i, e.pool[94].id); e.S.render(e.c);
+  assertJsonEqual([tile(e.c.innerHTML, 'AFTER').total, tile(e.c.innerHTML, 'AFTER').text], [876, '1 rating over cap']);
+});
+
+check('B8. parity with the EXISTING logic: an unmodified AFTER equals getRosterSummary; edited states agree with existing validateRatingCap on the 875 boundary', () => {
+  // (a) unmodified: the tile numbers are exactly getRosterSummary's totalRating / ratingCap / remaining / isOverCap, all managers
+  [alpha.id, bravo.id, charlie.id].forEach((pid) => {
+    sim.selectManager(pid);
+    const real = realOf(pid), gb = sim.getBudget();
+    assertJsonEqual([gb.before.total, gb.cap, gb.before.remaining, gb.before.isOverCap], [real.totalRating, real.ratingCap, real.remaining, real.isOverCap], 'BEFORE vs getRosterSummary');
+    assertJsonEqual([gb.after.total, gb.after.remaining, gb.after.isOverCap], [real.totalRating, real.remaining, real.isOverCap], 'clone AFTER vs getRosterSummary');
+  });
+  // (b) 861, 874, 875, 876, 890: the existing Rule-G validator says "valid" exactly when the budget says "not over"
+  const e = buildBudgetEnv(); const i79 = e.roster.findIndex((p) => p.overall === 79);
+  const cases = [[null, 861], [92, 874], [93, 875], [94, 876], [99, 881]];
+  cases.forEach(([ovr, total]) => {
+    if (ovr) e.S.placePlayerAt(i79, e.pool[ovr].id);
+    const gb = e.S.getBudget(), entries = e.S._after.filter((x) => x.player), byId = {};
+    entries.forEach((x) => { byId[x.playerId] = x.player; });
+    const oracle = sandbox.validateRatingCap(entries, byId, gb.cap);
+    assertEqual(gb.after.total, total, `total for ${ovr}`);
+    assertEqual(oracle.valid, !gb.after.isOverCap, `validateRatingCap.valid vs !isOverCap at ${total}`);
+  });
+});
+
+check('B9. the cap comes from the SEASON (season.ratingCap), not a hardcoded 875', () => {
+  const e = buildBudgetEnv({ cap: 900 });
+  const i = e.roster.findIndex((p) => p.overall === 82);
+  e.S.placePlayerAt(i, e.pool[78].id); e.S.render(e.c);
+  assertJsonEqual(tile(e.c.innerHTML, 'AFTER'), { total: 857, cap: 900, over: false, text: '43 ratings remaining' });
+  assertJsonEqual(tile(e.c.innerHTML, 'BEFORE'), { total: 861, cap: 900, over: false, text: '39 ratings remaining' });
+});
+
+check('B10. getBudget() is null with no manager selected', () => {
+  const e = buildBudgetEnv(); e.S.selectManager(''); assertEqual(e.S.getBudget(), null);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Phase 1.1 — Joker sandbox (AFTER-only; BEFORE and the real league never touched)
+// ═══════════════════════════════════════════════════════════════════════════
+const pinkBadge = () => classificationBadge('PINK');
+const jokerBtnPressed = (h) => countOf(h, 'aria-pressed="true"');
+
+check('J1. a simulated player can be marked Joker: PINK + Joker marker, base tag kept, natural position to start, BEFORE untouched', () => {
+  const c = new FakeContainer(); sim.selectManager(alpha.id); sim.render(c);
+  const i = idxOfPlayer(sim._after, A3.id);
+  const beforeEntry = JSON.stringify(sim._before[i]);
+  assertEqual(sim._after[i].isJoker, false, 'fixture sanity: Alpha Three is not the Joker');
+  const r = sim.toggleJoker(i);
+  assertJsonEqual([r.ok, r.isJoker], [true, true]);
+  const a = sim._after[i];
+  assertJsonEqual([a.isJoker, a.classification, a.baseClassification, a.jokerPosition], [true, 'PINK', 'YELLOW', 'SF']);
+  assertEqual(a.effectivePosition, sandbox.getEffectivePosition({ isJoker: true, jokerPosition: 'SF' }, a.player), 'effective position comes from the existing rule');
+  assertEqual(JSON.stringify(sim._before[i]), beforeEntry, 'BEFORE entry byte-identical');
+  assertEqual(sim._before[i].isJoker, false);
+  sim.render(c);
+  assertEqual(countOf(c.innerHTML, pinkBadge()), 4, 'PINK badges: BEFORE Joker + AFTER 2 Jokers + the JOKER change line');
+  assertEqual(jokerBtnPressed(c.innerHTML), 2, 'two AFTER rows show the Joker toggle as pressed');
+  const d = sim.getDiff();
+  assertJsonEqual(d.jokerChanges.map((x) => [x.kind, x.after.player.name]), [['marked', 'Alpha Three']]);
+  assertJsonEqual([d.removed.length, d.added.length, d.ovrChange], [0, 0, 0], 'a Joker change is not an add/remove and does not touch OVR');
+  assertIncludes(c.innerHTML, 'now Joker at SF');
+  assertFalsy(/id="rsimReset" disabled/.test(c.innerHTML), 'Reset is available because AFTER differs');
+  sim.reset();
+});
+
+check('J2. a simulated Joker can be un-marked — even the REAL one — and gets the existing helper\'s base tag back', () => {
+  const c = new FakeContainer(); sim.selectManager(alpha.id);
+  const i = idxOfPlayer(sim._after, A2.id);
+  assertTruthy(sim._before[i].isJoker && sim._before[i].classification === 'PINK', 'fixture sanity: Alpha Two is the real Joker (PINK)');
+  assertTruthy(sim.toggleJoker(i).ok);
+  const a = sim._after[i];
+  const helper = LeagueData.getPlayerClassification(seasonId, A2.id);
+  assertEqual(helper.classification, 'PINK', 'the real roster still says PINK');
+  assertJsonEqual([a.isJoker, a.jokerPosition, a.classification], [false, undefined, helper.baseClassification]);
+  assertEqual(a.classification, 'RED', 'Alpha Two was his 2nd pick -> RED once the Joker overlay is gone');
+  assertEqual(a.effectivePosition, 'SG', 'back to his natural position');
+  assertJsonEqual([sim._before[i].isJoker, sim._before[i].classification, sim._before[i].effectivePosition], [true, 'PINK', 'C'], 'BEFORE still shows the real Joker at C');
+  sim.render(c);
+  assertJsonEqual(sim.getDiff().jokerChanges.map((x) => x.kind), ['unmarked']);
+  assertIncludes(c.innerHTML, 'no longer Joker (back to SG)');
+  assertEqual(jokerBtnPressed(c.innerHTML), 0, 'no AFTER row is a Joker any more');
+  sim.reset();
+});
+
+check('J3. Joker position: any of the existing CORE_POSITIONS; invalid / non-Joker / empty slots are rejected without effect', () => {
+  const c = new FakeContainer(); sim.selectManager(alpha.id);
+  const i2 = idxOfPlayer(sim._after, A2.id), i1 = idxOfPlayer(sim._after, A1.id);
+  assertTruthy(sim.setJokerPosition(i2, 'PF').ok);
+  assertJsonEqual([sim._after[i2].jokerPosition, sim._after[i2].effectivePosition], ['PF', 'PF']);
+  assertEqual(sim._after[i2].effectivePosition, sandbox.getEffectivePosition({ isJoker: true, jokerPosition: 'PF' }, sim._after[i2].player));
+  assertJsonEqual(sim.getDiff().jokerChanges.map((x) => [x.kind, x.before.effectivePosition, x.after.effectivePosition]), [['moved', 'C', 'PF']]);
+  assertEqual(sim.setJokerPosition(i2, 'XX').reason, 'invalid-position');
+  assertEqual(sim.setJokerPosition(i1, 'C').reason, 'not-joker');
+  sim.removeAt(idxOfPlayer(sim._after, A6.id)); assertEqual(sim.setJokerPosition(idxOfPlayer(sim._after, null), 'C').reason, 'no-player');
+  assertEqual(sim._after[i2].jokerPosition, 'PF', 'rejected calls changed nothing');
+  sim.render(c);
+  assertEqual(countOf(c.innerHTML, 'class="rsim-jpos"'), 1, 'exactly one Joker position picker, in AFTER only');
+  assertTruthy(/<option value="PF" selected>PF<\/option>/.test(c.innerHTML), 'picker shows the chosen position');
+  assertJsonEqual([...c.innerHTML.matchAll(/<option value="(PG|SG|SF|PF|C)"/g)].map((m) => m[1]), sandbox.CORE_POSITIONS, 'options are exactly the existing CORE_POSITIONS');
+  assertIncludes(c.innerHTML, 'Joker position C → PF');
+  sim.reset();
+});
+
+check('J4. toggling on/off is a clean round trip; re-marking the real Joker restores his real Joker position', () => {
+  sim.selectManager(alpha.id);
+  const i3 = idxOfPlayer(sim._after, A3.id), i2 = idxOfPlayer(sim._after, A2.id);
+  sim.toggleJoker(i3); sim.toggleJoker(i3);
+  assertJsonEqual(sim._after, sim._before, 'mark then un-mark = back to BEFORE');
+  assertEqual(sim.getDiff().jokerChanges.length, 0);
+  sim.setJokerPosition(i2, 'PF'); sim.toggleJoker(i2); sim.toggleJoker(i2);
+  assertJsonEqual(sim._after[i2], sim._before[i2], 'real Joker off then on = his real state again (position C, PINK)');
+  assertEqual(sim._after[i2].jokerPosition, 'C');
+  sim.reset();
+});
+
+check('J5. sandbox freedom: any number of Jokers, any position, any player (incl. added ones), over the cap — nothing is refused', () => {
+  sim.selectManager(alpha.id);
+  [A1, A3, A4].forEach((p) => assertTruthy(sim.toggleJoker(idxOfPlayer(sim._after, p.id)).ok, `mark ${p.name}`));   // now FOUR Jokers with Alpha Two
+  [A1, A3, A4].forEach((p) => assertTruthy(sim.setJokerPosition(idxOfPlayer(sim._after, p.id), 'C').ok));            // all at C: no position limit applied
+  assertEqual(sim._after.filter((e) => e.isJoker).length, 4);
+  const i6 = idxOfPlayer(sim._after, A6.id);
+  assertTruthy(sim.placePlayerAt(i6, P_GREEN_STAR.id).ok);
+  const r = sim.toggleJoker(i6);                                                                                      // an ADDED player can be Joker
+  assertJsonEqual([r.ok, sim._after[i6].isJoker, sim._after[i6].classification, sim._after[i6].baseClassification, sim._after[i6].jokerPosition], [true, true, 'PINK', null, 'PF']);
+  sim.toggleJoker(i6);
+  assertEqual(sim._after[i6].classification, LeagueData.getPlayerClassification(seasonId, P_GREEN_STAR.id).classification, 'un-marking an added player returns the existing helper\'s tag (colorless)');
+  sim.removeAt(i6); assertEqual(sim.toggleJoker(i6).reason, 'no-player', 'no Joker on an open slot');
+  assertEqual(sim.getDiff().jokerChanges.filter((x) => x.kind === 'marked').length, 3);
+  sim.reset();
+});
+
+check('J6. isolation: Joker experiments never touch BEFORE, the real roster, the real Joker designation, the league data, or live player objects', () => {
+  sim.selectManager(alpha.id);
+  const jokerBefore = JSON.stringify(LeagueData.getJoker(seasonId, alpha.id));
+  const beforeJson = JSON.stringify(sim._before), realJson = snapshotOfReal(), cacheJson = sandbox._cacheJson();
+  const liveJson = JSON.stringify([A1, A2, A3].map((p) => LeagueData.getPlayer(p.id)));
+  const i1 = idxOfPlayer(sim._after, A1.id), i2 = idxOfPlayer(sim._after, A2.id), i3 = idxOfPlayer(sim._after, A3.id);
+  sim.toggleJoker(i1); sim.toggleJoker(i2); sim.toggleJoker(i3); sim.setJokerPosition(i3, 'C'); sim.setJokerPosition(i1, 'PF'); sim.toggleJoker(i2); sim.toggleJoker(i2);
+  assertEqual(JSON.stringify(sim._before), beforeJson, 'BEFORE byte-identical');
+  assertEqual(snapshotOfReal(), realJson, 'getRosterSummary byte-identical');
+  assertEqual(JSON.stringify(LeagueData.getJoker(seasonId, alpha.id)), jokerBefore, 'the REAL Joker designation is unchanged');
+  assertEqual(sandbox._cacheJson(), cacheJson, 'entire league document byte-identical');
+  assertEqual(JSON.stringify([A1, A2, A3].map((p) => LeagueData.getPlayer(p.id))), liveJson, 'live player objects unchanged');
+  assertFalsy(Object.isFrozen(LeagueData.getPlayer(A2.id)), 'live player is not frozen either');
+  assertThrows(() => { sim._before[i2].isJoker = false; }, 'BEFORE Joker flag is read-only');
+  assertThrows(() => { sim._before[i1].isJoker = true; }, 'BEFORE cannot be made a Joker');
+  assertTruthy(sim._after[i2] !== sim._before[i2] && sim._after[i1] !== sim._before[i1], 'AFTER entries are separate objects');
+  sim.reset();
+});
+
+check('J7. Reset restores the ORIGINAL Joker state exactly', () => {
+  const c = new FakeContainer(); sim.selectManager(alpha.id); sim.render(c);
+  const i2 = idxOfPlayer(sim._after, A2.id);
+  sim.toggleJoker(i2);                                                          // un-mark the real Joker
+  sim.toggleJoker(idxOfPlayer(sim._after, A3.id)); sim.toggleJoker(idxOfPlayer(sim._after, A4.id));
+  sim.setJokerPosition(idxOfPlayer(sim._after, A3.id), 'C');
+  sim.removeAt(idxOfPlayer(sim._after, A5.id));
+  sim.render(c); assertTruthy(sim.getDiff().jokerChanges.length > 0);
+  c.root.fire('click', { target: el('reset') });
+  assertJsonEqual(sim._after, sim._before);
+  assertJsonEqual([sim._after[i2].isJoker, sim._after[i2].jokerPosition, sim._after[i2].classification, sim._after[i2].effectivePosition], [true, 'C', 'PINK', 'C'], 'Alpha Two is the Joker at C again');
+  assertEqual(sim.getDiff().jokerChanges.length, 0);
+  assertIncludes(c.innerHTML, 'id="rsimReset" disabled');
+  assertIncludes(c.innerHTML, 'No changes yet');
+});
+
+check('J8. wiring through the REAL handlers: Joker button toggles, position picker changes, BEFORE has no controls, open slots have no Joker button', () => {
+  const c = new FakeContainer(); sim.selectManager(alpha.id); sim.render(c);
+  const i = idxOfPlayer(sim._after, A3.id);
+  const afterCard = () => c.innerHTML.slice(c.innerHTML.indexOf('rsim-card--after'));
+  assertEqual(countOf(c.innerHTML.slice(0, c.innerHTML.indexOf('rsim-card--after')), 'toggle-joker'), 0, 'BEFORE card has no Joker control');
+  assertEqual(countOf(afterCard(), 'data-rsim-action="toggle-joker"'), 6, 'one Joker button per filled AFTER row');
+  c.root.fire('click', { target: el('toggle-joker', { slot: String(i) }) });
+  assertEqual(sim._after[i].isJoker, true); assertEqual(jokerBtnPressed(c.innerHTML), 2);
+  c.root.fire('change', { target: { id: '', value: 'C', dataset: { slot: String(i) }, classList: { contains: (k) => k === 'rsim-jpos' } } });
+  assertJsonEqual([sim._after[i].jokerPosition, sim._after[i].effectivePosition], ['C', 'C']);
+  assertTruthy(/<option value="C" selected>C<\/option>/.test(c.innerHTML));
+  c.root.fire('click', { target: el('toggle-joker', { slot: String(i) }) });
+  assertEqual(sim._after[i].isJoker, false);
+  c.root.fire('click', { target: el('remove', { slot: String(i) }) });
+  assertEqual(countOf(afterCard(), 'data-rsim-action="toggle-joker"'), 5, 'the open slot offers no Joker button');
+  sim.reset();
+});
+
+check('J9. the Joker sandbox reuses the existing rules instead of copying them (static)', () => {
+  const code = simSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '').replace(/\s\/\/.*$/gm, '');
+  ['getEffectivePosition(', 'getPlayerClassification(', 'CORE_POSITIONS', "'PINK'"].forEach((needle) => assertTruthy(code.includes(needle), `expected the view to use ${needle}`));
+  assertFalsy(/['"](PG|SG|SF|PF|C)['"]/.test(code), 'no hard-coded position list — positions come from CORE_POSITIONS / player data');
+  assertFalsy(/isJoker\s*&&\s*[a-z.]*jokerPosition\s*\?/.test(code), 'effective-position rule is not re-implemented');
+});
+
+check('J10. with Joker changes on screen the UI still has no transaction wording and the Discord button stays a disabled placeholder', () => {
+  const c = new FakeContainer(); sim.selectManager(alpha.id);
+  sim.toggleJoker(idxOfPlayer(sim._after, A3.id)); sim.setJokerPosition(idxOfPlayer(sim._after, A2.id), 'PF');
+  sim.placePlayerAt(idxOfPlayer(sim._after, A6.id), P_BLUE_STAR.id); sim.render(c);
+  assertIncludes(c.innerHTML, 'JOKER'); assertIncludes(c.innerHTML, 'REMOVED'); assertIncludes(c.innerHTML, 'ADDED');
+  assertFalsy(/\b(trade|swap|release|signing|signed)\b/i.test(c.innerHTML.replace('Transaction builder coming next', '')));
+  assertTruthy(/<button[^>]*disabled[^>]*id="rsimCopyDiscord"|<button[^>]*id="rsimCopyDiscord"[^>]*disabled/.test(c.innerHTML));
+  sim.reset();
+});
+
+check('J11. ZERO writes across a full budget + Joker session (all write paths), and no league state changed', () => {
+  const c = new FakeContainer(); sim.render(c);
+  const beforeWrites = [sandbox._counters.save, sandbox._counters.saveAndConfirm, sandbox._counters.rawSet];
+  c.root.fire('change', { target: { id: 'rsimManagerSelect', value: alpha.id } });
+  const i2 = idxOfPlayer(sim._after, A2.id), i3 = idxOfPlayer(sim._after, A3.id);
+  c.root.fire('click', { target: el('toggle-joker', { slot: String(i3) }) });
+  c.root.fire('change', { target: { id: '', value: 'PF', dataset: { slot: String(i3) }, classList: { contains: (k) => k === 'rsim-jpos' } } });
+  c.root.fire('click', { target: el('toggle-joker', { slot: String(i2) }) });
+  c.root.fire('click', { target: el('remove', { slot: String(idxOfPlayer(sim._after, A4.id)) }) });
+  c.root.fire('click', { target: el('open-picker', { slot: String(idxOfPlayer(sim._after, null)) }) });
+  c.root.fire('click', { target: el('pick-player', { playerId: P_BLUE_STAR.id }) });
+  c.root.fire('click', { target: el('reset') });
+  assertJsonEqual([sandbox._counters.save, sandbox._counters.saveAndConfirm, sandbox._counters.rawSet], beforeWrites, 'no save / saveAndConfirm / raw Firestore set');
+  assertEqual(sandbox._counters.save + sandbox._counters.saveAndConfirm + sandbox._counters.rawSet, 0);
+  assertEqual(snapshotOfReal(), realBefore, 'real rosters identical to the start of the whole test run');
+  assertEqual(sandbox._cacheJson(), cacheBefore, 'league document identical to the start of the whole test run');
+  // and the same for the 10-man budget fixture
+  const e = buildBudgetEnv(); const cacheB = e.b._cacheJson();
+  e.c.root.fire('click', { target: el('toggle-joker', { slot: '0' }) });
+  e.c.root.fire('click', { target: el('open-picker', { slot: '9' }) });
+  e.c.root.fire('click', { target: el('pick-player', { playerId: e.pool[99].id }) });
+  e.c.root.fire('click', { target: el('reset') });
+  assertEqual(e.b._counters.save + e.b._counters.saveAndConfirm + e.b._counters.rawSet, 0, 'budget fixture: zero writes');
+  assertEqual(e.b._cacheJson(), cacheB, 'budget fixture: league document unchanged');
 });
 
 // ─── Last: a REAL change made by an admin while someone is simulating ────

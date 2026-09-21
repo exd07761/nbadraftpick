@@ -1,16 +1,19 @@
 'use strict';
 /**
- * views/roster-simulator.js — Public "Roster Simulator" (Phase 1).
+ * views/roster-simulator.js — Public "Roster Simulator" (Phase 1 + 1.1).
  *
  * A manager picks themselves, sees their REAL current roster (BEFORE,
  * locked) next to an editable temporary clone (AFTER), and can remove /
  * add / replace players to see what the roster would look like — the
  * "Excel" workflow, minus the spreadsheet. Nothing is ever saved.
  *
- * ── Scope (Phase 1 only) ────────────────────────────────────────────────
+ * ── Scope (Phase 1 + 1.1) ───────────────────────────────────────────────
  * Display + net-change detection ONLY. Deliberately NOT implemented here:
- *   - roster validation (875 cap, position limits, Blue rules, ...)
- *   - trade / swap / Joker / release / sign classification or validation
+ *   - roster validation of ANY kind (position limits, Blue rules, ...). The
+ *     rating cap is DISPLAYED (Phase 1.1) but never enforced.
+ *   - trade / swap / release / sign classification, and Joker LEGALITY
+ *     validation (how many Jokers, which positions, whether a move is a
+ *     valid Joker Swap)
  *   - the transaction builder / "Copy Transaction to Discord" (the button
  *     is a disabled placeholder)
  *   - trades between managers (the picker only offers players that are not
@@ -22,7 +25,10 @@
  * READ-ONLY toward the league. This file calls only these existing read
  * APIs and never anything that writes:
  *   LeagueData.getCurrentSeasonId / getSeason
- *   LeagueData.getRosterSummary            (BEFORE roster + classification)
+ *   LeagueData.getRosterSummary            (BEFORE roster + classification,
+ *                                           plus the season's ratingCap)
+ *   LeagueData.getPlayerClassification     (a Joker's baseClassification, so
+ *                                           a Joker can be un-marked)
  *   LeagueData.getSwapEligibleReplacements (unrostered player pool, with
  *                                           classification attached)
  *   LeagueData.getNBATeamAssignments       (team badge only)
@@ -52,6 +58,19 @@
  * The simulator does not model that — an added player shows his OWN
  * existing classification, exactly what the Trade/Swap picker shows for him.
  * How tags carry over depends on the transaction type, which Phase 2 decides.
+ *
+ * ── Phase 1.1: rating budget + Joker sandbox ───────────────────────────
+ * Budget: the cap is getRosterSummary's ratingCap (season.ratingCap, 875 by
+ * default), and remaining / over-cap use the same definitions as its
+ * remaining / isOverCap. INFORMATIONAL ONLY: going over never blocks anything.
+ * Joker: "what if" state on the simulator's own AFTER entries. Marking,
+ * un-marking or re-positioning a Joker replaces a plain AFTER entry object;
+ * BEFORE and the league's roster / player objects are never touched, and
+ * Reset brings back the original Joker exactly. The existing rules are reused,
+ * not copied: effective position = getEffectivePosition(), the tag once
+ * un-marked = getPlayerClassification().baseClassification, positions =
+ * CORE_POSITIONS, PINK via the same `isJoker ? 'PINK' : ...` expression.
+ * Deliberately NOT checked: any number of Jokers, any position, any player.
  *
  * Roster size is never assumed: AFTER has exactly the slots BEFORE has
  * (including any already-empty ones). "Remove" opens a slot, "Add" fills an
@@ -85,8 +104,13 @@ const PublicRosterSimulatorView = {
     });
   },
 
-  /** Plain, frozen copy of a roster entry as returned by getRosterSummary. */
-  _snapshotEntry(e) {
+  /**
+   * Plain, frozen copy of a roster entry as returned by getRosterSummary.
+   * baseClassification is the tag WITHOUT the Joker (PINK) overlay: for a
+   * non-Joker it is the entry's own classification, for a Joker the caller
+   * supplies it from the existing classification helper.
+   */
+  _snapshotEntry(e, baseClassification) {
     return Object.freeze({
       playerId: e.playerId ?? null,
       source: e.source || null,
@@ -94,13 +118,14 @@ const PublicRosterSimulatorView = {
       isJoker: !!e.isJoker,
       jokerPosition: e.jokerPosition,
       classification: e.classification ?? null,
+      baseClassification: baseClassification === undefined ? (e.classification ?? null) : baseClassification,
       effectivePosition: e.effectivePosition ?? null,
       player: this._snapshotPlayer(e.player),
     });
   },
 
-  _buildBefore(entries) {
-    return Object.freeze((entries || []).map((e) => this._snapshotEntry(e)));
+  _buildBefore(entries, baseOf) {
+    return Object.freeze((entries || []).map((e) => this._snapshotEntry(e, baseOf ? baseOf(e) : undefined)));
   },
 
   /** Same rule as getRosterSummary's totalRating: sum of player.overall. */
@@ -120,6 +145,7 @@ const PublicRosterSimulatorView = {
       isJoker: false,
       jokerPosition: undefined,
       classification: null,
+      baseClassification: null,
       effectivePosition: null,
       player: null,
     };
@@ -144,7 +170,45 @@ const PublicRosterSimulatorView = {
     const added = after.filter((e) => e.player && !beforeIds.has(e.playerId));
     const ovrBefore = this._sumOvr(before);
     const ovrAfter = this._sumOvr(after);
-    return { removed, added, ovrBefore, ovrAfter, ovrChange: ovrAfter - ovrBefore };
+    return {
+      removed, added, ovrBefore, ovrAfter, ovrChange: ovrAfter - ovrBefore,
+      jokerChanges: this._computeJokerChanges(before, after),
+    };
+  },
+
+  /**
+   * Joker state that differs between BEFORE and AFTER for a player who is on
+   * BOTH rosters (added / removed players are already listed under ADDED /
+   * REMOVED with their own PINK badge). Descriptive only — never says whether
+   * a Joker move is legal.
+   */
+  _computeJokerChanges(before, after) {
+    const changes = [];
+    after.forEach((a) => {
+      if (!a.player) return;
+      const b = before.find((e) => e.player && e.playerId === a.playerId);
+      if (!b) return;
+      if (!b.isJoker && a.isJoker) changes.push({ kind: 'marked', before: b, after: a });
+      else if (b.isJoker && !a.isJoker) changes.push({ kind: 'unmarked', before: b, after: a });
+      else if (b.isJoker && a.isJoker && a.effectivePosition !== b.effectivePosition) {
+        changes.push({ kind: 'moved', before: b, after: a });
+      }
+    });
+    return changes;
+  },
+
+  /**
+   * Rating budget for a total against the season cap — INFORMATIONAL ONLY.
+   * remaining / isOverCap use the same definitions as getRosterSummary's
+   * remaining / isOverCap (cap - total, total > cap).
+   */
+  _budget(total, cap) {
+    if (!Number.isFinite(cap)) return { total, cap: null, remaining: null, isOverCap: false, text: '' };
+    const remaining = cap - total;
+    const isOverCap = total > cap;
+    const n = Math.abs(remaining);
+    const unit = n === 1 ? 'rating' : 'ratings';
+    return { total, cap, remaining, isOverCap, text: isOverCap ? `${n} ${unit} over cap` : `${n} ${unit} remaining` };
   },
 
   /** Case-insensitive name/position match + pool filter, same idea as the public Players search. */
@@ -186,6 +250,19 @@ const PublicRosterSimulatorView = {
       (b.overall ?? 0) - (a.overall ?? 0) || String(a.name).localeCompare(String(b.name)));
   },
 
+  /** The tag WITHOUT the Joker overlay, from the existing classification helper. */
+  _baseTagOf(entry) {
+    if (!entry.player) return null;
+    const info = LeagueData.getPlayerClassification(this._seasonId, entry.playerId);
+    return info ? (info.baseClassification ?? null) : (entry.classification ?? null);
+  },
+
+  /** The season's rating cap, as reported by the existing getRosterSummary (season.ratingCap, 875 default). */
+  _capFor(summary) {
+    const item = summary.find((s) => s.participant.id === this._participantId);
+    return item ? item.ratingCap : undefined;
+  },
+
   // ═══ State transitions ════════════════════════════════════════════════
 
   _currentSummary() {
@@ -203,7 +280,7 @@ const PublicRosterSimulatorView = {
       return false;
     }
     this._participantId = participantId;
-    this._before = this._buildBefore(item.rosterEntries);
+    this._before = this._buildBefore(item.rosterEntries, (e) => this._baseTagOf(e));
     this._beforeSig = JSON.stringify(this._before);
     this._after = this._cloneForAfter(this._before);
     this._picker = null;
@@ -253,6 +330,7 @@ const PublicRosterSimulatorView = {
         isJoker: false,
         jokerPosition: undefined,
         classification: cand.classification ?? null,
+        baseClassification: cand.classification ?? null, // an unrostered player is never a Joker
         effectivePosition: cand.position ?? null,
         player: this._snapshotPlayer(cand),
       };
@@ -272,6 +350,66 @@ const PublicRosterSimulatorView = {
   getDiff() {
     if (!this._before || !this._after) return null;
     return this._computeDiff(this._before, this._after);
+  },
+
+  /** Rating budget (informational) for BEFORE and AFTER against the season cap. */
+  getBudget() {
+    if (!this._before || !this._after) return null;
+    const cap = this._capFor(this._currentSummary());
+    return {
+      cap: Number.isFinite(cap) ? cap : null,
+      before: this._budget(this._sumOvr(this._before), cap),
+      after: this._budget(this._sumOvr(this._after), cap),
+    };
+  },
+
+  /**
+   * Marks / un-marks the player in AFTER slot `index` as Joker. Sandbox state
+   * on the simulator's own entry only: nothing is checked (any number of
+   * Jokers, any player) and nothing outside AFTER is touched.
+   */
+  toggleJoker(index) {
+    const entry = this._after && this._after[index];
+    if (this._isVacant(entry)) return { ok: false, reason: 'no-player' };
+    if (entry.isJoker) {
+      this._after[index] = {
+        ...entry,
+        isJoker: false,
+        jokerPosition: undefined,
+        classification: entry.baseClassification ?? null, // the existing helper's tag without the PINK overlay
+        effectivePosition: getEffectivePosition({ isJoker: false }, entry.player),
+      };
+      this._notice = '';
+      return { ok: true, isJoker: false };
+    }
+    // Marking again a player who is the REAL Joker restores his real Joker position;
+    // otherwise start at his natural position (the user can then pick any position).
+    const real = this._before.find((e) => e.player && e.playerId === entry.playerId && e.isJoker && e.jokerPosition);
+    const jokerPosition = real ? real.jokerPosition : entry.player.position;
+    this._after[index] = {
+      ...entry,
+      isJoker: true,
+      jokerPosition,
+      classification: 'PINK',
+      effectivePosition: getEffectivePosition({ isJoker: true, jokerPosition }, entry.player),
+    };
+    this._notice = '';
+    return { ok: true, isJoker: true };
+  },
+
+  /** Changes a simulated Joker's position (existing rule: a Joker's position is freely assigned). */
+  setJokerPosition(index, position) {
+    const entry = this._after && this._after[index];
+    if (this._isVacant(entry)) return { ok: false, reason: 'no-player' };
+    if (!entry.isJoker) return { ok: false, reason: 'not-joker' };
+    if (!CORE_POSITIONS.includes(position)) return { ok: false, reason: 'invalid-position' };
+    this._after[index] = {
+      ...entry,
+      jokerPosition: position,
+      effectivePosition: getEffectivePosition({ isJoker: true, jokerPosition: position }, entry.player),
+    };
+    this._notice = '';
+    return { ok: true };
   },
 
   // ═══ Rendering ════════════════════════════════════════════════════════
@@ -325,7 +463,7 @@ const PublicRosterSimulatorView = {
         ${this._renderTitle(season)}
         ${this._renderManagerRow(summary, assignments)}
         ${this._notice ? `<div class="rsim-notice" role="status">${escapeHtml(this._notice)}</div>` : ''}
-        ${this._participantId ? this._renderSimulation() : `
+        ${this._participantId ? this._renderSimulation(this._capFor(summary)) : `
           <div class="empty-state">
             <div class="empty-icon">🧪</div>
             <h2>Pick a manager to start</h2>
@@ -355,7 +493,7 @@ const PublicRosterSimulatorView = {
       this._loadManager(null, []);
       return;
     }
-    const fresh = this._buildBefore(item.rosterEntries);
+    const fresh = this._buildBefore(item.rosterEntries, (e) => this._baseTagOf(e));
     const sig = JSON.stringify(fresh);
     if (!this._before || sig !== this._beforeSig) {
       const hadEdits = !!this._after && !!this._before &&
@@ -394,10 +532,19 @@ const PublicRosterSimulatorView = {
       </div>`;
   },
 
-  _renderSimulation() {
+  _renderStat(label, id, budget, live) {
+    return `
+        <div class="rsim-stat">
+          <div class="rsim-stat-label">${label}</div>
+          <div class="rsim-stat-line"><div class="rsim-stat-num">${budget.total}</div>${budget.cap != null ? `<div class="rsim-stat-cap">/ ${budget.cap}</div>` : ''}</div>
+          ${budget.text ? `<div class="rsim-budget${budget.isOverCap ? ' is-over' : ''}" id="${id}"${live ? ' aria-live="polite"' : ''}>${budget.text}</div>` : ''}
+        </div>`;
+  },
+
+  _renderSimulation(cap) {
     const diff = this._computeDiff(this._before, this._after);
     const changeCls = diff.ovrChange > 0 ? 'rsim-pos' : diff.ovrChange < 0 ? 'rsim-neg' : '';
-    const hasChanges = diff.removed.length > 0 || diff.added.length > 0;
+    const hasChanges = diff.removed.length > 0 || diff.added.length > 0 || diff.jokerChanges.length > 0;
     const beforeIds = new Set(this._before.filter((e) => e.player).map((e) => e.playerId));
 
     return `
@@ -423,20 +570,21 @@ const PublicRosterSimulatorView = {
             <span class="rsim-lock muted">Editable</span>
           </div>
           ${this._renderTable(this._after, { editable: true, beforeEntries: this._before, beforeIds })}
-          <p class="rsim-foot muted">Tags show each player's existing classification. Remove a player to open a slot, then add from the pool.</p>
+          <p class="rsim-foot muted">Tags show each player's existing classification. Remove a player to open a slot, then add from the pool. The cap and Joker marks are for reference only — nothing is checked or saved.</p>
         </section>
       </div>
       </div>
 
       <div class="rsim-stats">
-        <div class="rsim-stat"><div class="rsim-stat-label">OVR BEFORE</div><div class="rsim-stat-num">${diff.ovrBefore}</div></div>
-        <div class="rsim-stat"><div class="rsim-stat-label">OVR AFTER</div><div class="rsim-stat-num">${diff.ovrAfter}</div></div>
-        <div class="rsim-stat"><div class="rsim-stat-label">OVR CHANGE</div><div class="rsim-stat-num ${changeCls}" id="rsimOvrChange">${this._formatSigned(diff.ovrChange)}</div></div>
+        ${this._renderStat('OVR BEFORE', 'rsimBudgetBefore', this._budget(diff.ovrBefore, cap), false)}
+        ${this._renderStat('OVR AFTER', 'rsimBudgetAfter', this._budget(diff.ovrAfter, cap), true)}
+        <div class="rsim-stat"><div class="rsim-stat-label">OVR CHANGE</div><div class="rsim-stat-line"><div class="rsim-stat-num ${changeCls}" id="rsimOvrChange">${this._formatSigned(diff.ovrChange)}</div></div></div>
       </div>
 
       <section class="rsim-card rsim-changes" aria-label="Changes">
         <div class="rsim-card-title">CHANGES</div>
         ${hasChanges ? `
+          ${diff.removed.length || diff.added.length ? `
           <div class="rsim-change-block">
             <div class="rsim-change-label">REMOVED</div>
             ${diff.removed.length ? diff.removed.map((e) => this._renderChangeLine(e, '-')).join('') : '<div class="muted rsim-change-none">None</div>'}
@@ -444,9 +592,14 @@ const PublicRosterSimulatorView = {
           <div class="rsim-change-block">
             <div class="rsim-change-label">ADDED</div>
             ${diff.added.length ? diff.added.map((e) => this._renderChangeLine(e, '+')).join('') : '<div class="muted rsim-change-none">None</div>'}
-          </div>
+          </div>` : ''}
+          ${diff.jokerChanges.length ? `
+          <div class="rsim-change-block">
+            <div class="rsim-change-label">JOKER</div>
+            ${diff.jokerChanges.map((c) => this._renderJokerChangeLine(c)).join('')}
+          </div>` : ''}
           <div class="rsim-change-ovr">OVR CHANGE: <strong class="${changeCls}">${this._formatSigned(diff.ovrChange)}</strong></div>
-        ` : `<p class="muted rsim-nochange">No changes yet — remove, add or replace a player in AFTER to start.</p>`}
+        ` : `<p class="muted rsim-nochange">No changes yet — remove, add or replace a player, or try a Joker, in AFTER to start.</p>`}
         <div class="rsim-actions-bar">
           <button type="button" class="rsim-btn" disabled aria-disabled="true" title="Transaction builder coming next" id="rsimCopyDiscord">Copy Transaction to Discord</button>
           <span class="rsim-soon muted">Transaction builder coming next</span>
@@ -465,6 +618,22 @@ const PublicRosterSimulatorView = {
         <span class="rsim-change-name">${escapeHtml(p.name)}</span> — ${escapeHtml(pos)} — ${p.overall}
         <span class="muted rsim-change-pool">${poolLabel(p.pool)}</span>
         ${entry.isJoker || entry.classification ? classificationBadge(entry.isJoker ? 'PINK' : entry.classification) : ''}
+      </div>`;
+  },
+
+  /** One descriptive line per Joker difference; never says whether it is legal. */
+  _renderJokerChangeLine(c) {
+    const p = c.after.player;
+    const natural = p.position || '—';
+    const posOf = (e) => e.effectivePosition || natural;
+    const text = c.kind === 'marked' ? `now Joker at ${escapeHtml(posOf(c.after))}`
+      : c.kind === 'unmarked' ? `no longer Joker (back to ${escapeHtml(natural)})`
+        : `Joker position ${escapeHtml(posOf(c.before))} → ${escapeHtml(posOf(c.after))}`;
+    return `
+      <div class="rsim-change-line rsim-joker-line">
+        <span class="rsim-sign" aria-hidden="true">🃏</span>
+        <span class="rsim-change-name">${escapeHtml(p.name)}</span> — ${text}
+        ${classificationBadge(c.after.isJoker ? 'PINK' : c.after.classification)}
       </div>`;
   },
 
@@ -501,10 +670,14 @@ const PublicRosterSimulatorView = {
           <td>${escapeHtml(p.name)}${isNew ? ' <span class="rsim-new">NEW</span>' : ''}<span class="rsim-name-pool muted">${poolLabel(p.pool)}</span></td>
           <td class="rsim-col-pool">${poolLabel(p.pool)}</td>
           <td>${classificationBadge(e.isJoker ? 'PINK' : e.classification)}</td>
-          <td class="rsim-col-pos">${escapeHtml(e.effectivePosition || p.position || '—')}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
+          <!-- AFTER Joker rows keep the 🃏 marker next to the position picker; phones hide the marker (the pressed pink toggle says the same) to fit. -->
+          <td class="rsim-col-pos">${editable && e.isJoker
+    ? `<select class="rsim-jpos" data-slot="${i}" aria-label="Joker position for ${escapeHtml(p.name)}">${CORE_POSITIONS.map((pos) => `<option value="${pos}" ${pos === (e.jokerPosition || e.effectivePosition) ? 'selected' : ''}>${pos}</option>`).join('')}</select>`
+    : escapeHtml(e.effectivePosition || p.position || '—')}${e.isJoker ? ` <span${editable ? ' class="rsim-mark-after"' : ''} title="Joker-assigned position">🃏</span>` : ''}</td>
           <td class="ovr">${p.overall}</td>
           ${editable ? `
           <td class="rsim-actions">
+            <button type="button" class="rsim-btn rsim-btn-joker${e.isJoker ? ' is-on' : ''}" data-rsim-action="toggle-joker" data-slot="${i}" aria-pressed="${e.isJoker ? 'true' : 'false'}" aria-label="${e.isJoker ? 'Remove Joker status from' : 'Mark as Joker:'} ${escapeHtml(p.name)}" title="${e.isJoker ? 'Remove Joker' : 'Make Joker'}"><span class="rsim-lbl">Joker</span><span class="rsim-ico" aria-hidden="true">🃏</span></button>
             <button type="button" class="rsim-btn" data-rsim-action="open-picker" data-slot="${i}" aria-label="Replace ${escapeHtml(p.name)}" title="Replace"><span class="rsim-lbl">Replace</span><span class="rsim-ico" aria-hidden="true">⇄</span></button>
             <button type="button" class="rsim-btn rsim-btn-danger" data-rsim-action="remove" data-slot="${i}" aria-label="Remove ${escapeHtml(p.name)}" title="Remove"><span class="rsim-lbl">Remove</span><span class="rsim-ico" aria-hidden="true">✕</span></button>
           </td>` : ''}
@@ -602,6 +775,9 @@ const PublicRosterSimulatorView = {
       } else if (t.id === 'rsimPickerPool' && this._picker) {
         this._picker.pool = t.value;
         this._updatePickerList();
+      } else if (t.classList && t.classList.contains('rsim-jpos')) {
+        this.setJokerPosition(Number(t.dataset.slot), t.value);
+        this._rerender();
       }
     });
 
@@ -632,6 +808,7 @@ const PublicRosterSimulatorView = {
       const slot = el.dataset.slot != null ? Number(el.dataset.slot) : null;
 
       if (action === 'remove') this.removeAt(slot);
+      else if (action === 'toggle-joker') this.toggleJoker(slot);
       else if (action === 'open-picker') this.openPicker(slot);
       else if (action === 'close-picker') this.closePicker();
       else if (action === 'pick-player') {
