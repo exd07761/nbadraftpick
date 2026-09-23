@@ -211,11 +211,21 @@ const SupabaseReadsCore = (() => {
   // future LeagueData-equivalent data layer to make BEFORE calling
   // getLiveNba2k27Players() — that integration is a later phase and is
   // NOT implemented here.
+  const LIVE_NBA2K27_PAGE_SIZE = 1000;
+
   async function getLiveNba2k27Players() {
-    const rows = await SupabaseQuery.select(
-      "nba2k27_effective_players",
-      (qb) => qb
-    );
+    const rows = [];
+    let offset = 0;
+    while (true) {
+      const page = await SupabaseQuery.select("nba2k27_effective_players", (qb) =>
+        qb
+          .order("nba2k_ref", { ascending: true })
+          .range(offset, offset + LIVE_NBA2K27_PAGE_SIZE - 1)
+      );
+      rows.push(...page);
+      if (page.length < LIVE_NBA2K27_PAGE_SIZE) break;
+      offset += LIVE_NBA2K27_PAGE_SIZE;
+    }
     return rows.map(mapEffectiveLivePlayerRow);
   }
 
