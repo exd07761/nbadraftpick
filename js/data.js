@@ -697,6 +697,33 @@ function countPositionsForRoster(entries, playersById) {
 }
 
 /**
+ * Revision — Joker Eligibility for Plain Manual Additions: a roster entry
+ * is Joker-eligible if EITHER (A) it currently occupies one of the
+ * participant's own pick slots #1-10 (ownPickNumber 1-10 — a normal draft
+ * pick, or a manual Fill Slot, which inherits that same slot number), OR
+ * (B) it's a plain manually-added player with no slot to inherit at all
+ * (source === "manual" && draftSlot == null — the generic "+ Add Player"
+ * action, as opposed to "+ Fill Slot", which already satisfies rule A).
+ *
+ * `ownPickNumber` must already be resolved by the caller (including
+ * getJokerEligiblePlayers's own legacy playerDraftPicks fallback for
+ * rosters saved before "Preserve Original Draft Pick Slot" — this
+ * function does not know about that fallback, it only judges the final
+ * number) — `draftSlot`/`source` are passed separately because rule B
+ * specifically needs the RAW draftSlot (null, not a resolved/fallback
+ * value) to tell "no slot at all" apart from "slot resolved to null via
+ * some other path".
+ *
+ * Used identically by getJokerEligiblePlayers (read/UI — decides whether
+ * the 🃏 button appears) and designateJoker (write — decides whether
+ * clicking it succeeds), so the two can never disagree.
+ */
+function isJokerEligibleRosterEntry({ ownPickNumber, source, draftSlot }) {
+  if (ownPickNumber != null && ownPickNumber >= 1 && ownPickNumber <= 10) return true;
+  return source === "manual" && draftSlot == null;
+}
+
+/**
  * Rule 3 / Ambiguity A: a transaction must not CREATE a new position-limit
  * violation. Pre-existing over-cap positions (possible because the draft's
  * own position rule never capped beyond the mandatory first five) are left
@@ -3414,8 +3441,11 @@ const LeagueData = {
    * whoever currently occupies one of their own draft picks #1-10 (Rule C,
    * revised — Joker eligibility is no longer restricted to picks #6-10;
    * any of a participant's own first 10 picks may be designated Joker),
-   * not already the Joker. Returns [] once a participant's own picks run
-   * out (fewer than 1, i.e. none yet).
+   * OR a plain manually-added player with no slot at all (Revision —
+   * Joker Eligibility for Plain Manual Additions; see
+   * isJokerEligibleRosterEntry) — not already the Joker. Returns [] once
+   * a participant's own picks run out (fewer than 1, i.e. none yet) and
+   * there's no manually-added player either.
    *
    * Eligibility is read from each entry's CURRENT `draftSlot` on
    * season.currentRosters — the same "own pick #1-10" slot Manual Roster
@@ -3447,9 +3477,15 @@ const LeagueData = {
           const pickIdx = ownPicks.findIndex((p) => p.playerId === e.playerId);
           ownPickNumber = pickIdx === -1 ? null : pickIdx + 1;
         }
-        return { playerId: e.playerId, player: data.players[e.playerId] || null, ownPickNumber };
+        return {
+          playerId: e.playerId,
+          player: data.players[e.playerId] || null,
+          ownPickNumber,
+          source: e.source,
+          draftSlot: e.draftSlot,
+        };
       })
-      .filter((e) => e.player && e.ownPickNumber != null && e.ownPickNumber >= 1 && e.ownPickNumber <= 10);
+      .filter((e) => e.player && isJokerEligibleRosterEntry(e));
   },
 
   /**
@@ -6335,10 +6371,14 @@ const AdminActions = {
     // playerDraftPicks history, so a manually-added player filling one of
     // this participant's own vacated pick slots #1-10 is eligible too —
     // matching what getJokerEligiblePlayers already offers as eligible.
-    const ownPickNumber = entry.draftSlot;
-    if (ownPickNumber == null || ownPickNumber < 1 || ownPickNumber > 10) {
+    // Revision — Joker Eligibility for Plain Manual Additions: a plain
+    // "+ Add Player" entry (source "manual", draftSlot null — no slot to
+    // inherit at all) is ALSO eligible now, via the same
+    // isJokerEligibleRosterEntry rule getJokerEligiblePlayers uses, so
+    // the 🃏 button and this check can never disagree.
+    if (!isJokerEligibleRosterEntry({ ownPickNumber: entry.draftSlot, source: entry.source, draftSlot: entry.draftSlot })) {
       throw new Error(
-        "Joker must be one of this participant's own picks #1-10."
+        "Joker must be one of this participant's own picks #1-10, or a manually added player."
       );
     }
 

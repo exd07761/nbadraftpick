@@ -31,6 +31,29 @@
  * standalone "NBA 2K27 Pool" nav item, which remains untouched and
  * reachable on its own.
  */
+
+/**
+ * ⚠ SECURITY NOTE — restored (bug fix; original value unchanged).
+ *
+ * This constant no longer guards anything in this file — the "Delete All
+ * Players" feature it originally protected was removed above in Phase 4.
+ * It is kept here, at its original value, solely because
+ * js/admin/roster.js's Manual Roster Edit PIN step reuses it via shared
+ * global script scope (admin.html loads this file before
+ * js/admin/roster.js — see that file's own note on this same constant)
+ * rather than defining a second PIN. Removing this line breaks Manual
+ * Roster Edit's PIN verification with an uncaught ReferenceError, which
+ * is exactly what happened when Phase 4 deleted it without updating
+ * roster.js's dependency on it.
+ *
+ * Same caveat as everywhere else this pattern is used: a plain frontend
+ * constant, trivially readable in dev tools, not a real security
+ * boundary — the actual write gate remains Firebase Auth + firestore.rules
+ * (AuthBoundary.requireAuth(), already required before this PIN step ever
+ * appears).
+ */
+const _DELETE_ALL_PLAYERS_PIN = '7761';
+
 const AdminPlayersView = {
   render(container) {
     container.innerHTML = `
