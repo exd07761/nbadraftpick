@@ -40,6 +40,40 @@ const routes = {
 
 let currentRoute = null;
 
+let supabaseRealtimeChannel = null;
+
+function initSupabaseRealtime() {
+  if (!SupabaseClient) return;
+
+  supabaseRealtimeChannel = SupabaseClient
+    .channel('public-roster-updates')
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'roster_entries',
+      },
+      () => {
+        if (currentRoute) navigate(currentRoute);
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'draft_picks',
+      },
+      () => {
+        if (currentRoute) navigate(currentRoute);
+      }
+    )
+    .subscribe((status) => {
+      console.log('[SupabaseRealtime] Public roster channel:', status);
+    });
+}
+
 function navigate(route) {
   const view = routes[route];
   if (!view) return;
@@ -108,6 +142,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   FirebaseSync.onRemoteChange(() => {
     if (currentRoute) navigate(currentRoute);
   });
+  initSupabaseRealtime();
 
   // Route from hash or default
   const hash = location.hash.replace('#', '');
