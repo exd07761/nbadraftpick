@@ -4324,6 +4324,26 @@ const AdminActions = {
       ...(isJoker && { isJoker: true, jokerPosition }),
     });
 
+    // Keep the mutable roster projection synchronized after initialization.
+    // Only add the new draft pick; do not rebuild the entire roster.
+    if (season.rostersInitialized) {
+      if (!season.currentRosters) season.currentRosters = {};
+      if (!season.currentRosters[participantId]) {
+        season.currentRosters[participantId] = [];
+      }
+
+      const roster = season.currentRosters[participantId];
+      const nextDraftSlot = season.playerDraftPicks.filter(
+        (p) => p.participantId === participantId
+      ).length;
+
+      roster.push({
+        playerId,
+        source: "draft",
+        draftSlot: nextDraftSlot,
+        ...(isJoker && { isJoker: true, jokerPosition }),
+      });
+    }
     // Refresh the bonusPicks mirror (see season.bonusPicks doc comment) now
     // that this pick has been recorded — computeDraftSchedule replays the
     // updated history and returns the authoritative, up-to-date opportunity
@@ -4371,8 +4391,36 @@ const AdminActions = {
     if (!season) throw new Error("Season not found");
     if (!season.playerDraftPicks.length)
       throw new Error("No picks to undo.");
+    const undonePick =
+      season.playerDraftPicks[season.playerDraftPicks.length - 1];
+
+    const undoneDraftSlot = season.playerDraftPicks.filter(
+      (p) => p.participantId === undonePick.participantId
+    ).length;
 
     season.playerDraftPicks.pop();
+
+    // Keep the mutable roster projection synchronized after initialization.
+    // Only remove the entry if it still represents this draft pick.
+    // This protects manual roster changes, trades, and swaps.
+    if (
+      season.rostersInitialized &&
+      season.currentRosters?.[undonePick.participantId]
+    ) {
+      const roster = season.currentRosters[undonePick.participantId];
+
+      const matchingIndex = roster.findIndex(
+        (entry) =>
+          entry.playerId === undonePick.playerId &&
+          entry.source === "draft" &&
+          entry.draftSlot === undoneDraftSlot
+      );
+
+      if (matchingIndex !== -1) {
+        roster.splice(matchingIndex, 1);
+      }
+    }
+
     if (season.draftComplete) {
       season.draftComplete = false;
     }
