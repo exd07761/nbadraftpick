@@ -20,6 +20,7 @@
       "**/.*",
       "**/node_modules/**",
       "backups/**",
+      "supabase/**",
       "functions/**",
       "scripts/**",
       "tests_*/**",
