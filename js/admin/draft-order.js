@@ -61,8 +61,20 @@ const AdminDraftOrderView = {
             </div>` : ''}
 
             <div class="order-editor">
-              <h4>Set Order</h4>
-              <p class="helper-text">Drag participants into the DuckRace finish order, then save.</p>
+              <h4>Import DuckRace Result</h4>
+              <p class="helper-text">Paste the DuckRace results exactly as copied. Example: 1st,Gigs. One participant per line; rank numbers, commas, bullets, and ranking text are automatically ignored.</p>
+              <textarea class="duckrace-input" id="draftDuckRaceInput" rows="7" placeholder="Example:
+1st,Gigs
+2nd,Caster
+3rd,Jordan
+4th,Rere"></textarea>
+              <div class="form-actions duckrace-actions">
+                <button class="btn btn-primary" data-action="applyDraftDuckRace">Apply DuckRace Result</button>
+                <button class="btn btn-ghost" data-action="clearDraftDuckRace">Clear</button>
+              </div>
+
+              <h4 class="order-editor-subheading">Adjust Order Manually</h4>
+              <p class="helper-text">After importing, you can still drag participants if a correction is needed.</p>
               <ul class="drag-list" id="draftDragList" data-type="draft">
                 ${this._renderDragItems(participants, draftOrder, 'draft')}
               </ul>
@@ -90,7 +102,20 @@ const AdminDraftOrderView = {
             </div>` : ''}
 
             <div class="order-editor">
-              <h4>Set Order</h4>
+              <h4>Import DuckRace Result</h4>
+              <p class="helper-text">Paste the SECOND DuckRace result exactly as copied. Example: 1st,Rere. It is completely independent from the player draft order.</p>
+              <textarea class="duckrace-input" id="teamDuckRaceInput" rows="7" placeholder="Example:
+1st,Rere
+2nd,Mac
+3rd,Gigs
+4th,Lau"></textarea>
+              <div class="form-actions duckrace-actions">
+                <button class="btn btn-primary" data-action="applyTeamDuckRace">Apply DuckRace Result</button>
+                <button class="btn btn-ghost" data-action="clearTeamDuckRace">Clear</button>
+              </div>
+
+              <h4 class="order-editor-subheading">Adjust Order Manually</h4>
+              <p class="helper-text">After importing, you can still drag participants if a correction is needed.</p>
               <ul class="drag-list" id="teamDragList" data-type="team">
                 ${this._renderDragItems(participants, teamOrder, 'team')}
               </ul>
@@ -118,7 +143,15 @@ const AdminDraftOrderView = {
         AuthBoundary.requireAuth();
         const action = btn.dataset.action;
 
-        if (action === 'saveDraftOrder') {
+        if (action === 'applyDraftDuckRace') {
+          this._applyDuckRaceText(container.querySelector('#draftDuckRaceInput'), container.querySelector('#draftDragList'), participants);
+        } else if (action === 'clearDraftDuckRace') {
+          container.querySelector('#draftDuckRaceInput').value = '';
+        } else if (action === 'applyTeamDuckRace') {
+          this._applyDuckRaceText(container.querySelector('#teamDuckRaceInput'), container.querySelector('#teamDragList'), participants);
+        } else if (action === 'clearTeamDuckRace') {
+          container.querySelector('#teamDuckRaceInput').value = '';
+        } else if (action === 'saveDraftOrder') {
           const ids = this._getOrderedIds(container.querySelector('#draftDragList'));
           AdminActions.setPlayerDraftOrder(season.id, ids);
           showToast('Player draft order saved.', 'success');
@@ -144,6 +177,76 @@ const AdminDraftOrderView = {
         <span class="drag-num">${i + 1}</span>
         <span class="drag-name">${escapeHtml(p.name)}</span>
       </li>`).join('');
+  },
+
+  _applyDuckRaceText(textarea, list, participants) {
+    const raw = textarea?.value || '';
+    const lines = raw
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    if (!lines.length) {
+      showToast('Paste the DuckRace result first.', 'error');
+      return;
+    }
+
+    const normalizedParticipants = participants.map(p => ({
+      participant: p,
+      key: this._normalizeParticipantName(p.name),
+    }));
+
+    const ordered = [];
+    const used = new Set();
+    const unmatched = [];
+
+    for (const line of lines) {
+      const cleaned = line
+        // Supports DuckRace exports such as `1st,Gigs`, `2nd, Caster`,
+        // `3rd. Jordan`, `4. Rere`, and simple bullet/name lines.
+        .replace(/^\s*(?:#?\d+\s*(?:st|nd|rd|th)?|\d+\.)\s*[,.)\-:–—]*\s*/i, '')
+        .replace(/^\s*[•*▪●→]+\s*/, '')
+        .trim();
+      const key = this._normalizeParticipantName(cleaned);
+
+      let match = normalizedParticipants.find(x => !used.has(x.participant.id) && x.key === key);
+      if (!match) {
+        match = normalizedParticipants.find(x => !used.has(x.participant.id) && (
+          x.key.includes(key) || key.includes(x.key)
+        ));
+      }
+
+      if (match) {
+        ordered.push(match.participant);
+        used.add(match.participant.id);
+      } else {
+        unmatched.push(cleaned);
+      }
+    }
+
+    if (unmatched.length) {
+      showToast(`Could not match: ${unmatched.join(', ')}`, 'error');
+      return;
+    }
+
+    if (ordered.length !== participants.length) {
+      const missing = participants
+        .filter(p => !used.has(p.id))
+        .map(p => p.name);
+      showToast(`Missing participant(s): ${missing.join(', ')}`, 'error');
+      return;
+    }
+
+    list.innerHTML = this._renderDragItems(participants, ordered, list.dataset.type);
+    showToast('DuckRace order imported. Review it, then save.', 'success');
+  },
+
+  _normalizeParticipantName(name) {
+    return String(name || '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/\s+/g, ' ')
+      .trim();
   },
 
   _getOrderedIds(list) {
