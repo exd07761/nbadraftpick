@@ -37,6 +37,13 @@ const PublicDraftView = {
   _filter: '',
   _activePool: 'green',
 
+  _getDraftPlayer(playerId) {
+    const player = LeagueData.getPlayer(playerId);
+    if (player) return player;
+
+    return SupabaseLiveNba2k27PoolCache.getEntries()[playerId] || null;
+  },
+
   render(container) {
     const season = LeagueData.getCurrentSeason();
     if (!season) {
@@ -156,7 +163,7 @@ const PublicDraftView = {
   },
 
   _renderLastPick(season, pick) {
-    const player = LeagueData.getPlayer(pick.playerId);
+    const player = this._getDraftPlayer(pick.playerId);
     if (!player) return '';
     const participant = season.participants[pick.participantId];
     return `
@@ -302,7 +309,7 @@ const PublicDraftView = {
     return `
       <div class="dft-history-list">
         ${state.picks.slice().reverse().map(pick => {
-          const player = LeagueData.getPlayer(pick.playerId);
+          const player = this._getDraftPlayer(pick.playerId);
           const participant = season.participants[pick.participantId];
           if (!player) return '';
           return `
