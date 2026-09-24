@@ -192,6 +192,30 @@ select.input { cursor: pointer; }
 .inline-form .input { max-width: 280px; }
 .inline-form .input-sm { max-width: 110px; }
 
+.participant-bulk-form {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+
+.participant-bulk-form label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+}
+
+.participant-bulk-input {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .card-form {
   background: var(--bg);
   border: 1px solid var(--border);

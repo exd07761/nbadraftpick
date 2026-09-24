@@ -34,10 +34,23 @@ const AdminParticipantsView = {
           <button class="btn btn-primary" id="btnAddParticipant">+ Add Participant</button>
         </div>
 
-        <div id="addParticipantForm" class="inline-form hidden">
-          <input type="text" id="newParticipantName" class="input" placeholder="Name (e.g. Simon)" maxlength="40">
-          <button class="btn btn-primary" id="btnCreateParticipant">Add</button>
-          <button class="btn btn-ghost" id="btnCancelParticipant">Cancel</button>
+        <div id="addParticipantForm" class="participant-bulk-form hidden">
+          <label for="newParticipantNames">Participant Names</label>
+          <p class="helper-text">Paste one participant name per line. The names will be added in the same order.</p>
+          <textarea id="newParticipantNames" class="input participant-bulk-input" rows="8" maxlength="2000" placeholder="Gigs
+Caster
+Jordan
+Rere
+Chie
+Ham
+Devon
+Adz
+Rong
+Mac"></textarea>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="btnCreateParticipants">Add Participants</button>
+            <button class="btn btn-ghost" id="btnCancelParticipant">Cancel</button>
+          </div>
         </div>
 
         <p class="helper-text">${participants.length} participant${participants.length !== 1 ? 's' : ''} — league supports any number of teams</p>
@@ -73,13 +86,55 @@ const AdminParticipantsView = {
     };
     container.querySelector('#btnCancelParticipant').onclick = () => {
       container.querySelector('#addParticipantForm').classList.add('hidden');
+      container.querySelector('#newParticipantNames').value = '';
     };
-    container.querySelector('#btnCreateParticipant').onclick = () => {
+    container.querySelector('#btnCreateParticipants').onclick = () => {
       AuthBoundary.requireAuth();
-      const name = container.querySelector('#newParticipantName').value.trim();
-      if (!name) { showToast('Enter a name.', 'error'); return; }
-      AdminActions.addParticipant(season.id, name);
-      showToast(`${name} added.`, 'success');
+
+      const raw = container.querySelector('#newParticipantNames').value || '';
+      const names = raw
+        .split(/\r?\n/)
+        .map(name => name.trim())
+        .filter(Boolean);
+
+      if (!names.length) {
+        showToast('Enter at least one participant name.', 'error');
+        return;
+      }
+
+      const existingNames = new Set(
+        participants.map(p => p.name.trim().toLowerCase())
+      );
+      const seen = new Set();
+      const duplicates = [];
+
+      for (const name of names) {
+        const key = name.toLowerCase();
+
+        if (seen.has(key) || existingNames.has(key)) {
+          duplicates.push(name);
+        }
+
+        seen.add(key);
+      }
+
+      if (duplicates.length) {
+        showToast(`Duplicate participant name(s): ${duplicates.join(', ')}`, 'error');
+        return;
+      }
+
+      const tooLong = names.filter(name => name.length > 40);
+      if (tooLong.length) {
+        showToast(`Name(s) over 40 characters: ${tooLong.join(', ')}`, 'error');
+        return;
+      }
+
+      names.forEach(name => AdminActions.addParticipant(season.id, name));
+
+      showToast(
+        `${names.length} participant${names.length !== 1 ? 's' : ''} added.`,
+        'success'
+      );
       AdminApp.renderView('participants');
     };
 
