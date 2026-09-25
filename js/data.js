@@ -217,7 +217,7 @@ function createSeason(id, name) {
     //                            // undefined on every Round Robin matchup,
     //                            // so nothing that reads a Matchup needs to
     //                            // change for Round Robin to keep working.
-    //                            // stage: 1 | 2. group: 'A'|'B'|'C'|'D'.
+    //                            // stage: 1 | 2 | 3. group: 'A'|'B'|'C'|'D'.
     //   conference,              // Conference Round Robin only — absent/
     //                            // undefined on every other format's
     //                            // matchup. conference: 'A'|'B'.
@@ -254,7 +254,7 @@ function createSeason(id, name) {
     // playoffs, financial) is unaffected by whichever format produced them.
     //   groups: { A: [participantId x4], B: [...], C: [...], D: [...] } —
     //     Round 1's group assignment, frozen at generation time.
-    //   stage: 1 | 2 — which stage is currently in play / most recently generated.
+    //   stage: 1 | 2 | 3 — which stage is currently in play / most recently generated.
     //   round1Standings: null until Round 2 is generated, then
     //     { A: [participantId x4 in finish order 1st..4th], B: [...], ... } —
     //     frozen the moment Round 2 is generated. Informational/audit only
@@ -266,6 +266,10 @@ function createSeason(id, name) {
     //     as `groups` above, but holding the commissioner's manually
     //     entered Round 2 assignment (the external roulette result) —
     //     never computed by this app from round1Standings.
+    //   round3Groups: null until Round 3 is generated, then the same shape
+    //     as `groups` above, but holding the commissioner's manually
+    //     entered Round 3 assignment (the external roulette result) —
+    //     never computed by this app from standings.
     groupStageState: null,
 
     // Conference Round Robin-only bookkeeping (New Scheduling System #3) —
@@ -1236,21 +1240,21 @@ function generateGroupStageRounds(groups, stageNumber, roundOffset) {
 }
 
 /**
- * Checks a proposed Round 2 groups object against the ACTUAL Round 1
+ * Checks a proposed Group Stage groups object against all ACTUAL prior-stage
  * matchups already played (never assumed, per the "add validation for
  * this rather than assuming" requirement — this matters even more now
- * that Round 2 groups are entered manually, since a roulette result could
- * legitimately produce a rematch). Returns an array of
- * { teamA, teamB, group } for every Round 2 pairing that already played
- * in Round 1 — empty array means clean.
+ * that later-stage groups are entered manually, since a roulette result could
+ * legitimately produce a rematch. Returns an array of
+ * { teamA, teamB, group } for every proposed pairing that already played
+ * in any prior stage — empty array means clean.
  */
-function findGroupStageRematches(round1Matchups, round2Groups) {
+function findGroupStageRematches(previousMatchups, proposedGroups) {
   const playedPairs = new Set(
-    round1Matchups.map((m) => [m.teamA, m.teamB].sort().join("::"))
+    previousMatchups.map((m) => [m.teamA, m.teamB].sort().join("::"))
   );
   const rematches = [];
   for (const group of GROUP_NAMES) {
-    const teams = round2Groups[group];
+    const teams = proposedGroups[group];
     for (let i = 0; i < teams.length; i++) {
       for (let j = i + 1; j < teams.length; j++) {
         const key = [teams[i], teams[j]].sort().join("::");
@@ -1309,7 +1313,7 @@ const CONFERENCE_NAMES = ["A", "B"];
  * Returns `schedule`-shaped rounds: [{ round, matchups }], with every
  * matchup tagged with { conference }. No `stage` field is set — this
  * format has only one stage, so nothing needs to distinguish stages the
- * way Group Stage's `stage: 1 | 2` does.
+ * way Group Stage's `stage: 1 | 2 | 3` does.
  */
 function generateConferenceRoundRobinRounds(conferences) {
   const perConference = CONFERENCE_NAMES.map((c) => ({
@@ -1341,7 +1345,7 @@ function generateConferenceRoundRobinRounds(conferences) {
 //     "DuckRace #2" order participants picked their NBA team in — position
 //     0 = pick #1). Pick numbers are unique per team, so this never ties.
 //
-//   Round 2: home court goes to the team with the better (higher) Round 1
+//   Round 2: home court goes to the team with the better (higher) Stage 1
 //     point differential. Tied point differential falls back to total
 //     Round 1 points scored (pointsFor) — higher wins home court. In the
 //     effectively-impossible event BOTH are tied, this falls back to the
@@ -1379,9 +1383,10 @@ function assignRound1HomeCourt(matchups, pickNumberOf) {
 }
 
 /**
- * Round 2: assigns home/away by comparing each team's Round 1 stat line
+ * Later Group Stage rounds: assigns home/away by comparing each team's
+ * preceding-stage cumulative stat line
  * (statsOf(pid) -> { pointDifferential, pointsFor }, from
- * getGroupStageStandings(seasonId, 1)). Better pointDifferential is HOME;
+ * getGroupStageStandings(seasonId, priorStage)). Better pointDifferential is HOME;
  * a tie falls back to pointsFor; a further tie falls back to
  * pickNumberOf (see module-level comment above).
  */
@@ -2797,8 +2802,8 @@ const LeagueData = {
    * by construction — see the filters below).
    *
    * Format-agnostic: this simply looks at ALL of season.schedule, so for a
-   * Group Stage season, once both stages exist, this is exactly the
-   * correct combined final ranking across all 6 games/team — no special
+   * Group Stage season, once all three stages exist, this is exactly the
+   * correct combined final ranking across all 9 games/team — no special
    * casing needed here for Group Stage at all.
    *
    * Returns [] if the season has no schedule or no assigned teams.
@@ -2816,46 +2821,35 @@ const LeagueData = {
 
   /**
    * Group Stage-only: per-group standings for one stage, using the exact
-   * same computeTeamStandings ranking rule as getTeamStatistics above —
-   * this is NOT a second standings engine, just the same pure function
-   * scoped to the matchups relevant to what's being displayed.
+   * same computeTeamStandings ranking rule as getTeamStatistics above.
    *
-   * Stage 1 (targetStage === 1): standings are Stage-1-only, scoped to
-   * that group's own Stage 1 matchups — unchanged from before.
+   * Stage 1 is Stage-1-only. Stage 2 is cumulative Stage 1 + Stage 2, with
+   * Stage 2 group membership coming from round2Groups. Stage 3 is cumulative
+   * Stage 1 + Stage 2 + Stage 3, with Stage 3 group membership coming from
+   * round3Groups. Earlier-stage matchups are included regardless of their
+   * earlier group because computeTeamStandings filters by the participant IDs
+   * in the requested stage's current group.
    *
-   * Stage 2 (targetStage === 2): a team's Stage 2 GROUP membership comes
-   * from season.groupStageState.round2Groups (Stage 2 groups can be a
-   * complete reshuffle of Stage 1's), but the displayed RECORD is
-   * cumulative — each team's Stage 1 W/L/+/- carries forward and is
-   * added to their Stage 2 W/L/+/-. To get that, the matchups passed to
-   * computeTeamStandings for group g are: every Stage 1 matchup (any
-   * group — each team only ever played in exactly one Stage 1 group, so
-   * computeTeamStandings' own per-team filtering naturally picks up only
-   * that team's real Stage 1 games) plus this group's own Stage 2
-   * matchups. computeTeamStandings itself is untouched; this only changes
-   * which matchups are handed to it for Stage 2.
-   *
-   * Returns null if this season isn't a Group Stage season, or if the
-   * requested stage's group assignments don't exist yet (e.g. Stage 2
-   * before "Generate Round 2" has run) — nothing is ever fabricated.
-   * Returns { A: [...], B: [...], C: [...], D: [...] }, each an array of
-   * ranked stat rows (same shape getTeamStatistics rows have) for the
-   * requested stage (defaults to season.groupStageState.stage, i.e.
-   * whichever stage is current).
+   * Returns null if the requested stage's group assignment has not been
+   * generated yet — nothing is fabricated.
    */
   getGroupStageStandings(seasonId, stage) {
     const season = this.getSeason(seasonId);
     if (!season || !season.groupStageState) return null;
     const targetStage = stage || season.groupStageState.stage;
-    const groups = targetStage === 1 ? season.groupStageState.groups : season.groupStageState.round2Groups;
+    const groups = targetStage === 1
+      ? season.groupStageState.groups
+      : targetStage === 2
+        ? season.groupStageState.round2Groups
+        : season.groupStageState.round3Groups;
     if (!groups) return null;
 
     const allMatchups = season.schedule.flatMap((r) => r.matchups);
     const result = {};
     for (const g of GROUP_NAMES) {
-      const stageMatchups = targetStage === 1
-        ? allMatchups.filter((m) => m.stage === 1 && m.group === g)
-        : allMatchups.filter((m) => m.stage === 1 || (m.stage === 2 && m.group === g));
+      const stageMatchups = allMatchups.filter((m) =>
+        m.stage < targetStage || (m.stage === targetStage && m.group === g)
+      );
       result[g] = computeTeamStandings(groups[g], stageMatchups, season.participants, season.nbaTeamAssignments);
     }
     return result;
@@ -4749,6 +4743,7 @@ const AdminActions = {
       stage: 1,
       round1Standings: null,
       round2Groups: null,
+      round3Groups: null,
     };
     saveData(data);
     return season.schedule;
@@ -4889,139 +4884,139 @@ const AdminActions = {
 
   /**
    * Group Stage, Round 2 (Manual Online-Roulette Assignment): generates
-   * Round 2's 24 games from a commissioner-supplied group assignment,
-   * APPENDING them to the existing season.schedule (Round 1's
-   * rounds/results are never touched or replaced) — reuses
-   * generateGroupStageRounds exactly like Round 1 did.
-   *
-   * round2Groups: { A: [id,id,id,id], B: [...], C: [...], D: [...] } — the
-   * commissioner's manual assignment, entered after running the actual
-   * draw on an external online roulette. This function does NOT compute
-   * or suggest group membership itself — the roulette result, as entered
-   * by the commissioner, is the sole source of truth for Round 2 groups.
-   *
-   * Guards, in order: this must be a Group Stage season currently on
-   * stage 1; Round 1 must be fully complete (all 24 games); Round 2 must
-   * not already have been generated; round2Groups must be exactly 16
-   * distinct, currently-assigned teams split into 4 groups of 4. The
-   * rematch check validates the commissioner's actual entered groups
-   * against Round 1's real matchups (findGroupStageRematches) and BLOCKS
-   * generation on a rematch — it never rearranges the commissioner's
-   * selections to avoid one; the commissioner corrects the dropdowns
-   * (per the roulette process) and re-submits.
-   *
-   * Once this succeeds, season.groupStageState.round1Standings is frozen
-   * (Round 1's final standings at the moment Round 2 was generated —
-   * informational/audit only now, since it no longer drives group
-   * membership) and recordMatchResult refuses further edits to any
-   * Round 1 game — see that function's stage-lock guard.
+   * Round 2's 24 games from a commissioner-supplied group assignment and
+   * appends them to the existing schedule. Round 2 standings carry forward
+   * all Round 1 W/L/+/- into the newly assigned groups.
    */
   generateGroupStageRound2(seasonId, round2Groups) {
+    return this._generateGroupStageLaterRound(seasonId, 2, round2Groups);
+  },
+
+  /**
+   * Group Stage, Round 3 (Manual Online-Roulette Assignment): generates
+   * Round 3's 24 games from a commissioner-supplied group assignment and
+   * appends them to the existing schedule. Round 3 standings carry forward
+   * all Round 1 + Round 2 W/L/+/- into the newly assigned groups.
+   */
+  generateGroupStageRound3(seasonId, round3Groups) {
+    return this._generateGroupStageLaterRound(seasonId, 3, round3Groups);
+  },
+
+  /**
+   * Shared implementation for manually assigned Group Stage rounds after
+   * Round 1. The caller supplies the exact external-roulette group result;
+   * this function never computes or rearranges group membership.
+   */
+  _generateGroupStageLaterRound(seasonId, targetStage, proposedGroups) {
     const data = loadData();
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
     if (season.scheduleFormat !== "groupStage" || !season.groupStageState) {
       throw new Error("This season is not using the Group Stage format.");
     }
-    if (season.groupStageState.stage !== 1) {
-      throw new Error("Round 2 has already been generated for this season.");
+    if (targetStage !== 2 && targetStage !== 3) {
+      throw new Error("Invalid Group Stage round.");
+    }
+    if (season.groupStageState.stage !== targetStage - 1) {
+      throw new Error(`Round ${targetStage} cannot be generated: the previous round must be generated and complete first.`);
     }
 
-    const round1Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 1);
-    const completedCount = round1Matchups.filter((m) => m.status === "completed").length;
-    if (completedCount < round1Matchups.length) {
+    const priorMatchups = season.schedule
+      .flatMap((r) => r.matchups)
+      .filter((m) => m.stage < targetStage);
+    const completedCount = priorMatchups.filter((m) => m.status === "completed").length;
+    if (completedCount < priorMatchups.length) {
       throw new Error(
-        `Cannot generate Round 2: Round 1 is not yet complete ` +
-        `(${completedCount} of ${round1Matchups.length} games played).`
+        `Cannot generate Round ${targetStage}: Round ${targetStage - 1} is not yet complete ` +
+        `(${completedCount} of ${priorMatchups.length} games played).`
       );
     }
 
-    // Validate the commissioner's manually-entered Round 2 assignment —
-    // same shape/rigor as generateGroupStageSchedule's Round 1 validation.
     const assignedTeamIds = season.teamAssignmentOrder.filter(
       (pid) => !!season.nbaTeamAssignments[pid]
     );
-    if (!round2Groups || GROUP_NAMES.some((g) => !Array.isArray(round2Groups[g]))) {
-      throw new Error("Round 2 cannot be generated: all four groups (A-D) are required.");
+    if (!proposedGroups || GROUP_NAMES.some((g) => !Array.isArray(proposedGroups[g]))) {
+      throw new Error(`Round ${targetStage} cannot be generated: all four groups (A-D) are required.`);
     }
     for (const g of GROUP_NAMES) {
-      const count = round2Groups[g].filter((pid) => pid != null).length;
-      if (round2Groups[g].some((pid) => pid == null)) {
-        throw new Error(
-          `Round 2 cannot be generated: Group ${g} has an empty slot — every slot needs a team assigned.`
-        );
+      const count = proposedGroups[g].filter((pid) => pid != null).length;
+      if (proposedGroups[g].some((pid) => pid == null)) {
+        throw new Error(`Round ${targetStage} cannot be generated: Group ${g} has an empty slot — every slot needs a team assigned.`);
       }
       if (count !== 4) {
-        throw new Error(`Round 2 cannot be generated: Group ${g} only contains ${count} team${count === 1 ? '' : 's'}, expected 4.`);
+        throw new Error(`Round ${targetStage} cannot be generated: Group ${g} only contains ${count} team${count === 1 ? '' : 's'}, expected 4.`);
       }
     }
-    const allRound2Ids = GROUP_NAMES.flatMap((g) => round2Groups[g]);
+
+    const allIds = GROUP_NAMES.flatMap((g) => proposedGroups[g]);
     const seen = new Set();
-    for (const pid of allRound2Ids) {
+    for (const pid of allIds) {
       if (seen.has(pid)) {
         const name = season.participants[pid]?.name || pid;
-        throw new Error(`Round 2 cannot be generated: Team "${name}" is assigned twice.`);
+        throw new Error(`Round ${targetStage} cannot be generated: Team "${name}" is assigned twice.`);
       }
       seen.add(pid);
     }
     const assignedSet = new Set(assignedTeamIds);
-    for (const pid of allRound2Ids) {
+    for (const pid of allIds) {
       if (!assignedSet.has(pid)) {
-        throw new Error("Round 2 cannot be generated: an assigned team does not have a current NBA team assignment.");
+        throw new Error(`Round ${targetStage} cannot be generated: an assigned team does not have a current NBA team assignment.`);
       }
     }
     const missing = assignedTeamIds.filter((pid) => !seen.has(pid));
     if (missing.length > 0) {
       const names = missing.map((pid) => season.participants[pid]?.name || pid).join(", ");
       throw new Error(
-        `Round 2 cannot be generated: ${missing.length} team${missing.length === 1 ? ' has' : 's have'} not been assigned (${names}).`
+        `Round ${targetStage} cannot be generated: ${missing.length} team${missing.length === 1 ? ' has' : 's have'} not been assigned (${names}).`
       );
     }
 
-    const rematches = findGroupStageRematches(round1Matchups, round2Groups);
+    const rematches = findGroupStageRematches(priorMatchups, proposedGroups);
     if (rematches.length > 0) {
       const detail = rematches
-        .map((r) => `${season.participants[r.teamA]?.name || r.teamA} vs ${season.participants[r.teamB]?.name || r.teamB} — already played in Round 1`)
+        .map((r) => `${season.participants[r.teamA]?.name || r.teamA} vs ${season.participants[r.teamB]?.name || r.teamB} — already played in a prior Group Stage round`)
         .join("; ");
       throw new Error(
-        `Round 2 contains ${rematches.length} rematch${rematches.length === 1 ? '' : 'es'} from Round 1: ${detail}. ` +
+        `Round ${targetStage} contains ${rematches.length} rematch${rematches.length === 1 ? '' : 'es'} from a prior Group Stage round: ${detail}. ` +
         `Adjust the group assignment and try again — groups are never automatically rearranged.`
       );
     }
 
-    const round1Standings = LeagueData.getGroupStageStandings(seasonId, 1);
-    const round1StandingsIds = {};
-    for (const g of GROUP_NAMES) {
-      round1StandingsIds[g] = (round1Standings[g] || []).map((row) => row.participantId);
+    const priorStandings = LeagueData.getGroupStageStandings(seasonId, targetStage - 1);
+    if (!priorStandings) {
+      throw new Error(`Round ${targetStage} cannot be generated: previous-round standings are unavailable.`);
     }
 
     const maxExistingRound = season.schedule.reduce((max, r) => Math.max(max, r.round), 0);
-    const round2Rounds = generateGroupStageRounds(round2Groups, 2, maxExistingRound);
-
-    const round2Matchups = round2Rounds.flatMap((r) => r.matchups);
-    if (round2Matchups.length !== 24) {
-      throw new Error(`Internal error: expected 24 Round 2 games, generated ${round2Matchups.length}.`);
+    const newRounds = generateGroupStageRounds(proposedGroups, targetStage, maxExistingRound);
+    const newMatchups = newRounds.flatMap((r) => r.matchups);
+    if (newMatchups.length !== 24) {
+      throw new Error(`Internal error: expected 24 Round ${targetStage} games, generated ${newMatchups.length}.`);
     }
 
-    // Home Court Rule — Round 2: better (higher) Round 1 point differential
-    // gets home court, tied on total Round 1 points scored, then on the
-    // same unique pick number Round 1 uses (see assignRound2HomeCourt).
-    const round1StatsByParticipant = {};
+    const priorStatsByParticipant = {};
     for (const g of GROUP_NAMES) {
-      for (const row of round1Standings[g] || []) {
-        round1StatsByParticipant[row.participantId] = row;
+      for (const row of priorStandings[g] || []) {
+        priorStatsByParticipant[row.participantId] = row;
       }
     }
-    const statsOf = (pid) => round1StatsByParticipant[pid];
+    const statsOf = (pid) => priorStatsByParticipant[pid];
     const pickNumberOf = (pid) => season.teamAssignmentOrder.indexOf(pid) + 1;
-    assignRound2HomeCourt(round2Matchups, statsOf, pickNumberOf);
+    assignRound2HomeCourt(newMatchups, statsOf, pickNumberOf);
 
-    season.schedule = [...season.schedule, ...round2Rounds];
-    season.groupStageState.stage = 2;
-    season.groupStageState.round1Standings = round1StandingsIds;
-    season.groupStageState.round2Groups = round2Groups;
+    season.schedule = [...season.schedule, ...newRounds];
+    season.groupStageState.stage = targetStage;
+    if (targetStage === 2) {
+      season.groupStageState.round1Standings = {};
+      for (const g of GROUP_NAMES) {
+        season.groupStageState.round1Standings[g] = (priorStandings[g] || []).map((row) => row.participantId);
+      }
+      season.groupStageState.round2Groups = proposedGroups;
+    } else {
+      season.groupStageState.round3Groups = proposedGroups;
+    }
     saveData(data);
-    return round2Rounds;
+    return newRounds;
   },
 
   /**
@@ -5059,9 +5054,9 @@ const AdminActions = {
     // editing them afterward would silently invalidate seeding nobody
     // would notice happened. Round 2 results, and every Round Robin game,
     // are unaffected by this check.
-    if (found.stage === 1 && season.groupStageState && season.groupStageState.stage === 2) {
+    if (found.stage && season.groupStageState && season.groupStageState.stage > found.stage) {
       throw new Error(
-        "Cannot edit a Round 1 result: Round 2 has already been generated from the Round 1 standings."
+        `Cannot edit a Round ${found.stage} result: a later Group Stage round has already been generated from the preceding standings.`
       );
     }
 

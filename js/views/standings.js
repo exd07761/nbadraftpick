@@ -155,27 +155,21 @@ const StandingsView = {
   },
 
   /**
-   * Group Stage only: renders every stage that has data (Stage 1, and
-   * Stage 2 once it's been generated) as its own row of 4 independent
-   * Group tables — Stage → Group → Team, never combined across groups
-   * or across stages. Each table's standings come straight from
-   * LeagueData.getGroupStageStandings(seasonId, stage), which already
-   * scopes matchups to that exact stage + group (see data.js) — this
-   * function does no filtering of its own.
-   *
-   * Returns '' for a Round Robin season, so that season's rendering is
-   * byte-for-byte what it always was. If Stage 2 doesn't exist yet for
-   * an existing Group Stage season, only Stage 1 is rendered — nothing
-   * is fabricated.
+   * Group Stage only: renders every generated stage (1, 2, and 3) as its
+   * own row of 4 independent Group tables. Each stage's standings come
+   * directly from LeagueData.getGroupStageStandings(), which owns the
+   * cumulative carry-forward logic.
    */
   _renderGroupStageSection(season) {
     if (season.scheduleFormat !== 'groupStage' || !season.groupStageState) return '';
 
     let hasStage2 = false;
-    const stageSections = [1, 2].map((stageNum) => {
+    let hasStage3 = false;
+    const stageSections = [1, 2, 3].map((stageNum) => {
       const standings = LeagueData.getGroupStageStandings(season.id, stageNum);
       if (!standings) return '';
       if (stageNum === 2) hasStage2 = true;
+      if (stageNum === 3) hasStage3 = true;
 
       return `
         <h4 class="section-title" style="font-size:0.95rem;margin:${stageNum === 1 ? '0' : '1.25rem'} 0 0.5rem;">
@@ -221,12 +215,10 @@ const StandingsView = {
     if (!stageSections) return '';
 
     return `
-      <h3 class="section-title" style="margin-bottom:0.5rem;">
-        Group Stage Standings
-      </h3>
+      <h3 class="section-title" style="margin-bottom:0.5rem;">Group Stage Standings</h3>
       ${stageSections}
       <p class="helper-text" style="margin-bottom:1.5rem;">
-        Stage 1 standings reflect Stage 1 games only.${hasStage2 ? ' Stage 2 standings are cumulative — each team\'s Stage 1 record carries forward into their new Stage 2 group, so a Stage 2 row shows the combined Stage 1 + Stage 2 record.' : ''} Groups never combine with each other.
+        Stage 1 standings reflect Stage 1 games only.${hasStage2 ? ' Stage 2 standings are cumulative through Stage 2 — each team carries its Stage 1 W/L/+/- into its new Stage 2 group.' : ''}${hasStage3 ? ' Stage 3 standings are cumulative through Stage 3 — each team carries its Stage 1 and Stage 2 W/L/+/- into its new Stage 3 group.' : ''} Groups never combine with each other.
       </p>`;
   },
 
