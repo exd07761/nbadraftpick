@@ -376,11 +376,11 @@ const WHITE_MIN_RATING = 75; // Phase D3: White's rating FLOOR is 75, same numer
                               // Blue-like everywhere else (isBlueLike() below, unchanged) —
                               // composition caps, phased draft caps, and trade fees. Rating
                               // minimum is the ONE exception: see minRatingFor() below.
-const MAX_BLUE_PLAYERS = 5;
+const MAX_BLUE_PLAYERS = 6;
 const MAX_FIRST_THREE_BLUE_TOTAL = 380;
 const MAX_FOURTH_BLUE_RATING = 99;
 const MAX_BLUE_DRAFT_PHASE1 = 3; // own picks 1-5: max Blue players
-const MAX_BLUE_DRAFT_PHASE2_ADDITIONAL = 2; // own picks 6-10: max ADDITIONAL Blue players (5 total max)
+const MAX_BLUE_DRAFT_PHASE2_ADDITIONAL = 5; // own picks 6-10: max ADDITIONAL Blue players (5 total max)
 const MAX_PLAYERS_PER_POSITION = 2;
 const MAX_ROSTER_SIZE = 10; // 5 core positions x 2 max — enforced at draft time too, not just Phase 5 transactions
 const POOL_TRADE_FEE = { green: 100, blue: 100 };
