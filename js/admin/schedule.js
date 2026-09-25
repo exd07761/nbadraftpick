@@ -11,12 +11,11 @@
  * shape (see AdminActions.generateSchedule / generateGroupStageSchedule
  * in data.js):
  *   - Round Robin (original, default): every team plays every other team once.
- *   - Group Stage (legacy 16-team/4-group format): two 24-game stages.
+ *   - Group Stage (legacy 16-team/4-group format): three 24-game stages.
  *     Round 1 groups are auto-assigned from the existing team order
- *     (adjustable). Round 2 groups are entered manually by the
- *     commissioner after running an external online roulette (Revision —
- *     Manual Online-Roulette Assignment) — this file no longer computes
- *     or suggests Round 2 group membership; see _renderRound2Assignment.
+ *     (adjustable). Round 2 and Round 3 groups are entered manually by the
+ *     commissioner after running an external online roulette — this file
+ *     never computes or suggests later-round group membership.
  *     See data.js's Group Stage section for the actual scheduling logic —
  *     this file is UI only.
  */
@@ -24,8 +23,10 @@ const AdminScheduleView = {
   _selectedRound: 1,
   _pendingFormat: 'roundRobin', // which format is selected in the pre-generation picker
   _pendingGroups: null,         // { A:[...], B:[...], C:[...], D:[...] } — draft Round 1 group assignment, not yet saved
-  _pendingRound2Groups: null,   // { A:[id|null x4], B:[...], C:[...], D:[...] } — draft manual Round 2 assignment (external roulette result), not yet saved
-  _round2Error: null,           // last validation error string from a failed "Generate Round 2" attempt, shown until the next edit or retry
+  _pendingRound2Groups: null,   // draft manual Round 2 assignment
+  _round2Error: null,           // last Round 2 validation error
+  _pendingRound3Groups: null,   // draft manual Round 3 assignment
+  _round3Error: null,           // last Round 3 validation error
   _pendingConferences: null,    // { A:[...], B:[...] } — draft Conference Round Robin conference split, not yet saved
 
   render(container) {
@@ -277,8 +278,8 @@ const AdminScheduleView = {
 
     return `
       <div class="info-banner" style="margin-bottom:0.75rem;">
-        16 Teams → 4 Groups → Round 1: 24 games → reseeding → Round 2: 24 games →
-        <strong>Total: 48 games, 6 games/team</strong>.
+        16 Teams → 4 Groups → Round 1: 24 games → reseeding → Round 2: 24 games → Round 3: 24 games →
+        <strong>Total: 72 games, 9 games/team</strong>.
       </div>
       <p class="helper-text">Groups are auto-assigned from the existing NBA Team Assignment order.
         Use the dropdown next to a team to move them to a different group before generating.</p>
@@ -319,14 +320,12 @@ const AdminScheduleView = {
   },
 
   /**
-   * Group Stage-only panel shown above the round tabs: current stage,
-   * Round 1 standings (live during stage 1, frozen seed source once stage
-   * 2 exists), the "Generate Round 2" action once Round 1 is complete,
-   * and the resulting Round 2 groups once generated.
+   * Group Stage-only panel shown above the round tabs. Each later stage uses
+   * the same external-roulette assignment flow as Round 2, and standings
+   * are cumulative through the currently displayed stage.
    */
   _renderGroupStagePanel(season, state) {
     const gs = season.groupStageState;
-    const standings1 = LeagueData.getGroupStageStandings(season.id, 1);
     const nameFor = (pid) => season.participants[pid]?.name || '—';
 
     const groupTable = (standings) => `
@@ -338,7 +337,7 @@ const AdminScheduleView = {
               <table class="roster-table">
                 <thead><tr><th>#</th><th>Team</th><th>W-L</th><th>+/-</th></tr></thead>
                 <tbody>
-                  ${(standings[g] || []).map((row, i) => `
+                  ${(standings?.[g] || []).map((row, i) => `
                     <tr>
                       <td>${i + 1}</td>
                       <td>${escapeHtml(row.participantName || '—')}</td>
@@ -351,6 +350,19 @@ const AdminScheduleView = {
           </div>`).join('')}
       </div>`;
 
+    const renderGroups = (title, groups) => `
+      <div class="roster-cards" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+        ${['A', 'B', 'C', 'D'].map((g) => `
+          <div class="roster-card" style="min-width:200px;">
+            <div class="roster-card-header"><span class="roster-card-name">${title} — Group ${g}</span></div>
+            <div class="table-scroll">
+              <table class="roster-table"><tbody>
+                ${(groups?.[g] || []).map((pid) => `<tr><td>${escapeHtml(nameFor(pid))}</td></tr>`).join('')}
+              </tbody></table>
+            </div>
+          </div>`).join('')}
+      </div>`;
+
     if (gs.stage === 1) {
       const round1Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 1);
       const round1Complete = round1Matchups.every((m) => m.status === 'completed');
@@ -358,99 +370,94 @@ const AdminScheduleView = {
         <div class="info-banner" style="margin:0.75rem 0;">
           <strong>Stage 1 — Round 1 Group Play</strong> (24 games, 3/team).
           ${round1Complete
-            ? 'Round 1 is complete. Round 1 standings below are for reference only — run the external online roulette, then enter the Round 2 groups manually below.'
+            ? 'Round 1 is complete. Run the external online roulette, then enter the Round 2 groups manually below.'
             : 'Complete all Round 1 games, then run the roulette to assign Round 2 groups.'}
         </div>
-        ${groupTable(standings1)}
-        ${round1Complete ? this._renderRound2Assignment(season) : ''}`;
+        ${groupTable(LeagueData.getGroupStageStandings(season.id, 1))}
+        ${round1Complete ? this._renderLaterRoundAssignment(season, 2) : ''}`;
     }
 
-    // Stage 2: show the frozen Round 1 standings (informational/audit only
-    // — Round 2 group membership was NOT derived from these, see
-    // generateGroupStageRound2's doc comment in data.js) and the
-    // commissioner's manually entered Round 2 groups.
+    if (gs.stage === 2) {
+      const stage2Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 2);
+      const stage2Complete = stage2Matchups.every((m) => m.status === 'completed');
+      return `
+        <div class="info-banner" style="margin:0.75rem 0;">
+          <strong>Stage 2 — Round 2 Group Play</strong> (24 games, 3/team).
+          ${stage2Complete
+            ? 'Round 2 is complete. Run the external online roulette, then enter the Round 3 groups manually below.'
+            : 'Complete all Round 2 games before generating Round 3.'}
+        </div>
+        <details style="margin-bottom:0.75rem;">
+          <summary style="cursor:pointer;">Round 1 final standings (reference only)</summary>
+          <div style="margin-top:0.5rem;">${groupTable(LeagueData.getGroupStageStandings(season.id, 1))}</div>
+        </details>
+        ${renderGroups('Round 2', gs.round2Groups)}
+        <details style="margin-top:0.75rem;">
+          <summary style="cursor:pointer;">Round 2 cumulative standings</summary>
+          <div style="margin-top:0.5rem;">${groupTable(LeagueData.getGroupStageStandings(season.id, 2))}</div>
+        </details>
+        ${stage2Complete ? this._renderLaterRoundAssignment(season, 3) : ''}`;
+    }
+
     return `
       <div class="info-banner" style="margin:0.75rem 0;">
-        <strong>Stage 2 — Round 2 Group Play</strong> (24 games, 3/team) — manually assigned via external roulette.
+        <strong>Stage 3 — Round 3 Group Play</strong> (24 games, 3/team).
+        Round 3 standings carry forward the complete Round 1 + Round 2 W/L/+/- record.
       </div>
-      <details style="margin-bottom:0.75rem;">
-        <summary style="cursor:pointer;">Round 1 final standings (reference only)</summary>
-        <div style="margin-top:0.5rem;">${groupTable(standings1)}</div>
-      </details>
-      <div class="roster-cards" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-        ${['A', 'B', 'C', 'D'].map((g) => `
-          <div class="roster-card" style="min-width:200px;">
-            <div class="roster-card-header"><span class="roster-card-name">Round 2 — Group ${g}</span></div>
-            <div class="table-scroll">
-              <table class="roster-table">
-                <tbody>
-                  ${gs.round2Groups[g].map((pid) => `<tr><td>${escapeHtml(nameFor(pid))}</td></tr>`).join('')}
-                </tbody>
-              </table>
-            </div>
-          </div>`).join('')}
-      </div>`;
+      ${renderGroups('Round 3', gs.round3Groups)}
+      <details style="margin-top:0.75rem;">
+        <summary style="cursor:pointer;">Final cumulative Group Stage standings</summary>
+        <div style="margin-top:0.5rem;">${groupTable(LeagueData.getGroupStageStandings(season.id, 3))}</div>
+      </details>`;
   },
 
-  /**
-   * Manual Round 2 assignment (Revision — Manual Online-Roulette
-   * Assignment). The commissioner runs the actual team draw on an
-   * external roulette and enters the result here — this app never
-   * computes or suggests which teams go where. Every slot is a dropdown
-   * (never free text) sourced from the same 16 assigned teams Round 1
-   * used; a team already picked in another slot is disabled everywhere
-   * else, and immediately becomes selectable again the moment it's
-   * deselected — recomputed fresh on every render from
-   * this._pendingRound2Groups, so there's no separate "used" list to fall
-   * out of sync.
-   */
-  _renderRound2Assignment(season) {
-    const assignedTeamIds = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]);
-    if (!this._pendingRound2Groups) {
-      this._pendingRound2Groups = { A: [null, null, null, null], B: [null, null, null, null], C: [null, null, null, null], D: [null, null, null, null] };
+  _renderLaterRoundAssignment(season, stage) {
+    const key = stage === 2 ? '_pendingRound2Groups' : '_pendingRound3Groups';
+    const errorKey = stage === 2 ? '_round2Error' : '_round3Error';
+    if (!this[key]) {
+      this[key] = { A: [null, null, null, null], B: [null, null, null, null], C: [null, null, null, null], D: [null, null, null, null] };
     }
+    const assignedTeamIds = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]);
     const nameFor = (pid) => season.participants[pid]?.name || '—';
-    const allSelected = GROUP_NAMES.flatMap((g) => this._pendingRound2Groups[g]).filter((pid) => pid != null);
+    const allSelected = GROUP_NAMES.flatMap((g) => this[key][g]).filter((pid) => pid != null);
     const assignedCount = allSelected.length;
-
     const groupCols = GROUP_NAMES.map((g) => {
-      const slots = this._pendingRound2Groups[g];
+      const slots = this[key][g];
       return `
         <div class="roster-card" style="min-width:220px;">
           <div class="roster-card-header">
             <span class="roster-card-name">Group ${g}</span>
             <span class="roster-card-count ${slots.filter((s) => s != null).length === 4 ? '' : 'cap-over-text'}">${slots.filter((s) => s != null).length}/4</span>
           </div>
-          <div class="table-scroll">
-            <table class="roster-table"><tbody>
-              ${slots.map((pid, i) => `
-                <tr><td>
-                  <select class="input" style="width:100%;" data-round2-group="${g}" data-round2-index="${i}">
-                    <option value="">Select Team…</option>
-                    ${assignedTeamIds.map((tid) => {
-                      const isThisSlot = tid === pid;
-                      const isUsedElsewhere = !isThisSlot && allSelected.includes(tid);
-                      return `<option value="${tid}" ${isThisSlot ? 'selected' : ''} ${isUsedElsewhere ? 'disabled' : ''}>${escapeHtml(nameFor(tid))}</option>`;
-                    }).join('')}
-                  </select>
-                </td></tr>`).join('')}
-            </tbody></table>
-          </div>
+          <div class="table-scroll"><table class="roster-table"><tbody>
+            ${slots.map((pid, i) => `
+              <tr><td>
+                <select class="input" style="width:100%;" data-later-stage="${stage}" data-later-group="${g}" data-later-index="${i}">
+                  <option value="">Select Team…</option>
+                  ${assignedTeamIds.map((tid) => {
+                    const isThisSlot = tid === pid;
+                    const isUsedElsewhere = !isThisSlot && allSelected.includes(tid);
+                    return `<option value="${tid}" ${isThisSlot ? 'selected' : ''} ${isUsedElsewhere ? 'disabled' : ''}>${escapeHtml(nameFor(tid))}</option>`;
+                  }).join('')}
+                </select>
+              </td></tr>`).join('')}
+          </tbody></table></div>
         </div>`;
     }).join('');
 
     return `
       <div style="margin-top:1rem;">
-        <h3 class="section-title" style="font-size:1rem;margin-bottom:0.5rem;">Round 2 Group Assignment (from external roulette)</h3>
+        <h3 class="section-title" style="font-size:1rem;margin-bottom:0.5rem;">Round ${stage} Group Assignment (from external roulette)</h3>
         <p class="helper-text">Enter the roulette result below. Assigned: ${assignedCount}/16.</p>
-        <div class="roster-cards" id="round2AssignmentCols" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-          ${groupCols}
-        </div>
-        ${this._round2Error ? `<p class="error-text" style="margin-top:0.5rem;">${escapeHtml(this._round2Error)}</p>` : ''}
-        <button class="btn btn-primary" data-action="generateRound2" style="margin-top:0.75rem;">
-          Generate Round 2
-        </button>
+        <div class="roster-cards" id="round${stage}AssignmentCols" style="display:flex;gap:0.75rem;flex-wrap:wrap;">${groupCols}</div>
+        ${this[errorKey] ? `<p class="error-text" style="margin-top:0.5rem;">${escapeHtml(this[errorKey])}</p>` : ''}
+        <button class="btn btn-primary" data-action="generateLaterRound" data-stage="${stage}" style="margin-top:0.75rem;">Generate Round ${stage}</button>
       </div>`;
+  },
+
+  // Backward-compatible name retained for any existing internal callers.
+  _renderRound2Assignment(season) {
+    return this._renderLaterRoundAssignment(season, 2);
   },
 
   /**
@@ -507,7 +514,7 @@ const AdminScheduleView = {
     const isGroupStage = season.scheduleFormat === 'groupStage' && !!season.groupStageState;
     const isConferenceRoundRobin = season.scheduleFormat === 'conferenceRoundRobin' && !!season.conferenceRoundRobinState;
     const roundStage = isGroupStage
-      ? (activeRound.matchups[0]?.stage || (this._selectedRound <= 3 ? 1 : 2))
+      ? (activeRound.matchups[0]?.stage || (this._selectedRound <= 3 ? 1 : this._selectedRound <= 6 ? 2 : 3))
       : null;
     const formatLabel = isGroupStage ? ' (Group Stage)' : isConferenceRoundRobin ? ' (Conference Round Robin)' : '';
 
@@ -599,6 +606,8 @@ const AdminScheduleView = {
         this._pendingGroups = null;
         this._pendingRound2Groups = null;
         this._round2Error = null;
+        this._pendingRound3Groups = null;
+        this._round3Error = null;
         this._pendingConferences = null;
         this._selectedRound = 1;
         this.render(container);
@@ -607,34 +616,41 @@ const AdminScheduleView = {
       }
     });
 
-    container.querySelectorAll('[data-round2-group]').forEach((select) => {
+    container.querySelectorAll('[data-later-stage]').forEach((select) => {
       select.onchange = () => {
-        const g = select.dataset.round2Group;
-        const idx = Number(select.dataset.round2Index);
-        this._pendingRound2Groups[g][idx] = select.value || null;
-        this._round2Error = null;
+        const stage = Number(select.dataset.laterStage);
+        const key = stage === 2 ? '_pendingRound2Groups' : '_pendingRound3Groups';
+        const errorKey = stage === 2 ? '_round2Error' : '_round3Error';
+        const g = select.dataset.laterGroup;
+        const idx = Number(select.dataset.laterIndex);
+        this[key][g][idx] = select.value || null;
+        this[errorKey] = null;
         this._renderGenerated(container, season, state);
       };
     });
 
-    container.querySelector('[data-action="generateRound2"]')?.addEventListener('click', () => {
+    container.querySelector('[data-action="generateLaterRound"]')?.addEventListener('click', () => {
       AuthBoundary.requireAuth();
+      const stage = Number(container.querySelector('[data-action="generateLaterRound"]').dataset.stage);
+      const key = stage === 2 ? '_pendingRound2Groups' : '_pendingRound3Groups';
+      const errorKey = stage === 2 ? '_round2Error' : '_round3Error';
+      const groups = this[key];
       const summary = ['A', 'B', 'C', 'D']
-        .map((g) => `Group ${g}:\n${this._pendingRound2Groups[g].map((pid) => '  - ' + (season.participants[pid]?.name || '(empty)')).join('\n')}`)
+        .map((g) => `Group ${g}:\n${groups[g].map((pid) => '  - ' + (season.participants[pid]?.name || '(empty)')).join('\n')}`)
         .join('\n\n');
       if (!confirm(
-        `Generate Round 2 with these groups?\n\n${summary}\n\nExpected games: 24 (3/team). ` +
-        `This locks Round 1 results — they can no longer be edited afterward.`
+        `Generate Round ${stage} with these groups?\n\n${summary}\n\nExpected games: 24 (3/team). ` +
+        `This locks all earlier Group Stage results — they can no longer be edited afterward.`
       )) return;
       try {
-        AdminActions.generateGroupStageRound2(season.id, this._pendingRound2Groups);
-        showToast('Round 2 generated.', 'success');
-        this._selectedRound = 4;
-        this._pendingRound2Groups = null;
-        this._round2Error = null;
+        AdminActions[`generateGroupStageRound${stage}`](season.id, groups);
+        showToast(`Round ${stage} generated.`, 'success');
+        this._selectedRound = stage === 2 ? 4 : 7;
+        this[key] = null;
+        this[errorKey] = null;
         this.render(container);
       } catch (e) {
-        this._round2Error = e.message;
+        this[errorKey] = e.message;
         this._renderGenerated(container, season, state);
       }
     });
@@ -663,7 +679,7 @@ const AdminScheduleView = {
     }
 
     const isCompleted = m.status === 'completed';
-    const round1Locked = m.stage === 1 && season.groupStageState && season.groupStageState.stage === 2;
+    const round1Locked = m.stage && season.groupStageState && season.groupStageState.stage > m.stage;
     const groupBadge = m.group
       ? `<span class="status-chip" style="margin-right:0.5rem;">Group ${m.group}</span>`
       : m.conference
@@ -684,7 +700,7 @@ const AdminScheduleView = {
             <span class="matchup-streamer">🎥 ${escapeHtml(m.streamer)}</span>
           </div>
           ${round1Locked
-            ? `<span class="muted" style="font-size:0.75rem;" title="Round 2 has been generated from these standings">🔒 Locked</span>`
+            ? `<span class="muted" style="font-size:0.75rem;" title="A later Group Stage round has been generated from these standings">🔒 Locked</span>`
             : `<button class="btn btn-sm btn-ghost" data-action="enter-score" data-matchup-id="${m.id}">Edit</button>`}
         ` : `
           <span class="matchup-status status-chip status-scheduled">Scheduled</span>
