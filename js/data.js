@@ -1372,7 +1372,7 @@ function assignRound1HomeCourt(matchups, pickNumberOf) {
       // unreachable. Fail loudly rather than silently guessing a side.
       throw new Error("Internal error: two teams share the same original pick number.");
     }
-    if (pickA > pickB) {
+    if (pickA < pickB) {
       m.home = m.teamA;
       m.away = m.teamB;
     } else {
@@ -1401,7 +1401,7 @@ function assignRound2HomeCourt(matchups, statsOf, pickNumberOf) {
     } else if (a.pointsFor !== b.pointsFor) {
       aIsHome = a.pointsFor > b.pointsFor;
     } else {
-      aIsHome = pickNumberOf(m.teamA) > pickNumberOf(m.teamB);
+      aIsHome = pickNumberOf(m.teamA) < pickNumberOf(m.teamB);
     }
     if (aIsHome) {
       m.home = m.teamA;
