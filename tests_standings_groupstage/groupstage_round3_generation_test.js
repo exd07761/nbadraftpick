@@ -27,7 +27,7 @@ const round3 = { A:['p1','p6','p11','p16'], B:['p2','p7','p12','p13'], C:['p3','
 const fixture = {
   settings: { currentSeasonId: 's' }, players: {},
   seasons: { s: {
-    id: 's', participants, teamAssignmentOrder: order, nbaTeamAssignments: assignments,
+    id: 's', participants, playerDraftOrder: order, teamAssignmentOrder: order, nbaTeamAssignments: assignments,
     teamAssignmentComplete: true, schedule: [], scheduleGeneratedAt: null,
     scheduleFormat: null, groupStageState: null,
   } },

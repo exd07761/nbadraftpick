@@ -4710,10 +4710,10 @@ const AdminActions = {
     const round1Matchups = round1Rounds.flatMap((r) => r.matchups);
 
     // Home Court Rule — Round 1: higher original team-assignment pick
-    // number (season.teamAssignmentOrder position) gets home court. Mutates
+    // number (season.playerDraftOrder position from DuckRace #1) gets home court. Mutates
     // round1Matchups (the same objects referenced inside round1Rounds) in
     // place before anything is written.
-    const pickNumberOf = (pid) => season.teamAssignmentOrder.indexOf(pid) + 1;
+    const pickNumberOf = (pid) => season.playerDraftOrder.indexOf(pid) + 1;
     assignRound1HomeCourt(round1Matchups, pickNumberOf);
 
     // Sanity-check the generator's own output before writing anything —
@@ -5001,7 +5001,7 @@ const AdminActions = {
       }
     }
     const statsOf = (pid) => priorStatsByParticipant[pid];
-    const pickNumberOf = (pid) => season.teamAssignmentOrder.indexOf(pid) + 1;
+    const pickNumberOf = (pid) => season.playerDraftOrder.indexOf(pid) + 1;
     assignRound2HomeCourt(newMatchups, statsOf, pickNumberOf);
 
     season.schedule = [...season.schedule, ...newRounds];
