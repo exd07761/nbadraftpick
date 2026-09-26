@@ -35,7 +35,7 @@ const PUBLIC_VIEWS = ['HomeView', 'ScheduleView', 'StandingsView', 'PlayoffsView
 const ADMIN_VIEWS = ['AdminSeasonsView', 'AdminParticipantsView', 'AdminPlayersView', 'AdminDraftOrderView',
   'AdminDraftView', 'AdminTeamAssignmentView', 'AdminRosterView', 'AdminScheduleView', 'AdminPlayoffsView',
   'AdminTradesView', 'AdminFinancialView', 'AdminBackupView', 'Nba2kImport', 'Nba2kDatabaseView',
-  'Nba2k27PoolView', 'Nba2k27PositionSortView'];
+  'Nba2k27PoolView', 'Nba2k27PositionSortView', 'Nba2k27LiveImportView'];
 
 // Any call boot is NOT expected to make is recorded here (writes, saves, retries...).
 function strictProxy(name, target, allowed, unexpected) {
