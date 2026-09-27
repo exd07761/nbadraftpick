@@ -224,6 +224,28 @@
   .roster-card-table td:last-child { display: none; }
 }
 
+/* ─── Hall of Fame ───────────────────────────────────────────────────────── */
+.hof-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.hof-card-head { border-bottom: 1px solid var(--nb-surface-border); }
+.hof-season { color: var(--nb-text-muted); }
+.hof-champion { color: var(--nb-text); }
+.hof-champion-badge { background: var(--nb-gold-dim); color: #7a5a00; }
+.hof-row { border-bottom: 1px solid var(--nb-surface-border); color: var(--nb-text); }
+.hof-row-slot, .hof-row-pos { color: var(--nb-text-muted); }
+.hof-row-ovr { color: var(--nb-primary); }
+.hof-toggle-btn {
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.hof-toggle-btn:hover { color: var(--nb-text); border-color: var(--nb-primary); }
+
 /* ─── Schedule ───────────────────────────────────────────────────────────── */
 .round-tabs { border-bottom: 1px solid var(--nb-surface-border); }
 .round-tab {

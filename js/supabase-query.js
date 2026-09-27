@@ -72,6 +72,33 @@ const SupabaseQuery = (() => {
   }
 
   /**
+   * Calls a SECURITY DEFINER write RPC (e.g. create_hall_of_fame_champion,
+   * update_hall_of_fame_champion, delete_hall_of_fame_champion — Phase
+   * 6.13) — the write-side counterpart to callReadRpc above. Mechanically
+   * identical (same SupabaseClient.rpc() call, same error normalization);
+   * kept as its own named function rather than reusing callReadRpc so
+   * call sites read clearly as a write and so this file's own read/write
+   * distinction (documented in the file header above) stays visible in
+   * the code, not just in comments. No business logic here either — the
+   * RPC itself is still the only place validation and authorization
+   * (require_commissioner()) happen; this is just the same generic
+   * plumbing as every other SupabaseQuery function.
+   * @param {string} fnName
+   * @param {object} params
+   * @returns {Promise<any>}
+   */
+  async function callWriteRpc(fnName, params) {
+    if (!SupabaseClient) {
+      throw new Error(
+        "SupabaseQuery.callWriteRpc: SupabaseClient is not initialized (check supabase-config.js load order)."
+      );
+    }
+    const { data, error } = await SupabaseClient.rpc(fnName, params);
+    if (error) throw normalizeError(error, `rpc ${fnName}`);
+    return data;
+  }
+
+  /**
    * Normalizes a Supabase/PostgREST error into a single shape so callers
    * don't need to know whether it came from a table SELECT or an RPC.
    * Mirrors how the current Firebase-backed code surfaces a plain Error
@@ -87,5 +114,5 @@ const SupabaseQuery = (() => {
     return wrapped;
   }
 
-  return { select, callReadRpc };
+  return { select, callReadRpc, callWriteRpc };
 })();

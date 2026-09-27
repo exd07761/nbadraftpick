@@ -10,7 +10,9 @@
  * live draft; see js/views/draft.js), and PublicNba2k27View (Phase 11 —
  * read-only NBA 2K27 player view; see js/views/nba2k27.js), and
  * PublicRosterSimulatorView (Roster Simulator Phase 1 — a temporary,
- * in-memory what-if roster; see js/views/roster-simulator.js), which are
+ * in-memory what-if roster; see js/views/roster-simulator.js), and
+ * HallOfFameView (static historical champions archive, no DB reads; see
+ * js/views/hall-of-fame.js), which are
  * defined in js/views/*.js. Only index.html loads those view files —
  * admin.html must NOT include this file, or the `routes` object below
  * will throw a ReferenceError for every view global it can't find.
@@ -36,6 +38,7 @@ const routes = {
   draft: PublicDraftView, // Phase 2 redesign — read-only, see js/views/draft.js
   nba2k27: PublicNba2k27View, // Phase 11 — read-only, see js/views/nba2k27.js
   'roster-simulator': PublicRosterSimulatorView, // Roster Simulator Phase 1 — client-side only, no writes; see js/views/roster-simulator.js
+  'hall-of-fame': HallOfFameView, // Hall of Fame — static historical archive, no DB reads; see js/views/hall-of-fame.js
 };
 
 let currentRoute = null;

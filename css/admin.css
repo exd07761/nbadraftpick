@@ -1119,6 +1119,26 @@ select.input { cursor: pointer; }
 }
 .modal-actions { display: flex; gap: 0.6rem; justify-content: flex-end; }
 
+/* ── Hall of Fame admin modal (Phase 6.14) ──────────────────────────────────
+   The base .modal-card above caps at 380px, sized for a short confirm
+   dialog — too narrow for a 10-row roster editor. Same override pattern
+   already used for a taller/wider feature-specific form on top of the
+   shared .modal-overlay/.modal-card (see .manual-edit-modal in
+   css/admin-nba2k-theme.css): a wider max-width plus max-height +
+   overflow-y so the form scrolls internally instead of exceeding the
+   viewport, with a mobile full-width override matching the same file's
+   convention. No other modal or .modal-card use is affected. */
+.hof-admin-modal {
+  max-width: 640px;
+  max-height: 85vh;
+  overflow-y: auto;
+  position: relative;
+  padding-top: 2.5rem;
+}
+@media (max-width: 700px) {
+  .hof-admin-modal { max-width: 100%; }
+}
+
 /* ── Responsive ── */
 @media (max-width: 1100px) {
   .draft-main .pos-table-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }

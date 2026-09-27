@@ -31,7 +31,7 @@ const AdminApp = {
     nba2kDatabase: Nba2kDatabaseView,
     nba2k27Pool: Nba2k27PoolView,
     nba2k27PositionSort: Nba2k27PositionSortView,
-    nba2k27LiveImport: Nba2k27LiveImportView,
+    hallOfFame: AdminHallOfFameView,
   },
 
   renderView(viewName) {

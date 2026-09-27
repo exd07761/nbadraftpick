@@ -469,6 +469,58 @@ a:hover { color: var(--accent-hover); }
 .roster-card-table th, .roster-card-table td { padding: 0.4rem 0.5rem; }
 .roster-card-source { color: var(--text-dim); font-size: 0.72rem; text-transform: capitalize; }
 
+/* ─── Hall of Fame (public) — static historical champions archive ─────────────
+   Presentation-only, same card/table language as .roster-card above.
+   Structural rules live here (main.css); color/theme overrides for the
+   public site live in public-theme.css, same split as everywhere else
+   in this file. No JS in hall-of-fame.js depends on class names beyond
+   what's used below. */
+.hof-list { display: flex; flex-direction: column; gap: 1.1rem; }
+
+.hof-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 1rem 1.1rem; display: flex; flex-direction: column; gap: 0.65rem;
+}
+
+.hof-card-head {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.6rem;
+  padding-bottom: 0.6rem; border-bottom: 1px solid var(--border);
+}
+.hof-season { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.hof-champion { font-size: 1.15rem; font-weight: 900; letter-spacing: -0.01em; }
+.hof-champion-badge {
+  margin-left: auto; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.06em;
+  padding: 0.2rem 0.55rem; border-radius: 999px;
+}
+
+.hof-roster { display: flex; flex-direction: column; }
+.hof-row {
+  display: grid; grid-template-columns: 2rem 1fr 3rem 3rem;
+  align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.2rem; border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.hof-roster .hof-row:last-child { border-bottom: none; }
+.hof-row-slot { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.hof-row-player { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hof-row-pos { color: var(--text-muted); text-align: center; }
+.hof-row-ovr { font-weight: 700; color: var(--accent); text-align: right; font-variant-numeric: tabular-nums; }
+
+.hof-roster-extra[hidden] { display: none; }
+
+.hof-toggle-btn {
+  align-self: flex-start; margin-top: 0.2rem;
+  font-family: var(--font-ui); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.02em;
+  background: none; border: 1px solid var(--border); border-radius: var(--r);
+  padding: 0.35rem 0.7rem; cursor: pointer; color: var(--text-muted);
+}
+.hof-toggle-btn:hover { color: var(--text); border-color: var(--accent); }
+
+@media (max-width: 700px) {
+  .hof-row { grid-template-columns: 1.6rem 1fr 2.4rem 2.4rem; font-size: 0.8rem; gap: 0.35rem; }
+  .hof-champion-badge { margin-left: 0; }
+}
+
 /* ─── Phase 10.4: Teams (public) — team-identity focus, no roster table ───────── */
 .team-detail-panel { padding: 0.5rem 0; }
 .team-detail-hero {
