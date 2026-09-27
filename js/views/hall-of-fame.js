@@ -1,13 +1,24 @@
 /**
  * views/hall-of-fame.js — Public Hall of Fame view.
  *
- * PUBLIC-ONLY, read-only, static historical archive of past NBA2K league
- * champions. Renders entirely from HallOfFameData (js/hall-of-fame-data.js)
- * — a plain in-memory array, not LeagueData. This view:
- *   - makes NO Supabase queries
- *   - makes NO Firestore/Firebase queries
- *   - makes NO RPC calls
- *   - does not read participant_id / player_id / current roster / draft data
+ * PUBLIC-ONLY, read-only historical archive of past NBA2K league
+ * champions, loaded from Supabase (`public.hall_of_fame`) via the same
+ * plain-SELECT read pattern js/admin/hall-of-fame.js already uses
+ * (SupabaseQuery.select('hall_of_fame', ...)) — table-level SELECT is
+ * already open to anon/authenticated (Phase 6.11), so no read RPC is
+ * needed and none is used here. This view:
+ *   - makes ONE read: SupabaseQuery.select('hall_of_fame', ...)
+ *   - makes NO write calls, NO RPC calls
+ *   - does not read participant_id / player_id / current roster / draft
+ *     data — a Hall of Fame roster row is exactly {slot, player,
+ *     position, ovr}, free-text historical values, never a foreign key
+ *
+ * The router (js/public-router.js) calls `view.render(container)`
+ * without awaiting it, so `render()` stays synchronous: it paints a
+ * loading state immediately, then `_loadAndRenderEntries()` (async)
+ * fetches from Supabase and repaints once the data resolves — the same
+ * two-step shape js/admin/hall-of-fame.js's render()/_loadAndRenderList()
+ * already uses.
  *
  * Each championship entry shows roster slots 1–5 by default; slots 6–10
  * are collapsed behind a per-entry "Show players 6–10" toggle. Expand
@@ -16,6 +27,10 @@
  * expanding one championship never affects any other, and state simply
  * resets (all collapsed) on navigating away and back, same as any other
  * view here.
+ *
+ * NOTE: js/hall-of-fame-data.js (the static placeholder array) is no
+ * longer read by this view. It has intentionally been left in place
+ * (not deleted) per current instructions; nothing here references it.
  */
 const HallOfFameView = {
   // Set of entry indices currently showing players 6–10. Plain view-local
@@ -23,29 +38,56 @@ const HallOfFameView = {
   _expanded: new Set(),
 
   render(container) {
-    const entries = (typeof HallOfFameData !== 'undefined' && Array.isArray(HallOfFameData))
-      ? HallOfFameData
-      : [];
+    container.innerHTML = `
+      <div class="hof-view" style="max-width:none;">
+        <h2 class="section-title">Hall of Fame</h2>
+        <div id="hofPublicMount"><p class="helper-text">Loading…</p></div>
+      </div>`;
 
-    if (!entries.length) {
-      container.innerHTML = `
-        <div class="hof-view" style="max-width:none;">
-          <h2 class="section-title">Hall of Fame</h2>
-          <div class="empty-state">
-            <div class="empty-icon">🏆</div>
-            <h2>Hall of Fame</h2>
-            <p>Champions will appear here once the archive is added.</p>
-          </div>
+    this._expanded = new Set();
+    this._loadAndRenderEntries(container);
+  },
+
+  async _loadAndRenderEntries(container) {
+    const mount = container.querySelector('#hofPublicMount');
+    if (!mount) return; // view navigated away before the read resolved
+
+    let rows;
+    try {
+      rows = await SupabaseQuery.select('hall_of_fame', (qb) =>
+        qb.order('created_at', { ascending: true })
+      );
+    } catch (e) {
+      mount.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🏆</div>
+          <h2>Hall of Fame</h2>
+          <p>Champions will appear here once the archive is added.</p>
         </div>`;
       return;
     }
 
-    container.innerHTML = `
-      <div class="hof-view" style="max-width:none;">
-        <h2 class="section-title">Hall of Fame</h2>
-        <div class="hof-list">
-          ${entries.map((entry, i) => this._renderEntry(entry, i)).join('')}
-        </div>
+    const entries = Array.isArray(rows)
+      ? rows.map((row) => ({
+          season: row.season_name,
+          champion: row.champion_name,
+          roster: row.roster,
+        }))
+      : [];
+
+    if (!entries.length) {
+      mount.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🏆</div>
+          <h2>Hall of Fame</h2>
+          <p>Champions will appear here once the archive is added.</p>
+        </div>`;
+      return;
+    }
+
+    mount.innerHTML = `
+      <div class="hof-list">
+        ${entries.map((entry, i) => this._renderEntry(entry, i)).join('')}
       </div>`;
 
     this._bindToggles(container, entries);
@@ -98,7 +140,15 @@ const HallOfFameView = {
         } else {
           this._expanded.add(index);
         }
-        this.render(container);
+        // Re-render from the same already-fetched `entries` — no need to
+        // hit Supabase again just to toggle a collapse state.
+        const mount = container.querySelector('#hofPublicMount');
+        if (!mount) return;
+        mount.innerHTML = `
+          <div class="hof-list">
+            ${entries.map((entry, i) => this._renderEntry(entry, i)).join('')}
+          </div>`;
+        this._bindToggles(container, entries);
       });
     });
   },

@@ -40,6 +40,15 @@ const SUPABASE_ANON_KEY =
 // itself. We immediately shadow that name with our own instance below,
 // mirroring how firebase-config.js's `firebase.initializeApp(...)` call
 // works against the `firebase` global.
+//
+// Auth bridge: this project keeps Firebase Auth as its only
+// authentication system (Supabase Auth is not used). Supabase is
+// configured for Firebase Third-Party Auth, so PostgREST/RPCs need the
+// current Firebase user's ID token on every request to know who is
+// calling — the anon key alone is unauthenticated. The `accessToken`
+// option below supplies that token on demand for every request this
+// client makes; it must return `null` (not throw) when nobody is
+// signed in, so reads that don't require auth keep working.
 const SupabaseClient = (() => {
   if (typeof window === "undefined" || !window.supabase) {
     // The CDN script tag hasn't been added yet (see NEXT STEP above) —
@@ -51,5 +60,14 @@ const SupabaseClient = (() => {
     );
     return null;
   }
-  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    accessToken: async () => {
+      const user =
+        typeof firebase !== "undefined" && firebase.auth
+          ? firebase.auth().currentUser
+          : null;
+      if (!user) return null;
+      return await user.getIdToken(false);
+    },
+  });
 })();
