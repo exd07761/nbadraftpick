@@ -1875,7 +1875,7 @@ const LiveNba2k27PoolCache = (() => {
       const name = effectiveName(entry, sourcePlayer);
       if (!name) return;
       const overall = effectiveOverall(entry, sourcePlayer);
-      if (typeof overall !== "number" || !Number.isFinite(overall) || overall < 40 || overall > 99) return;
+      if (typeof overall !== "number" || !Number.isFinite(overall) || overall < 75 || overall > 99) return;
       const variantGroup = (typeof entry.variantGroupId === "string" && entry.variantGroupId.trim())
         ? entry.variantGroupId.trim()
         : undefined;
@@ -3894,7 +3894,7 @@ const AdminActions = {
         return;
       }
       const effectiveOverall = nba2k27EffectiveOverall(entry, sourcePlayer);
-      if (typeof effectiveOverall !== "number" || !Number.isFinite(effectiveOverall) || effectiveOverall < 40 || effectiveOverall > 99) {
+      if (typeof effectiveOverall !== "number" || !Number.isFinite(effectiveOverall) || effectiveOverall < 75 || effectiveOverall > 99) {
         result.invalidOverall++;
         result.skippedDetails.push({ slug, reason: `invalid overall: ${effectiveOverall}` });
         return;
