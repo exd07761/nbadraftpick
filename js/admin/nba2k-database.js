@@ -555,30 +555,64 @@ const Nba2kDatabaseView = {
   // fetch, its caching, or its error handling changed.
   _ensureLoaded() {
     if (this._players) return Promise.resolve(); // already loaded this session — never re-fetch
+
     if (!this._loadPromise) {
-      // Phase 7: load `nba2k27_pool` alongside `nba2k_players` in the same
-      // pass — one read per collection, both cached for the admin session.
-      // This does not change the existing `nba2k_players` query at all.
+      // Phase 8.1A: load the complete NBA 2K player database and NBA2K27
+      // pool from Supabase. Supabase/PostgREST returns at most 1000 rows
+      // per request, so both datasets are paginated explicitly.
+      const PAGE_SIZE = 1000;
+
+      const loadAll = async (table, orderColumn) => {
+        const rows = [];
+        let offset = 0;
+
+        while (true) {
+          const page = await SupabaseQuery.select(table, qb =>
+            qb
+              .order(orderColumn, { ascending: true })
+              .range(offset, offset + PAGE_SIZE - 1)
+          );
+
+          rows.push(...page);
+
+          if (page.length < PAGE_SIZE) break;
+          offset += PAGE_SIZE;
+        }
+
+        return rows;
+      };
+
       this._loadPromise = Promise.all([
-        firebase.firestore().collection('nba2k_players').get(),
-        firebase.firestore().collection('nba2k27_pool').get(),
+        loadAll('nba2k_players', 'slug'),
+        loadAll('nba2k27_pool', 'nba2k_ref'),
       ])
-        .then(([playersSnap, pool27Snap]) => {
-          this._players = playersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+        .then(([players, pool27Rows]) => {
+          this._players = players.map(player => ({
+            id: player.slug,
+            ...player,
+          }));
+
           this._pool27 = {};
-          pool27Snap.docs.forEach(d => { this._pool27[d.id] = d.data(); });
+          pool27Rows.forEach(row => {
+            this._pool27[row.nba2k_ref] = {
+              ...row,
+            };
+          });
+
           this._loadError = null;
         })
         .catch(err => {
           this._players = null;
           this._pool27 = null;
-          // Never surface raw Firebase error text to the admin.
-          this._loadError = err && err.code === 'permission-denied'
-            ? "You don't have permission to access the NBA 2K player database."
-            : 'Unable to load the NBA 2K player database.';
+
+          this._loadError = 'Unable to load the NBA 2K player database.';
+          console.error('[Nba2kDatabase] Failed to load player data:', err);
         })
-        .finally(() => { this._loadPromise = null; });
+        .finally(() => {
+          this._loadPromise = null;
+        });
     }
+
     return this._loadPromise;
   },
 
@@ -1080,32 +1114,31 @@ const Nba2kDatabaseView = {
   // changed it first, so the write is aborted rather than silently
   // clobbering a newer edit. Never surfaces a raw Firebase error message.
   async _savePositions(slug, normalized, expectedPrevious) {
-    const ref = firebase.firestore().collection('nba2k_players').doc(slug);
-
-    let snap;
     try {
-      snap = await ref.get();
+      await SupabaseQuery.callWriteRpc(
+        'save_nba2k_player_positions',
+        {
+          p_slug: slug,
+          p_positions: normalized,
+          p_expected_previous: expectedPrevious,
+        }
+      );
     } catch (err) {
-      throw new Error(err && err.code === 'permission-denied'
-        ? "You don't have permission to save positions."
-        : 'Unable to save positions. Please try again.');
-    }
+      const message = err && err.message ? err.message : '';
 
-    if (!snap.exists) {
-      throw new Error('This NBA2K player could not be found.');
-    }
+      if (message.includes('PLAYER_NOT_FOUND')) {
+        throw new Error('This NBA2K player could not be found.');
+      }
 
-    const serverPositions = normalizeNba2kPositions(snap.data().positions);
-    if (!nba2kPositionsEqual(serverPositions, expectedPrevious)) {
-      throw new Error('This player was updated elsewhere. Please reload the player before saving.');
-    }
+      if (message.includes('CONFLICT')) {
+        throw new Error(
+          'This player was updated elsewhere. Please reload the player before saving.'
+        );
+      }
 
-    try {
-      await ref.update({ positions: normalized });
-    } catch (err) {
-      throw new Error(err && err.code === 'permission-denied'
-        ? "You don't have permission to save positions."
-        : 'Unable to save positions. Please try again.');
+      throw new Error(
+        'Unable to save positions. Please try again.'
+      );
     }
   },
 
