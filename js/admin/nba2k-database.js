@@ -341,6 +341,26 @@ function nba2k27OverallValid(v) {
   return Number.isFinite(n) && n >= 0 && n <= 99;
 }
 
+// Phase 8.1E: the ONLY place a raw Supabase `nba2k27_pool` row (snake_case
+// columns) is read directly. Converts it into the camelCase shape every
+// consumer in this file already expects — the same shape Firestore
+// documents used to have, before Phase 8.1A moved the read path to
+// Supabase. teamOverride/variantLabel are intentionally NOT mapped here:
+// no matching Supabase column exists yet (see Phase 8.1E investigation);
+// adding them is a separate, later decision, not part of this fix.
+function nba2k27NormalizePoolRow(row) {
+  return {
+    nba2kRef: row.nba2k_ref,
+    pool: row.pool,
+    position: row.position,
+    selectedAt: row.selected_at,
+    updatedAt: row.updated_at,
+    overallOverride: row.overall_override,
+    nameOverride: row.name_override,
+    variantGroupId: row.variant_group_id,
+  };
+}
+
 // ── Variant grouping: metadata/grouping ONLY ─────────────────────────────
 // `variantGroupId` (any non-empty string the admin chooses — e.g.
 // 'michael-jordan') optionally links otherwise-independent
@@ -594,9 +614,7 @@ const Nba2kDatabaseView = {
 
           this._pool27 = {};
           pool27Rows.forEach(row => {
-            this._pool27[row.nba2k_ref] = {
-              ...row,
-            };
+            this._pool27[row.nba2k_ref] = nba2k27NormalizePoolRow(row);
           });
 
           this._loadError = null;
