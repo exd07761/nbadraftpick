@@ -361,6 +361,27 @@ function nba2k27NormalizePoolRow(row) {
   };
 }
 
+// Phase 8.1F: maps the "PREFIX: message" errors raised by
+// add_nba2k27_pool_player()/remove_nba2k27_pool_player() (same
+// convention as save_nba2k_player_positions()) to a friendly, UI-safe
+// message — never surfaces a raw Postgres/RPC error. `fallback` is the
+// existing generic Add/Remove failure message for that call site.
+function nba2k27MapPoolRpcError(err, fallback) {
+  const message = err && err.message ? err.message : '';
+
+  if (message.includes('PLAYER_NOT_FOUND')) {
+    return 'This NBA2K player could not be found.';
+  }
+  if (message.includes('POOL_UNDETERMINED')) {
+    return 'Cannot determine pool eligibility for this NBA2K player.';
+  }
+  if (message.includes('UNAUTHENTICATED') || message.includes('UNAUTHORIZED')) {
+    return "You don't have permission to update the 2K27 pool.";
+  }
+
+  return fallback;
+}
+
 // ── Variant grouping: metadata/grouping ONLY ─────────────────────────────
 // `variantGroupId` (any non-empty string the admin chooses — e.g.
 // 'michael-jordan') optionally links otherwise-independent
@@ -1160,6 +1181,48 @@ const Nba2kDatabaseView = {
     }
   },
 
+  // Phase 8.1F: "Add to 2K27 Pool" write, via Supabase RPC. Pool is
+  // derived and enforced server-side by add_nba2k27_pool_player() — the
+  // client never sends one. Returns the resulting row already normalized
+  // to the camelCase shape Phase 8.1E established
+  // (`nba2k27NormalizePoolRow`), so callers never touch the raw
+  // snake_case RPC response directly. Never surfaces a raw Postgres/RPC
+  // error — same convention as `_savePositions()`.
+  async _addToPool27(slug) {
+    try {
+      const row = await SupabaseQuery.callWriteRpc(
+        'add_nba2k27_pool_player',
+        { p_slug: slug }
+      );
+      return nba2k27NormalizePoolRow(row);
+    } catch (err) {
+      throw new Error(nba2k27MapPoolRpcError(
+        err,
+        'Could not add this player to the 2K27 pool — please try again.'
+      ));
+    }
+  },
+
+  // Phase 8.1F: "Remove from 2K27 Pool" write, via Supabase RPC. Shared
+  // by both this view's own Remove button and Nba2k27PoolView's Remove
+  // button (same cross-object convention this file already uses for
+  // `_pool27`/`_onPool27Changed`). The RPC treats an already-absent row
+  // as a successful no-op (returns null) — the caller treats either
+  // result as successful removal, same as before.
+  async _removeFromPool27(slug) {
+    try {
+      await SupabaseQuery.callWriteRpc(
+        'remove_nba2k27_pool_player',
+        { p_slug: slug }
+      );
+    } catch (err) {
+      throw new Error(nba2k27MapPoolRpcError(
+        err,
+        'Could not remove this player from the 2K27 pool — please try again.'
+      ));
+    }
+  },
+
 
   // ── Phase 7: "2K27 Pool" section ────────────────────────────────────────
   // Completely independent of the Phase 3/5 "Add to Draft Pool" section
@@ -1288,18 +1351,18 @@ const Nba2kDatabaseView = {
             return;
           }
 
-          const now = new Date().toISOString();
-          // position always starts explicit ('UNASSIGNED'), never absent
-          // — see NBA2K27_POOL_POSITION_VALUES above. The sorter is the
-          // only place this ever changes after creation.
-          const docData = { nba2kRef: player.id, pool: writePool, position: 'UNASSIGNED', selectedAt: now, updatedAt: now };
           try {
-            // Targeted write: only nba2k27_pool/<slug>. Never league/main,
-            // never nba2k_players.
-            await firebase.firestore().collection('nba2k27_pool').doc(player.id).set(docData);
+            // Phase 8.1F: targeted write via RPC — only nba2k27_pool/<slug>.
+            // Never league/main, never nba2k_players. Pool is derived and
+            // enforced server-side by add_nba2k27_pool_player(); `writePool`
+            // above is a client-side fast-fail preview only and is never
+            // sent to the RPC. `position` always starts explicit
+            // ('UNASSIGNED') server-side too — the sorter is the only
+            // place this ever changes after creation.
+            const normalized = await this._addToPool27(player.id);
             this._pool27 = this._pool27 || {};
-            this._pool27[player.id] = docData;
-            showToast(`${player.name} added to the 2K27 ${nba2k27PoolLabel(writePool)} Pool.`, 'success');
+            this._pool27[player.id] = normalized;
+            showToast(`${player.name} added to the 2K27 ${nba2k27PoolLabel(normalized.pool)} Pool.`, 'success');
             this._openDetail(container, player.id);
             this._refreshList(container);
             // Phase 8: let the NBA 2K27 Pool Management view (if open) know
@@ -1307,10 +1370,7 @@ const Nba2kDatabaseView = {
             if (this._onPool27Changed) this._onPool27Changed();
           } catch (err) {
             confirmAddBtn.disabled = false;
-            const msg = err && err.code === 'permission-denied'
-              ? "You don't have permission to update the 2K27 pool."
-              : 'Could not add this player to the 2K27 pool — please try again.';
-            confirmEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
+            confirmEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(err.message)}</div>`;
           }
         };
       };
@@ -1340,9 +1400,12 @@ const Nba2kDatabaseView = {
           AuthBoundary.requireAuth();
           confirmRemoveBtn.disabled = true;
           try {
-            // Deletes ONLY nba2k27_pool/<slug> — never nba2k_players,
-            // never league/main.
-            await firebase.firestore().collection('nba2k27_pool').doc(player.id).delete();
+            // Phase 8.1F: deletes ONLY nba2k27_pool/<slug> via RPC —
+            // never nba2k_players, never league/main. The RPC treats an
+            // already-absent row as a successful no-op (returns null);
+            // either result is treated as successful removal, same as
+            // before.
+            await this._removeFromPool27(player.id);
             if (this._pool27) delete this._pool27[player.id];
             showToast(`${player.name} removed from the 2K27 pool.`, 'success');
             this._openDetail(container, player.id);
@@ -1352,10 +1415,7 @@ const Nba2kDatabaseView = {
             if (this._onPool27Changed) this._onPool27Changed();
           } catch (err) {
             confirmRemoveBtn.disabled = false;
-            const msg = err && err.code === 'permission-denied'
-              ? "You don't have permission to update the 2K27 pool."
-              : 'Could not remove this player from the 2K27 pool — please try again.';
-            confirmEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
+            confirmEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(err.message)}</div>`;
           }
         };
       };
@@ -2348,7 +2408,12 @@ const Nba2k27PoolView = {
       AuthBoundary.requireAuth();
       confirmBtn.disabled = true;
       try {
-        await firebase.firestore().collection('nba2k27_pool').doc(row.slug).delete();
+        // Phase 8.1F: deletes ONLY nba2k27_pool/<slug> via the shared RPC
+        // wrapper on Nba2kDatabaseView — same cross-object cache
+        // convention this view already uses for `_pool27`. An
+        // already-absent row is a successful no-op, treated the same as
+        // a real removal.
+        await Nba2kDatabaseView._removeFromPool27(row.slug);
         if (Nba2kDatabaseView._pool27) delete Nba2kDatabaseView._pool27[row.slug];
         showToast(`${label} removed from the 2K27 pool.`, 'success');
         confirmEl.classList.add('hidden');
@@ -2366,10 +2431,7 @@ const Nba2k27PoolView = {
         }
       } catch (err) {
         confirmBtn.disabled = false;
-        const msg = err && err.code === 'permission-denied'
-          ? "You don't have permission to update the 2K27 pool."
-          : 'Could not remove this player from the 2K27 pool — please try again.';
-        confirmEl.innerHTML += `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
+        confirmEl.innerHTML += `<div class="backup-result backup-result-error">${escapeHtml(err.message)}</div>`;
       }
     };
   },
