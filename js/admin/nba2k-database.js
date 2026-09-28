@@ -345,9 +345,12 @@ function nba2k27OverallValid(v) {
 // columns) is read directly. Converts it into the camelCase shape every
 // consumer in this file already expects — the same shape Firestore
 // documents used to have, before Phase 8.1A moved the read path to
-// Supabase. teamOverride/variantLabel are intentionally NOT mapped here:
-// no matching Supabase column exists yet (see Phase 8.1E investigation);
-// adding them is a separate, later decision, not part of this fix.
+// Supabase.
+// Phase 8.2 update: `variant_label` is now mapped too, since that
+// column was added in Phase 8.2 specifically to preserve this field
+// (see the Phase 8.2 usage audit). `teamOverride` is still NOT mapped:
+// it has no Supabase column and was removed from the Manual Edit UI in
+// the same phase as dead weight — see the Phase 8.2 usage audit.
 function nba2k27NormalizePoolRow(row) {
   return {
     nba2kRef: row.nba2k_ref,
@@ -358,14 +361,16 @@ function nba2k27NormalizePoolRow(row) {
     overallOverride: row.overall_override,
     nameOverride: row.name_override,
     variantGroupId: row.variant_group_id,
+    variantLabel: row.variant_label,
   };
 }
 
-// Phase 8.1F: maps the "PREFIX: message" errors raised by
-// add_nba2k27_pool_player()/remove_nba2k27_pool_player() (same
-// convention as save_nba2k_player_positions()) to a friendly, UI-safe
-// message — never surfaces a raw Postgres/RPC error. `fallback` is the
-// existing generic Add/Remove failure message for that call site.
+// Phase 8.1F/8.2: maps the "PREFIX: message" errors raised by
+// add_nba2k27_pool_player()/remove_nba2k27_pool_player()/
+// update_nba2k27_pool_manual_edit() (same convention as
+// save_nba2k_player_positions()) to a friendly, UI-safe message — never
+// surfaces a raw Postgres/RPC error. `fallback` is the existing generic
+// failure message for that call site.
 function nba2k27MapPoolRpcError(err, fallback) {
   const message = err && err.message ? err.message : '';
 
@@ -374,6 +379,9 @@ function nba2k27MapPoolRpcError(err, fallback) {
   }
   if (message.includes('POOL_UNDETERMINED')) {
     return 'Cannot determine pool eligibility for this NBA2K player.';
+  }
+  if (message.includes('INVALID_POSITION')) {
+    return 'Position must be one of PG/SG/SF/PF/C/UNASSIGNED.';
   }
   if (message.includes('UNAUTHENTICATED') || message.includes('UNAUTHORIZED')) {
     return "You don't have permission to update the 2K27 pool.";
@@ -2459,6 +2467,31 @@ const Nba2k27PoolView = {
   // byte-for-byte the same as before this phase; only the closing calls
   // now go through the shared `close()` so Escape/backdrop-click/× all
   // tear down the same way a successful Save or Cancel already did.
+  // Phase 8.2: "Manual Edit" save, via Supabase RPC. NULL for any of
+  // p_name_override/p_overall_override/p_variant_group_id/
+  // p_variant_label means "clear this field" — the RPC applies it as a
+  // direct column assignment, Postgres's equivalent of Firestore's
+  // FieldValue.delete() for a nullable column. Returns the resulting row
+  // already normalized to the camelCase shape Phase 8.1E established
+  // (nba2k27NormalizePoolRow), so the caller never touches the raw
+  // snake_case RPC response directly. Never surfaces a raw Postgres/RPC
+  // error — same convention as _savePositions()/_addToPool27()/
+  // _removeFromPool27() on Nba2kDatabaseView.
+  async _saveManualEdit(params) {
+    try {
+      const row = await SupabaseQuery.callWriteRpc(
+        'update_nba2k27_pool_manual_edit',
+        params
+      );
+      return nba2k27NormalizePoolRow(row);
+    } catch (err) {
+      throw new Error(nba2k27MapPoolRpcError(
+        err,
+        'Could not save — please try again.'
+      ));
+    }
+  },
+
   _openManualEdit(container, slug) {
     const editEl = container.querySelector('#nba2k27mgmtEdit');
     if (!editEl) return;
@@ -2497,9 +2530,6 @@ const Nba2k27PoolView = {
 
             <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditOverall">Overall</label>
             <input type="number" id="nba2k27EditOverall" class="input" min="0" max="99" placeholder="${p.overall != null ? p.overall : '—'} (source)" value="${typeof entry.overallOverride === 'number' ? entry.overallOverride : ''}">
-
-            <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditTeam">NBA team</label>
-            <input type="text" id="nba2k27EditTeam" class="input" placeholder="${escapeHtml(p.team || '—')} (source)" value="${entry.teamOverride ? escapeHtml(entry.teamOverride) : ''}">
 
             <label class="helper-text" style="display:block;margin-top:0.75rem;" for="nba2k27EditPosition">2K27 Position</label>
             <select id="nba2k27EditPosition" class="input">
@@ -2562,7 +2592,6 @@ const Nba2k27PoolView = {
 
       const nameRaw = editEl.querySelector('#nba2k27EditName').value.trim();
       const overallRaw = editEl.querySelector('#nba2k27EditOverall').value.trim();
-      const teamRaw = editEl.querySelector('#nba2k27EditTeam').value.trim();
       const position = editEl.querySelector('#nba2k27EditPosition').value;
       const variantGroupRaw = editEl.querySelector('#nba2k27EditVariantGroup').value.trim();
       const variantLabelRaw = editEl.querySelector('#nba2k27EditVariantLabel').value.trim();
@@ -2582,40 +2611,32 @@ const Nba2k27PoolView = {
         return;
       }
 
-      // Empty override fields REMOVE the override (FieldValue.delete()),
-      // falling back to the source value — never left as a stale
-      // leftover value, per "empty override fields should remove the
-      // override and fall back to source data".
-      const del = firebase.firestore.FieldValue.delete();
-      const payload = {
-        position,
-        nameOverride: nameRaw ? nameRaw : del,
-        overallOverride: overallRaw ? Number(overallRaw) : del,
-        teamOverride: teamRaw ? teamRaw : del,
-        variantGroupId: variantGroupRaw ? variantGroupRaw : del,
-        variantLabel: variantLabelRaw ? variantLabelRaw : del,
-        updatedAt: new Date().toISOString(),
-      };
-
       saveBtn.disabled = true;
       try {
         AuthBoundary.requireAuth();
-        // merge:true — touches ONLY the fields above. nba2kRef/pool/
-        // selectedAt/anything else on this doc are never included here,
-        // so they can never be overwritten by this write, the same
-        // safety property the Position Sorter's own writes already
-        // guarantee.
-        await firebase.firestore().collection('nba2k27_pool').doc(slug).set(payload, { merge: true });
+        // Phase 8.2: targeted write via RPC — touches ONLY position,
+        // name_override, overall_override, variant_group_id,
+        // variant_label, and updated_at. nba2k_ref/pool/selected_at are
+        // never sent, so they can never be overwritten by this write,
+        // the same safety property the Position Sorter's and Add/Remove
+        // writes already guarantee. Blank inputs are sent as NULL, which
+        // the RPC applies as a direct column assignment — Postgres's
+        // equivalent of Firestore's FieldValue.delete() for these
+        // nullable columns. teamOverride is no longer collected or sent
+        // (no Supabase column; no downstream consumer — see the Phase
+        // 8.2 usage audit).
+        const normalized = await this._saveManualEdit({
+          p_slug: slug,
+          p_position: position,
+          p_name_override: nameRaw ? nameRaw : null,
+          p_overall_override: overallRaw ? Number(overallRaw) : null,
+          p_variant_group_id: variantGroupRaw ? variantGroupRaw : null,
+          p_variant_label: variantLabelRaw ? variantLabelRaw : null,
+        });
 
         // Reflect immediately in the local cache — same convention as
         // every other write path on this page (Add/Remove/Initialize).
-        const updated = { ...entry, position, updatedAt: payload.updatedAt };
-        if (nameRaw) updated.nameOverride = nameRaw; else delete updated.nameOverride;
-        if (overallRaw) updated.overallOverride = Number(overallRaw); else delete updated.overallOverride;
-        if (teamRaw) updated.teamOverride = teamRaw; else delete updated.teamOverride;
-        if (variantGroupRaw) updated.variantGroupId = variantGroupRaw; else delete updated.variantGroupId;
-        if (variantLabelRaw) updated.variantLabel = variantLabelRaw; else delete updated.variantLabel;
-        if (Nba2kDatabaseView._pool27) Nba2kDatabaseView._pool27[slug] = updated;
+        if (Nba2kDatabaseView._pool27) Nba2kDatabaseView._pool27[slug] = normalized;
 
         showToast('Saved.', 'success');
         close();
@@ -2628,10 +2649,7 @@ const Nba2k27PoolView = {
         }
       } catch (err) {
         saveBtn.disabled = false;
-        const msg = err && err.code === 'permission-denied'
-          ? "You don't have permission to update the 2K27 pool."
-          : 'Could not save — please try again.';
-        errEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(msg)}</div>`;
+        errEl.innerHTML = `<div class="backup-result backup-result-error">${escapeHtml(err.message)}</div>`;
       }
     };
   },
