@@ -262,7 +262,7 @@ select.input { cursor: pointer; }
   border-radius: var(--r);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: color 0.15s, background 0.15s, border-color 0.15s, opacity 0.15s;
   white-space: nowrap;
   text-decoration: none;
 }
@@ -567,7 +567,7 @@ select.input { cursor: pointer; }
   border: 1px solid var(--border);
   text-align: center;
   font-size: 0.78rem;
-  transition: all 0.12s;
+  transition: border-color 0.12s, background 0.12s, opacity 0.12s;
 }
 .nba-team-tile.available {
   cursor: pointer;

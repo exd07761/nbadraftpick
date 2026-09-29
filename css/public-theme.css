@@ -162,7 +162,7 @@
   width: 10px; height: 10px; border-radius: 50%;
   background: var(--nb-gold);
   flex-shrink: 0;
-  animation: nb-pulse 1.4s ease-in-out infinite;
+  /* Phase 2 Step 2: infinite pulse retired (view re-renders on every live update, which would restart it). */
 }
 .dash-draft-live-text { flex: 1; min-width: 0; }
 .dash-draft-live-eyebrow { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #7a5a00; }

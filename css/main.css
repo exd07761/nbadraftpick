@@ -50,7 +50,7 @@
   --nb-sidebar-bg-active: #1f2432;
   --nb-sidebar-border:    #262b3a;
   --nb-sidebar-text:      #aab0c4;
-  --nb-sidebar-text-dim:  #6d7488;
+  --nb-sidebar-text-dim:  #8189a0;   /* Phase 2 Step 2: was #6d7488 (3.73:1) -> 4.99:1 on sidebar bg */
   --nb-sidebar-text-active: #ffffff;
 
   /* Main workspace (light, per spec §8.1/§11) */
@@ -60,7 +60,7 @@
   --nb-surface-shadow: 0 1px 2px rgba(20, 22, 30, 0.04), 0 4px 16px rgba(20, 22, 30, 0.06);
 
   --nb-text:        #1c1f2a;
-  --nb-text-muted:  #6b7185;
+  --nb-text-muted:  #5a6075;   /* Phase 2 Step 2: was #6b7185 (4.50:1 on --nb-surface) -> 5.78:1 */
   --nb-text-dim:    #9aa0b4;
 
   /* Primary accent — purple/blue, per spec §8.1 (orange --accent above is
@@ -252,6 +252,27 @@
     --nb-dur-fast: 0ms;
     --nb-dur-base: 0ms;
     --nb-dur-slow: 0ms;
+  }
+}
+
+/* ─── Reduced motion — Phase 2, Step 2 ─────────────────────────────────────────
+   Global, order-independent (!important inside the media query is the standard
+   pattern so it also beats the per-component transition rules in the theme
+   files). Under prefers-reduced-motion: transitions and animations collapse to
+   an instant change, and the drawer/modal/tab movement therefore stops.
+   The boot loading spinner is a functional "still working" indicator, so it is
+   NOT removed — it is slowed instead. No JS listens for transitionend /
+   animationend anywhere in the app (verified), so instant changes are safe. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+  .boot-loading-spinner {
+    animation-duration: 2.4s !important;
+    animation-iteration-count: infinite !important;
   }
 }
 
@@ -935,8 +956,7 @@ a:hover { color: var(--accent-hover); }
 .pool-legend-footer .legend-dot.green { background: var(--pool-green); }
 .pool-legend-footer .legend-dot.blue { background: var(--pool-blue); }
 .pool-legend-footer .legend-dot.white { background: var(--pool-white, #d7dae0); }
-.pool-legend-footer .legend-dot.live { background: var(--green); animation: pulse-dot 2s infinite; }
-@keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+.pool-legend-footer .legend-dot.live { background: var(--green); } /* Phase 2 Step 2: decorative pulse retired; the dot + "Updated in real time" label remain */
 
 .drafted-note {
   display: flex; align-items: center; gap: 0.6rem;

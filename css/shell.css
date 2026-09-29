@@ -300,9 +300,9 @@
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--nb-gold);
   flex-shrink: 0;
-  animation: nb-pulse 1.4s ease-in-out infinite;
+  /* Phase 2 Step 2: infinite pulse retired. This node is rewritten by shell.js every 5s, so an
+     animation here would restart on each refresh; the static gold dot + "On the Clock" text stay. */
 }
-@keyframes nb-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 /* ─── Drawer scrim (mobile) ─────────────────────────────────────────────────── */
 .nb-drawer-scrim {
