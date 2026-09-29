@@ -166,13 +166,13 @@ check("4. existing player's attributes ARE updated from the API", () => {
   assert.deepStrictEqual(rpc.attributes, { speed: 99, strength: 88 }, 'attributes must always come from the fresh API data');
 });
 
-check("5. existing player's badges ARE updated from the API", () => {
+check("5. existing player's badges ARE updated from the API when the source has a valid badges.list", () => {
   const { Nba2kImport } = loadNba2kImport();
-  const existingPlayers = new Map([['some-slug', { name: 'Old Name', positions: ['PG'] }]]);
+  const existingPlayers = new Map([['some-slug', { name: 'Old Name', positions: ['PG'], badges: { total: 1, list: [{ name: 'OLD', tier: 'bronze', category: 'Z' }] } }]]);
   const newBadges = { legendary: 1, hallOfFame: 2, gold: 3, silver: 4, bronze: 5, total: 15, list: [{ name: 'X', tier: 'gold', category: 'Y' }] };
-  const item = { slug: 'some-slug', doc: { name: 'New Name', team: 'T', teamType: 'curr', overall: 80, positions: ['SG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: newBadges, lastUpdated: null } };
+  const item = { slug: 'some-slug', doc: { name: 'New Name', team: 'T', teamType: 'curr', overall: 80, positions: ['SG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: newBadges, hasValidSourceBadgeList: true, lastUpdated: null } };
   const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
-  assert.deepStrictEqual(rpc.badges, newBadges, 'badges must always come from the fresh API data');
+  assert.deepStrictEqual(rpc.badges, newBadges, 'badges must come from the fresh API data when the source badges.list is valid');
 });
 
 check('6. other supported fields (team, team_type, build, height, weight, wingspan, urls, last_updated) continue updating', () => {
@@ -195,6 +195,58 @@ check('6. other supported fields (team, team_type, build, height, weight, wingsp
   assert.strictEqual(rpc.player_image, 'img.png');
   assert.strictEqual(rpc.team_img, 'team.png');
   assert.strictEqual(rpc.last_updated, '2026-09-01T00:00:00.000Z');
+});
+
+console.log('_toRpcPlayer() — Phase 8.3.1-B badge preservation');
+
+check('existing player + API badges.list: [] (explicit empty) → existing badges become empty (this IS an intentional update, not preserved)', () => {
+  const { Nba2kImport } = loadNba2kImport();
+  const existingBadges = { legendary: 0, hallOfFame: 0, gold: 5, silver: 3, bronze: 2, total: 10, list: [{ name: 'OLD', tier: 'gold', category: 'Z' }] };
+  const existingPlayers = new Map([['mark-price', { name: 'Mark Price', positions: ['PG'], badges: existingBadges }]]);
+  const emptyBadges = { legendary: 0, hallOfFame: 0, gold: 0, silver: 0, bronze: 0, total: 0, list: [] };
+  const item = { slug: 'mark-price', doc: { name: 'Mark Price', team: 'T', teamType: 'class', overall: 82, positions: ['PG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: emptyBadges, hasValidSourceBadgeList: true, lastUpdated: null } };
+  const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
+  assert.deepStrictEqual(rpc.badges, emptyBadges, 'an explicit empty badges.list must overwrite existing badges with empty, not preserve the old ones');
+});
+
+check('existing player + API missing badges.list → existing badges are preserved', () => {
+  const { Nba2kImport } = loadNba2kImport();
+  const existingBadges = { legendary: 1, hallOfFame: 1, gold: 8, silver: 4, bronze: 2, total: 16, list: [{ name: 'REAL', tier: 'hallOfFame', category: 'Z' }] };
+  const existingPlayers = new Map([['mark-price', { name: 'Mark Price', positions: ['PG'], badges: existingBadges }]]);
+  // hasValidSourceBadgeList: false — matches what _validateAndPreview
+  // would compute when raw.badges has no `list` key at all.
+  const canonicalEmptyFromSource = { legendary: 0, hallOfFame: 0, gold: 0, silver: 0, bronze: 0, total: 0, list: [] };
+  const item = { slug: 'mark-price', doc: { name: 'Mark Price', team: 'T', teamType: 'class', overall: 82, positions: ['PG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: canonicalEmptyFromSource, hasValidSourceBadgeList: false, lastUpdated: null } };
+  const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
+  assert.deepStrictEqual(rpc.badges, existingBadges, 'missing source badges.list must preserve the existing player\'s current badges, not overwrite with empty');
+});
+
+check('existing player + API badges.list is non-array/invalid → existing badges are preserved', () => {
+  const { Nba2kImport } = loadNba2kImport();
+  const existingBadges = { legendary: 0, hallOfFame: 2, gold: 4, silver: 4, bronze: 3, total: 13, list: [{ name: 'REAL2', tier: 'hallOfFame', category: 'Z' }] };
+  const existingPlayers = new Map([['larry-nance', { name: 'Larry Nance', positions: ['PF'], badges: existingBadges }]]);
+  const canonicalEmptyFromSource = { legendary: 0, hallOfFame: 0, gold: 0, silver: 0, bronze: 0, total: 0, list: [] };
+  const item = { slug: 'larry-nance', doc: { name: 'Larry Nance', team: 'T', teamType: 'class', overall: 84, positions: ['PF'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: canonicalEmptyFromSource, hasValidSourceBadgeList: false, lastUpdated: null } };
+  const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
+  assert.deepStrictEqual(rpc.badges, existingBadges, 'a non-array/invalid source badges.list must preserve the existing player\'s current badges');
+});
+
+check('new player + populated API badges → API badges are used (no existing entry to preserve anyway)', () => {
+  const { Nba2kImport } = loadNba2kImport();
+  const existingPlayers = new Map(); // genuinely new — nothing exists
+  const apiBadges = { legendary: 0, hallOfFame: 0, gold: 1, silver: 0, bronze: 0, total: 1, list: [{ name: 'NEW', tier: 'gold', category: 'Z' }] };
+  const item = { slug: 'brand-new', doc: { name: 'Brand New', team: 'T', teamType: 'curr', overall: 79, positions: ['SG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: apiBadges, hasValidSourceBadgeList: true, lastUpdated: null } };
+  const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
+  assert.deepStrictEqual(rpc.badges, apiBadges);
+});
+
+check('new player + missing API badges.list → still imported with canonical empty badge data, never blocked', () => {
+  const { Nba2kImport } = loadNba2kImport();
+  const existingPlayers = new Map();
+  const canonicalEmpty = { legendary: 0, hallOfFame: 0, gold: 0, silver: 0, bronze: 0, total: 0, list: [] };
+  const item = { slug: 'brand-new-2', doc: { name: 'Brand New 2', team: 'T', teamType: 'curr', overall: 79, positions: ['SG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: canonicalEmpty, hasValidSourceBadgeList: false, lastUpdated: null } };
+  const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
+  assert.deepStrictEqual(rpc.badges, canonicalEmpty, 'a new player with no source badges.list must still be created, with canonical empty badge data');
 });
 
 console.log('_toRpcPlayer() — new-player handling');
@@ -318,6 +370,61 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
 
     assert.strictEqual(newSent.name, 'New Player (API)', 'new player uses API name through the full pipeline');
     assert.deepStrictEqual(newSent.positions, ['SF', 'N'], 'new player API positions retained through the full pipeline, not UNASSIGNED');
+  });
+
+  await checkAsync('integration: a record with badges but no badges.list produces a clear, non-fatal warning and is still imported', async () => {
+    const { Nba2kImport } = loadNba2kImport([]);
+    const container = makeFakeContainer();
+    const raw = rawPlayer({ name: 'Mark Price', playerUrl: 'https://www.2kratings.com/mark-price', overall: 82 });
+    delete raw.badges.list; // simulates the real API shape: badges present, list absent
+    const json = { players: [raw] };
+    await Nba2kImport._validateAndPreview(container, json);
+    assert.strictEqual(Nba2kImport._lastParsed.errors.length, 0, 'a missing badges.list must be a warning, never an error');
+    assert.strictEqual(Nba2kImport._lastParsed.toCreate.length, 1, 'the player must still be imported');
+    assert.strictEqual(Nba2kImport._lastParsed.toCreate[0].doc.hasValidSourceBadgeList, false);
+    const warningText = Nba2kImport._lastParsed.warnings.join(' ');
+    assert.ok(/no valid badges\.list/i.test(warningText), 'warning should clearly mention the missing/invalid badges.list');
+    assert.ok(/preserved/i.test(warningText), 'warning should mention that an existing player\'s badges would be preserved');
+  });
+
+  await checkAsync('integration: a record with an invalid (non-array) badges.list is also flagged as no-valid-list', async () => {
+    const { Nba2kImport } = loadNba2kImport([]);
+    const container = makeFakeContainer();
+    const raw = rawPlayer({ name: 'Chauncey Billups', playerUrl: 'https://www.2kratings.com/chauncey-billups', overall: 85 });
+    raw.badges.list = 'not-an-array';
+    const json = { players: [raw] };
+    await Nba2kImport._validateAndPreview(container, json);
+    assert.strictEqual(Nba2kImport._lastParsed.toCreate[0].doc.hasValidSourceBadgeList, false);
+  });
+
+  await checkAsync('integration: a record with an explicit empty badges.list is treated as valid (not the missing-list case)', async () => {
+    const { Nba2kImport } = loadNba2kImport([]);
+    const container = makeFakeContainer();
+    const raw = rawPlayer({ name: 'Someone', playerUrl: 'https://www.2kratings.com/someone', overall: 80 });
+    raw.badges.list = [];
+    const json = { players: [raw] };
+    await Nba2kImport._validateAndPreview(container, json);
+    assert.strictEqual(Nba2kImport._lastParsed.toCreate[0].doc.hasValidSourceBadgeList, true, 'an explicit empty list is valid source data, not a missing one');
+  });
+
+  await checkAsync('integration end-to-end: existing player with missing source badges.list keeps their current badges through the full preview -> import pipeline', async () => {
+    const existingBadges = { legendary: 1, hallOfFame: 1, gold: 8, silver: 4, bronze: 2, total: 16, list: [{ name: 'REAL', tier: 'hallOfFame', category: 'Z' }] };
+    const existingRows = [{ slug: 'mark-price', name: 'Mark Price', positions: ['PG'], badges: existingBadges }];
+    const { Nba2kImport, supabase } = loadNba2kImport(existingRows);
+    const container = makeFakeContainer();
+    const raw = rawPlayer({ name: 'Mark Price', playerUrl: 'https://www.2kratings.com/mark-price', overall: 83, positions: ['PG', 'SG'] });
+    delete raw.badges.list; // the real-world shape that triggered this patch
+    const json = { players: [raw] };
+
+    await Nba2kImport._validateAndPreview(container, json);
+    await Nba2kImport._runImport(container);
+
+    assert.strictEqual(supabase.calls.rpc.length, 1);
+    const sent = supabase.calls.rpc[0].params.p_players[0];
+    assert.strictEqual(sent.name, 'Mark Price');
+    assert.deepStrictEqual(sent.positions, ['PG'], 'positions still preserved from the existing row');
+    assert.strictEqual(sent.overall, 83, 'overall still updates from the API');
+    assert.deepStrictEqual(sent.badges, existingBadges, 'badges preserved end-to-end when the source has no badges.list');
   });
 
   console.log(`\n${passed} check(s) passed.`);

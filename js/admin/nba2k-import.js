@@ -279,12 +279,20 @@ const Nba2kImport = {
       }
 
       // badges: object always present in source, but badges.list is
-      // entirely absent for players with zero badges (badges.total: 0)
-      // rather than being an empty array — normalize to [].
+      // entirely absent for some records rather than being an empty
+      // array. Phase 8.3.1-B: an explicit `badges.list: []` IS a valid,
+      // intentional source value (Array.isArray([]) === true) — only a
+      // MISSING or non-array badges.list is treated as "no source data,"
+      // which _toRpcPlayer uses to decide whether to preserve an
+      // existing player's current badges instead of overwriting them
+      // with this normalized-empty placeholder. hasValidSourceBadgeList
+      // is carried on the doc so that decision can be made later,
+      // without needing to know here whether this slug is new or existing.
       const rawBadges = raw.badges && typeof raw.badges === 'object' ? raw.badges : {};
-      let badgeList = Array.isArray(rawBadges.list) ? rawBadges.list : [];
-      if (!Array.isArray(rawBadges.list)) {
-        warnings.push(`"${name}" has no badges.list — stored as an empty list.`);
+      const hasValidSourceBadgeList = Array.isArray(rawBadges.list);
+      let badgeList = hasValidSourceBadgeList ? rawBadges.list : [];
+      if (!hasValidSourceBadgeList) {
+        warnings.push(`"${name}" has no valid badges.list from the source — if this player already exists, their current badge data will be preserved; otherwise they'll be imported with an empty badge list. The player will still be imported either way.`);
       }
 
       // De-duplicate badges by (name + tier + category) — the source
@@ -305,7 +313,11 @@ const Nba2kImport = {
       if (dedupedBadges.length !== badgeList.length) {
         warnings.push(`"${name}" had ${badgeList.length - dedupedBadges.length} duplicate badge entr${badgeList.length - dedupedBadges.length === 1 ? 'y' : 'ies'} removed.`);
       }
-      if (dedupedBadges.length !== Number(rawBadges.total || 0)) {
+      // Only meaningful when the source actually provided a list — with
+      // no list at all, comparing an empty placeholder against a nonzero
+      // `total` would just be noise on top of the warning already logged
+      // above, for every affected record.
+      if (hasValidSourceBadgeList && dedupedBadges.length !== Number(rawBadges.total || 0)) {
         warnings.push(`"${name}" badge total (${rawBadges.total ?? 0}) doesn't match the deduplicated badge count (${dedupedBadges.length}) — stored as-is from source; not auto-corrected.`);
       }
 
@@ -336,6 +348,7 @@ const Nba2kImport = {
           teamImg: raw.teamImg ?? null,
           attributes,
           badges,
+          hasValidSourceBadgeList, // Phase 8.3.1-B — see _toRpcPlayer
           lastUpdated: raw.lastUpdated ?? null,
           // Phase 8.3: importedAt is no longer set here — the
           // bulk_upsert_nba2k_players RPC always stamps it server-side
@@ -399,6 +412,9 @@ const Nba2kImport = {
         For existing players, <code>name</code> and <code>positions</code> are preserved from the
         current database record and will NOT be overwritten by this dataset — every other field
         updates from the source data. New players use the source data as-is, positions included.
+        <code>badges</code> updates normally when the source provides a badge list (including an
+        explicit empty one) — only a genuinely missing/invalid source badge list falls back to
+        preserving an existing player's current badges instead of clearing them.
       </p>
       ${warnings.length ? `
         <details style="margin-top:0.75rem;">
@@ -426,21 +442,22 @@ const Nba2kImport = {
 
   /**
    * Reads which of the given slugs already exist in nba2k_players, along
-   * with each one's CURRENT `name` and `positions`. Read-only — used to
-   * classify create vs. update in the preview (via the returned Map's
-   * `.has()`/`.size`, a drop-in replacement for the Set this used to
-   * return), and reused again at write time (Phase 8.3.1 — see
-   * _toRpcPlayer) to preserve `name`/`positions` on existing players
-   * against being overwritten by a fresh API dataset. Phase 8.3: reads
-   * Supabase directly via the shared SupabaseQuery helper, under the
-   * table's existing `conditional_read` SELECT policy — no commissioner
-   * gate needed for a read, matching the openness of the old Firestore
-   * rule for this same operation. Postgres/PostgREST has no
-   * Firestore-style 30-item `in`-query cap, but `.in()` is sent as a GET
-   * query-string filter, so a defensive chunk size is still used to
-   * avoid an oversized URL for the full ~2,000-slug case — 200 is
-   * comfortably under typical URL/header length limits while still far
-   * above Firestore's old 30-item cap.
+   * with each one's CURRENT `name`, `positions`, and `badges`. Read-only
+   * — used to classify create vs. update in the preview (via the
+   * returned Map's `.has()`/`.size`, a drop-in replacement for the Set
+   * this used to return), and reused again at write time to preserve
+   * `name`/`positions` unconditionally (Phase 8.3.1), and `badges`
+   * conditionally when the source has no valid badges.list (Phase
+   * 8.3.1-B — see _toRpcPlayer for both). Phase 8.3: reads Supabase
+   * directly via the shared SupabaseQuery helper, under the table's
+   * existing `conditional_read` SELECT policy — no commissioner gate
+   * needed for a read, matching the openness of the old Firestore rule
+   * for this same operation. Postgres/PostgREST has no Firestore-style
+   * 30-item `in`-query cap, but `.in()` is sent as a GET query-string
+   * filter, so a defensive chunk size is still used to avoid an
+   * oversized URL for the full ~2,000-slug case — 200 is comfortably
+   * under typical URL/header length limits while still far above
+   * Firestore's old 30-item cap.
    */
   async _fetchExistingPlayers(slugs) {
     const existing = new Map();
@@ -449,9 +466,9 @@ const Nba2kImport = {
       const chunk = slugs.slice(i, i + CHUNK);
       if (!chunk.length) continue;
       const rows = await SupabaseQuery.select(this.TABLE, qb =>
-        qb.select('slug, name, positions').in('slug', chunk)
+        qb.select('slug, name, positions, badges').in('slug', chunk)
       );
-      rows.forEach(row => existing.set(row.slug, { name: row.name, positions: row.positions }));
+      rows.forEach(row => existing.set(row.slug, { name: row.name, positions: row.positions, badges: row.badges }));
     }
     return existing;
   },
@@ -476,9 +493,21 @@ const Nba2kImport = {
   // authoritative to the local database rather than the API. Every other
   // field always comes from the fresh API data, for both new and
   // existing players.
+  //
+  // Phase 8.3.1-B: `badges` gets its OWN, narrower rule — unlike name/
+  // positions, it is NOT unconditionally preserved. It's only pulled
+  // from the existing DB row when BOTH (a) the player already exists AND
+  // (b) doc.hasValidSourceBadgeList is false, meaning the source had no
+  // badges.list at all (or a non-array one) for this record — not merely
+  // an explicit empty list, which IS treated as real source data and
+  // updates the player to zero badges, same as any other API field. A
+  // genuinely new player always uses doc.badges as built by
+  // _validateAndPreview, which is already a canonical (possibly empty)
+  // structure regardless of source validity — never blocked on this.
   _toRpcPlayer(item, existingPlayers) {
     const doc = item.doc;
     const existing = existingPlayers ? existingPlayers.get(item.slug) : undefined;
+    const preserveBadges = !!existing && !doc.hasValidSourceBadgeList;
     return {
       slug: item.slug,
       name: existing ? existing.name : doc.name,
@@ -494,7 +523,7 @@ const Nba2kImport = {
       player_image: doc.playerImage,
       team_img: doc.teamImg,
       attributes: doc.attributes,
-      badges: doc.badges,
+      badges: preserveBadges ? existing.badges : doc.badges,
       last_updated: doc.lastUpdated,
     };
   },
