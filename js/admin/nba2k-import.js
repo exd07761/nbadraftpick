@@ -17,7 +17,7 @@
  * now reads public.nba2k_players directly (no more 30-item chunking —
  * that was a Firestore `in`-query limit, not a Postgres one, though a
  * defensive chunk size is still used for the read; see
- * _fetchExistingSlugs), and the actual write goes through the
+ * _fetchExistingPlayers), and the actual write goes through the
  * `bulk_upsert_nba2k_players` Supabase RPC (SECURITY DEFINER,
  * commissioner-gated) instead of firebase.firestore().batch(). Every
  * other part of this file — validation, slug derivation, badge
@@ -65,7 +65,7 @@
  * public.require_commissioner() first. This is a real tightening from
  * the old Firestore rule (`allow read, write: if request.auth != null`),
  * which allowed any authenticated user, not just commissioners, to run
- * this importer. The existing-slug read (_fetchExistingSlugs) is not
+ * this importer. The existing-slug read (_fetchExistingPlayers) is not
  * commissioner-gated — it uses the table's own `conditional_read` SELECT
  * policy, matching the openness of the old read behavior.
  *
@@ -216,6 +216,7 @@ const Nba2kImport = {
     const seenSlugs = new Map(); // slug -> name, to catch in-file collisions
     const normalized = [];
     const categoryCounts = { curr: 0, class: 0, allt: 0, other: 0 };
+    let excludedByOverall = 0; // Phase 8.3.1: records outside 75-99, tracked separately from errors/warnings
 
     for (const raw of allRaw) {
       const name = typeof raw.name === 'string' ? raw.name.trim() : '';
@@ -235,6 +236,19 @@ const Nba2kImport = {
 
       if (missingRequired.length) {
         errors.push(`Skipped "${name || '(unnamed record)'}" — missing required field(s): ${missingRequired.join(', ')}.`);
+        continue;
+      }
+
+      // Phase 8.3.1: only 75 <= overall <= 99 is imported into
+      // nba2k_players. This is NEW filtering — no OVR range check
+      // existed in this file before this phase; the fresh NBA2KAPI
+      // datasets contain many records outside this range that must
+      // never reach the RPC. Excluded records are neither an error nor
+      // a warning (nothing is wrong with them) — they're simply out of
+      // scope for this table, tracked separately in excludedByOverall.
+      const overallNum = Number(overall);
+      if (overallNum < 75 || overallNum > 99) {
+        excludedByOverall++;
         continue;
       }
 
@@ -311,7 +325,7 @@ const Nba2kImport = {
           name,
           team,
           teamType, // preserved verbatim — 'curr' | 'class' | 'allt', never renamed to green/blue
-          overall: Number(overall),
+          overall: overallNum,
           positions,
           height: raw.height ?? null,
           weight: raw.weight ?? null,
@@ -332,11 +346,14 @@ const Nba2kImport = {
     }
 
     // Diff against existing Supabase rows to split create vs. update.
-    // Chunked defensively (see _fetchExistingSlugs) — read-only, no
-    // writes happen here.
-    let existingSlugs;
+    // Chunked defensively (see _fetchExistingPlayers) — read-only, no
+    // writes happen here. Phase 8.3.1: also captures each existing row's
+    // current name/positions, needed at import time to preserve them
+    // (see _toRpcPlayer) — stored on _lastParsed below rather than
+    // re-fetched in _runImport, avoiding a second redundant read.
+    let existingPlayers;
     try {
-      existingSlugs = await this._fetchExistingSlugs(normalized.map(n => n.slug));
+      existingPlayers = await this._fetchExistingPlayers(normalized.map(n => n.slug));
     } catch (e) {
       previewEl.innerHTML = `
         <div class="backup-result backup-result-error">
@@ -349,13 +366,15 @@ const Nba2kImport = {
       return;
     }
 
-    const toCreate = normalized.filter(n => !existingSlugs.has(n.slug));
-    const toUpdate = normalized.filter(n => existingSlugs.has(n.slug));
+    const toCreate = normalized.filter(n => !existingPlayers.has(n.slug));
+    const toUpdate = normalized.filter(n => existingPlayers.has(n.slug));
 
     this._lastParsed = {
       sourceTotal,
       importTotal: allRaw.length,
       categoryCounts,
+      excludedByOverall,
+      existingPlayers,
       toCreate,
       toUpdate,
       warnings,
@@ -369,12 +388,18 @@ const Nba2kImport = {
         <div><span class="backup-latest-label">Classics:</span> ${categoryCounts.class}</div>
         <div><span class="backup-latest-label">All-Time:</span> ${categoryCounts.allt}</div>
         ${categoryCounts.other ? `<div><span class="backup-latest-label">Other/unrecognized teamType:</span> ${categoryCounts.other}</div>` : ''}
-        <div><span class="backup-latest-label">Existing:</span> ${existingSlugs.size}</div>
+        <div><span class="backup-latest-label">Existing:</span> ${existingPlayers.size}</div>
         <div><span class="backup-latest-label">New:</span> ${toCreate.length}</div>
         <div><span class="backup-latest-label">Updates:</span> ${toUpdate.length}</div>
+        <div><span class="backup-latest-label">Excluded (OVR outside 75–99):</span> ${excludedByOverall}</div>
         <div><span class="backup-latest-label">Validation warnings:</span> ${warnings.length}</div>
         <div><span class="backup-latest-label">Validation errors:</span> ${errors.length}</div>
       </div>
+      <p class="helper-text" style="margin-top:0.5rem;">
+        For existing players, <code>name</code> and <code>positions</code> are preserved from the
+        current database record and will NOT be overwritten by this dataset — every other field
+        updates from the source data. New players use the source data as-is, positions included.
+      </p>
       ${warnings.length ? `
         <details style="margin-top:0.75rem;">
           <summary class="helper-text" style="cursor:pointer;">Show ${warnings.length} warning(s) (non-fatal — these players will still be imported)</summary>
@@ -400,28 +425,33 @@ const Nba2kImport = {
   },
 
   /**
-   * Reads which of the given slugs already exist in nba2k_players.
-   * Read-only — used purely to classify create vs. update in the preview.
-   * Phase 8.3: reads Supabase directly via the shared SupabaseQuery
-   * helper, under the table's existing `conditional_read` SELECT policy
-   * — no commissioner gate needed for a read, matching the openness of
-   * the old Firestore rule for this same operation. Postgres/PostgREST
-   * has no Firestore-style 30-item `in`-query cap, but `.in()` is sent as
-   * a GET query-string filter, so a defensive chunk size is still used
-   * to avoid an oversized URL for the full ~2,000-slug case — 200 is
+   * Reads which of the given slugs already exist in nba2k_players, along
+   * with each one's CURRENT `name` and `positions`. Read-only — used to
+   * classify create vs. update in the preview (via the returned Map's
+   * `.has()`/`.size`, a drop-in replacement for the Set this used to
+   * return), and reused again at write time (Phase 8.3.1 — see
+   * _toRpcPlayer) to preserve `name`/`positions` on existing players
+   * against being overwritten by a fresh API dataset. Phase 8.3: reads
+   * Supabase directly via the shared SupabaseQuery helper, under the
+   * table's existing `conditional_read` SELECT policy — no commissioner
+   * gate needed for a read, matching the openness of the old Firestore
+   * rule for this same operation. Postgres/PostgREST has no
+   * Firestore-style 30-item `in`-query cap, but `.in()` is sent as a GET
+   * query-string filter, so a defensive chunk size is still used to
+   * avoid an oversized URL for the full ~2,000-slug case — 200 is
    * comfortably under typical URL/header length limits while still far
    * above Firestore's old 30-item cap.
    */
-  async _fetchExistingSlugs(slugs) {
-    const existing = new Set();
+  async _fetchExistingPlayers(slugs) {
+    const existing = new Map();
     const CHUNK = 200;
     for (let i = 0; i < slugs.length; i += CHUNK) {
       const chunk = slugs.slice(i, i + CHUNK);
       if (!chunk.length) continue;
       const rows = await SupabaseQuery.select(this.TABLE, qb =>
-        qb.select('slug').in('slug', chunk)
+        qb.select('slug, name, positions').in('slug', chunk)
       );
-      rows.forEach(row => existing.add(row.slug));
+      rows.forEach(row => existing.set(row.slug, { name: row.name, positions: row.positions }));
     }
     return existing;
   },
@@ -433,15 +463,29 @@ const Nba2kImport = {
   // shape bulk_upsert_nba2k_players() expects. `imported_at` is
   // deliberately NOT included — the RPC always sets it server-side via
   // now().
-  _toRpcPlayer(item) {
+  //
+  // Phase 8.3.1: `existingPlayers` (the Map from _fetchExistingPlayers,
+  // stored on _lastParsed) is optional — omitted or not containing this
+  // slug means a genuinely new player, so the API's own `name`/
+  // `positions` are used unmodified (including unusual All-Time source
+  // positions like ["C","N"] — no position-cleaning is invented here).
+  // For a slug that DOES already exist, `name`/`positions` are pulled
+  // from the existing DB row instead of the fresh API doc — the RPC
+  // itself always does a full-column overwrite, so this substitution has
+  // to happen here, before the write, to keep those two fields
+  // authoritative to the local database rather than the API. Every other
+  // field always comes from the fresh API data, for both new and
+  // existing players.
+  _toRpcPlayer(item, existingPlayers) {
     const doc = item.doc;
+    const existing = existingPlayers ? existingPlayers.get(item.slug) : undefined;
     return {
       slug: item.slug,
-      name: doc.name,
+      name: existing ? existing.name : doc.name,
       team: doc.team,
       team_type: doc.teamType,
       overall: doc.overall,
-      positions: doc.positions,
+      positions: existing ? existing.positions : doc.positions,
       height: doc.height,
       weight: doc.weight,
       wingspan: doc.wingspan,
@@ -475,7 +519,7 @@ const Nba2kImport = {
     if (this._running || !this._lastParsed) return;
     AuthBoundary.requireAuth();
 
-    const { toCreate, toUpdate, warnings, errors, sourceTotal, importTotal, categoryCounts } = this._lastParsed;
+    const { toCreate, toUpdate, warnings, errors, sourceTotal, importTotal, categoryCounts, excludedByOverall } = this._lastParsed;
     const all = [...toCreate, ...toUpdate];
 
     if (!all.length) return;
@@ -498,7 +542,7 @@ const Nba2kImport = {
       // whatever the file has.
       for (let i = 0; i < all.length; i += this.BATCH_LIMIT) {
         const chunk = all.slice(i, i + this.BATCH_LIMIT);
-        const payload = chunk.map(item => this._toRpcPlayer(item));
+        const payload = chunk.map(item => this._toRpcPlayer(item, this._lastParsed.existingPlayers));
         // Full upsert — source is authoritative per re-import. The RPC's
         // ON CONFLICT DO UPDATE explicitly re-sets every imported
         // column, matching Firestore's old merge:false "never leaves a
@@ -514,6 +558,7 @@ const Nba2kImport = {
           <div>Created: ${toCreate.length}</div>
           <div>Updated: ${toUpdate.length}</div>
           <div>Skipped (validation errors): ${errors.length}</div>
+          <div>Excluded (OVR outside 75–99): ${excludedByOverall}</div>
           <div>Warnings (non-fatal): ${warnings.length}</div>
           <div style="margin-top:0.5rem;">Breakdown — Current: ${categoryCounts.curr} · Classics: ${categoryCounts.class} · All-Time: ${categoryCounts.allt}${categoryCounts.other ? ` · Other: ${categoryCounts.other}` : ''}</div>
           <div>Source records in file: ${sourceTotal}</div>
