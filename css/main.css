@@ -246,6 +246,18 @@
   }
 }
 
+/* ─── Shell tokens — Phase 2, Step 3 (additive) ────────────────────────────────
+   Dark cinematic direction: the content canvas is near-black and the sidebar /
+   top bar sit one step lighter, so the shell reads as layers. Nothing existing
+   is renamed, removed or re-valued, and the seven legacy-only token names from
+   the Step 1 audit remain undeclared. */
+:root {
+  --nb-canvas:                #0d0f14;                          /* application canvas behind every view; darker than the sidebar */
+  --nb-sidebar-bg-hover:      rgba(255, 255, 255, 0.05);        /* hover tint on dark chrome */
+  --nb-sidebar-shadow-drawer: 12px 0 40px rgba(0, 0, 0, 0.55);  /* open mobile drawer edge */
+  --nb-scrim-shell:           rgba(4, 5, 8, 0.72);              /* drawer scrim: heavier than --nb-scrim so it separates from a dark canvas */
+}
+
 /* Reduced motion: duration tokens collapse to zero (nothing consumes them yet) */
 @media (prefers-reduced-motion: reduce) {
   :root {
