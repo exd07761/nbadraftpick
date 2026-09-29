@@ -1,28 +1,45 @@
 /**
  * admin/nba2k-import.js — NBA 2K26 Database import
  * (Phase 1: Current players only. Phase 4: expanded to Current + Classics
- * + All-Time — the complete 1,757-player NBA2KAPI dataset.)
+ * + All-Time — the complete NBA2KAPI dataset across all three categories.)
  *
  * PURPOSE
  * One-time/repeatable admin tool that reads an NBA2KAPI-style JSON dump
  * (locally, via a file picker — nothing is uploaded anywhere but this
  * browser tab), normalizes a handful of known source data-quality
- * issues, and writes one document per player to a *separate* Firestore
- * collection:
+ * issues, and upserts one row per player into a *separate* Supabase
+ * table:
  *
- *     nba2k_players/<slug>
+ *     public.nba2k_players (slug is the primary key)
+ *
+ * PHASE 8.3 CHANGE
+ * Persistence moved from Firestore to Supabase: existing-slug detection
+ * now reads public.nba2k_players directly (no more 30-item chunking —
+ * that was a Firestore `in`-query limit, not a Postgres one, though a
+ * defensive chunk size is still used for the read; see
+ * _fetchExistingSlugs), and the actual write goes through the
+ * `bulk_upsert_nba2k_players` Supabase RPC (SECURITY DEFINER,
+ * commissioner-gated) instead of firebase.firestore().batch(). Every
+ * other part of this file — validation, slug derivation, badge
+ * de-duplication, the create/update preview, the import UI — is
+ * unchanged. See _runImport() and _toRpcPlayer() for the write path, and
+ * supabase/migrations/20260928150000_phase8_3_nba2k_players_bulk_import_rpc.sql
+ * for the RPC itself.
  *
  * PHASE 4 CHANGE (the only behavioral change from Phase 1)
  * The `teamType === 'curr'` filter that limited this importer to current
  * players has been removed — it now imports all three source categories
  * (`curr`, `class`, `allt`) using the exact same per-player validation/
  * normalization pipeline Phase 1 already established. Nothing else about
- * that pipeline changed: verified against the real dataset that Classic
- * and All-Time records have zero missing name/playerUrl/team/overall/
- * attributes fields, and that all 1,757 records (across all three
- * categories combined) produce zero slug collisions — so the existing
- * slug-as-document-ID upsert scheme needed no adjustment to scale from
- * 528 to 1,757 documents.
+ * that pipeline changed: verified against the real dataset available at
+ * the time that Classic and All-Time records have zero missing
+ * name/playerUrl/team/overall/attributes fields, and that the combined
+ * set of records across all three categories produced zero slug
+ * collisions — so the existing slug-as-primary-key upsert scheme needed
+ * no adjustment to scale from Current-only to all three categories. This
+ * was a point-in-time check against the dataset available at Phase 4;
+ * it is not a currently-enforced invariant, so this file does not assume
+ * any particular record count going forward.
  *
  * `teamType` is stored verbatim (`curr`/`class`/`allt`) — never renamed
  * to `green`/`blue`. Pool eligibility is a read-only *label* the
@@ -36,28 +53,46 @@
  * The NBA2K player database and the app's existing player database
  * remain two entirely independent collections/identity-spaces.
  *
- * All Firestore access for this collection is self-contained in this
- * file (mirrors js/admin/backup.js, which also talks to its own backend
- * directly rather than routing through data.js).
+ * All Supabase access for this table is self-contained in this file,
+ * via the shared SupabaseQuery helper (mirrors js/admin/backup.js, which
+ * also talks to its own backend directly rather than routing through
+ * data.js).
  *
- * SECURITY
- * This collection's Firestore rules are NOT part of this repo (rules
- * are managed in the Firebase Console — see BACKUP_RESTORE.md). Per the
- * Phase 4 spec, the existing rule (`allow read, write: if request.auth
- * != null;`) is left exactly as-is — no rule change was made or needed.
+ * SECURITY (Phase 8.3)
+ * public.nba2k_players has no INSERT/UPDATE/DELETE row-level-security
+ * policy for any role — the ONLY way to write to this table is the
+ * `bulk_upsert_nba2k_players` RPC, which calls
+ * public.require_commissioner() first. This is a real tightening from
+ * the old Firestore rule (`allow read, write: if request.auth != null`),
+ * which allowed any authenticated user, not just commissioners, to run
+ * this importer. The existing-slug read (_fetchExistingSlugs) is not
+ * commissioner-gated — it uses the table's own `conditional_read` SELECT
+ * policy, matching the openness of the old read behavior.
  *
  * SLUG / DOCUMENT ID
  * The document ID is the last path segment of `playerUrl`
  * (e.g. "https://www.2kratings.com/trae-young" -> "trae-young").
- * Verified against the FULL 1,757-record dataset (all three categories
- * combined): every URL matches a clean `2kratings.com/<slug>` shape,
- * and all 1,757 slugs are globally unique — no Classic/All-Time record
- * collides with an existing Current slug or with each other. See
- * _slugFromPlayerUrl() for the exact rule and its fallback.
+ * Verified against the full dataset available at Phase 4 (all three
+ * categories combined): every URL matched a clean `2kratings.com/<slug>`
+ * shape, and every slug was globally unique — no Classic/All-Time record
+ * collided with an existing Current slug or with each other. This was a
+ * point-in-time check, not an ongoing guarantee about the dataset's
+ * size or contents. See _slugFromPlayerUrl() for the exact rule and its
+ * fallback.
  */
 const Nba2kImport = {
-  COLLECTION: 'nba2k_players',
-  BATCH_LIMIT: 500, // Firestore hard cap on ops per batch
+  TABLE: 'nba2k_players',
+  // Phase 8.3: Postgres/Supabase has no Firestore-style hard per-batch
+  // op cap (that 500 was a Firestore limit). This value is intentionally
+  // conservative rather than assumed-safe at the old Firestore number —
+  // an untested single RPC call carrying the full ~2,000-player payload
+  // (each with a sizeable attributes/badges jsonb blob, easily 2-3 KB of
+  // JSON per player) risks an undiscovered request-size or
+  // statement-timeout limit on the very first real run. 100 keeps each
+  // call's payload comfortably small (well under a few hundred KB) and
+  // still only needs ~20 sequential calls for the full dataset. Can be
+  // tuned upward once a real run is observed to succeed comfortably.
+  BATCH_LIMIT: 100,
 
   _lastParsed: null, // { toCreate: [...], toUpdate: [...], warnings: [...], errors: [...], sourceTotal, currTotal }
   _running: false,
@@ -69,9 +104,9 @@ const Nba2kImport = {
           <h2>NBA 2K Player Database Import</h2>
         </div>
         <p class="helper-text">
-          Source: <code>nba2k-all-players.json</code>. Expected 1,757 total players
-          (528 Current, 774 Classics, 455 All-Time). Imports into a separate
-          <code>nba2k_players</code> Firestore collection — this is a standalone
+          Imports the supplied NBA2K player JSON dataset (<code>nba2k-all-players.json</code>,
+          covering Current, Classics, and All-Time players) into a separate
+          <code>nba2k_players</code> Supabase table — this is a standalone
           reference database. It does not touch the existing Players page, pools,
           draft, rosters, or trades. Pool assignment only happens through the
           existing per-player promotion workflow in the NBA 2K Player Database browser.
@@ -288,14 +323,17 @@ const Nba2kImport = {
           attributes,
           badges,
           lastUpdated: raw.lastUpdated ?? null,
-          importedAt: firebase.firestore.FieldValue.serverTimestamp(),
+          // Phase 8.3: importedAt is no longer set here — the
+          // bulk_upsert_nba2k_players RPC always stamps it server-side
+          // with now(), the same way selected_at/updated_at are handled
+          // by every other write RPC in this migration.
         },
       });
     }
 
-    // Diff against existing Firestore docs to split create vs. update.
-    // Firestore 'in' queries cap at 30 values per query, so this is
-    // chunked — read-only, no writes happen here.
+    // Diff against existing Supabase rows to split create vs. update.
+    // Chunked defensively (see _fetchExistingSlugs) — read-only, no
+    // writes happen here.
     let existingSlugs;
     try {
       existingSlugs = await this._fetchExistingSlugs(normalized.map(n => n.slug));
@@ -303,9 +341,8 @@ const Nba2kImport = {
       previewEl.innerHTML = `
         <div class="backup-result backup-result-error">
           <strong>✕ Could not check existing NBA2K players</strong>
-          <div>${escapeHtml(e.message || 'Firestore read failed.')}</div>
-          <div style="margin-top:0.5rem;">This usually means the <code>nba2k_players</code> Firestore rule
-          doesn't exist yet, or doesn't allow authenticated reads. See the setup notes for the rule to add.</div>
+          <div>${escapeHtml(e.message || 'Supabase read failed.')}</div>
+          <div style="margin-top:0.5rem;">Confirm you're signed in and the <code>nba2k_players</code> table is reachable.</div>
         </div>`;
       container.querySelector('#btnNba2kConfirm').classList.add('hidden');
       container.querySelector('#btnNba2kCancel').classList.remove('hidden');
@@ -365,18 +402,73 @@ const Nba2kImport = {
   /**
    * Reads which of the given slugs already exist in nba2k_players.
    * Read-only — used purely to classify create vs. update in the preview.
+   * Phase 8.3: reads Supabase directly via the shared SupabaseQuery
+   * helper, under the table's existing `conditional_read` SELECT policy
+   * — no commissioner gate needed for a read, matching the openness of
+   * the old Firestore rule for this same operation. Postgres/PostgREST
+   * has no Firestore-style 30-item `in`-query cap, but `.in()` is sent as
+   * a GET query-string filter, so a defensive chunk size is still used
+   * to avoid an oversized URL for the full ~2,000-slug case — 200 is
+   * comfortably under typical URL/header length limits while still far
+   * above Firestore's old 30-item cap.
    */
   async _fetchExistingSlugs(slugs) {
     const existing = new Set();
-    const col = firebase.firestore().collection(this.COLLECTION);
-    const CHUNK = 30; // Firestore documentId() 'in' query cap
+    const CHUNK = 200;
     for (let i = 0; i < slugs.length; i += CHUNK) {
       const chunk = slugs.slice(i, i + CHUNK);
       if (!chunk.length) continue;
-      const snap = await col.where(firebase.firestore.FieldPath.documentId(), 'in', chunk).get();
-      snap.forEach(doc => existing.add(doc.id));
+      const rows = await SupabaseQuery.select(this.TABLE, qb =>
+        qb.select('slug').in('slug', chunk)
+      );
+      rows.forEach(row => existing.add(row.slug));
     }
     return existing;
+  },
+
+  // Phase 8.3: maps a validated/normalized preview item (still the same
+  // camelCase `{ slug, doc: {...} }` shape _validateAndPreview() has
+  // always produced — unchanged, per the requirement to preserve
+  // existing validation/preview behavior) into the snake_case parameter
+  // shape bulk_upsert_nba2k_players() expects. `imported_at` is
+  // deliberately NOT included — the RPC always sets it server-side via
+  // now().
+  _toRpcPlayer(item) {
+    const doc = item.doc;
+    return {
+      slug: item.slug,
+      name: doc.name,
+      team: doc.team,
+      team_type: doc.teamType,
+      overall: doc.overall,
+      positions: doc.positions,
+      height: doc.height,
+      weight: doc.weight,
+      wingspan: doc.wingspan,
+      build: doc.build,
+      player_url: doc.playerUrl,
+      player_image: doc.playerImage,
+      team_img: doc.teamImg,
+      attributes: doc.attributes,
+      badges: doc.badges,
+      last_updated: doc.lastUpdated,
+    };
+  },
+
+  // Phase 8.3: maps the "PREFIX: message" errors raised by
+  // bulk_upsert_nba2k_players() (same convention as every other RPC in
+  // this migration) to a friendly, UI-safe message — never surfaces a
+  // raw Postgres/RPC error.
+  _mapImportRpcError(err) {
+    const message = err && err.message ? err.message : '';
+
+    if (message.includes('UNAUTHENTICATED') || message.includes('UNAUTHORIZED')) {
+      return "You don't have permission to import NBA2K players — commissioner access is required.";
+    }
+    if (message.includes('INVALID_PAYLOAD')) {
+      return 'Could not import — the data sent to the server was malformed. Please try again.';
+    }
+    return message || 'Unknown error.';
   },
 
   async _runImport(container) {
@@ -396,19 +488,22 @@ const Nba2kImport = {
     resultEl.innerHTML = '';
 
     try {
-      const db = firebase.firestore();
       let processed = 0;
 
-      // Dynamically chunk into batches of <= BATCH_LIMIT — never assumes
-      // the 528 figure from inspection; scales to whatever the file has.
+      // Phase 8.3: targeted bulk write via RPC, chunked client-side.
+      // Postgres/Supabase has no Firestore-style hard per-batch op cap,
+      // but BATCH_LIMIT is intentionally conservative rather than
+      // assumed-safe at the old Firestore number — see its declaration
+      // above for why. Never assumes any fixed dataset size; scales to
+      // whatever the file has.
       for (let i = 0; i < all.length; i += this.BATCH_LIMIT) {
         const chunk = all.slice(i, i + this.BATCH_LIMIT);
-        const batch = db.batch();
-        for (const item of chunk) {
-          const ref = db.collection(this.COLLECTION).doc(item.slug);
-          batch.set(ref, item.doc, { merge: false }); // full upsert — source is authoritative per re-import
-        }
-        await batch.commit();
+        const payload = chunk.map(item => this._toRpcPlayer(item));
+        // Full upsert — source is authoritative per re-import. The RPC's
+        // ON CONFLICT DO UPDATE explicitly re-sets every imported
+        // column, matching Firestore's old merge:false "never leaves a
+        // stale value behind" behavior.
+        await SupabaseQuery.callWriteRpc('bulk_upsert_nba2k_players', { p_players: payload });
         processed += chunk.length;
       }
 
@@ -429,9 +524,7 @@ const Nba2kImport = {
       resultEl.innerHTML = `
         <div class="backup-result backup-result-error">
           <strong>✕ Import failed</strong>
-          <div>${escapeHtml(e.message || 'Unknown error.')}</div>
-          <div style="margin-top:0.5rem;">If this is a permissions error, the <code>nba2k_players</code>
-          Firestore rule likely isn't in place yet.</div>
+          <div>${escapeHtml(this._mapImportRpcError(e))}</div>
         </div>`;
       showToast('NBA 2K player import failed.', 'error');
     } finally {
@@ -441,13 +534,16 @@ const Nba2kImport = {
   },
 
   /**
-   * Derives a Firestore-safe document ID from a 2kratings.com player URL.
-   * Verified against the full 1,757-record dataset (Current + Classics +
-   * All-Time combined): every URL matches `https://www.2kratings.com/<slug>`
-   * (optionally with a trailing slash) with an already-unique, lowercase,
-   * hyphenated slug — zero collisions across all three categories. The
-   * fallback path below only matters for future snapshots that might not
-   * follow that exact shape.
+   * Derives a slug (used as the nba2k_players primary key) from a
+   * 2kratings.com player URL.
+   * Verified against the full dataset available at Phase 4 (Current +
+   * Classics + All-Time combined): every URL matched
+   * `https://www.2kratings.com/<slug>` (optionally with a trailing
+   * slash) with an already-unique, lowercase, hyphenated slug — zero
+   * collisions across all three categories at that time. This is a
+   * point-in-time observation, not an assumption baked into the code —
+   * the fallback path below exists precisely for any dataset (past or
+   * future) that doesn't follow that exact shape.
    */
   _slugFromPlayerUrl(url) {
     try {
@@ -455,7 +551,10 @@ const Nba2kImport = {
       const segments = path.split('/').filter(Boolean);
       const last = segments[segments.length - 1];
       if (!last) return null;
-      // Firestore doc IDs: no "/", not ".", not "..", <=1500 bytes.
+      // Kept conservative (no "/", not ".", not "..") from this slug's
+      // original days as a Firestore document ID; still a reasonable,
+      // safe shape for a Postgres primary key value, so the check is
+      // left as-is.
       const slug = last.trim().toLowerCase();
       if (!slug || slug === '.' || slug === '..' || slug.includes('/')) return null;
       return slug;
