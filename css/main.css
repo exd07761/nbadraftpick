@@ -54,20 +54,24 @@
   --nb-sidebar-text-active: #ffffff;
 
   /* Main workspace (light, per spec §8.1/§11) */
-  --nb-surface:        #f5f6fa;   /* page background */
-  --nb-surface-card:   #ffffff;   /* card background */
-  --nb-surface-border: #e4e6ef;
-  --nb-surface-shadow: 0 1px 2px rgba(20, 22, 30, 0.04), 0 4px 16px rgba(20, 22, 30, 0.06);
+  /* Phase 2 Step 5 — the light-theme tokens below keep their names but now hold DARK values
+     (dark cinematic direction). Every existing consumer flips together, so no page
+     stylesheet had to be edited. Layers, darkest to lightest: --nb-canvas < --nb-surface-card
+     (panel) < --nb-surface-raised < --nb-surface-lift. */
+  --nb-surface:        var(--nb-canvas);   /* Step 5: page background and inset wells: the darkest layer */
+  --nb-surface-card:   #151a24;   /* Step 5: primary panel (cards, tables, forms): one step above the canvas */
+  --nb-surface-border: #262b3a;   /* Step 5: subtle panel border */
+  --nb-surface-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 6px 20px rgba(0, 0, 0, 0.28);   /* Step 5: dark value */
 
-  --nb-text:        #1c1f2a;
-  --nb-text-muted:  #5a6075;   /* Phase 2 Step 2: was #6b7185 (4.50:1 on --nb-surface) -> 5.78:1 */
-  --nb-text-dim:    #9aa0b4;
+  --nb-text:        #f2f4fa;   /* Step 5: primary text; 16:1 on panel */
+  --nb-text-muted:  #a4abc0;   /* Step 5: secondary text; 7.8:1 on panel */
+  --nb-text-dim:    #8189a0;   /* Step 5: tertiary/decorative text; 5:1 on panel */
 
   /* Primary accent — purple/blue, per spec §8.1 (orange --accent above is
      kept as-is for now; whether it stays as a secondary brand color is
      still an open call, not decided by this token pass). */
   --nb-primary:      #5b5bf0;
-  --nb-primary-dim:  rgba(91, 91, 240, 0.12);
+  --nb-primary-dim:  rgba(91, 91, 240, 0.18);   /* Step 5: dark value */
   --nb-primary-hover:#4a4ae0;
 
   /* Status colors — reuses the existing --green/--red hues so status
@@ -114,28 +118,28 @@
    medium <=900px (shell boundary, unchanged), wide >900px. */
 :root {
   /* Surfaces & borders */
-  --nb-surface-sunken: #eceef3;                  /* tab tracks, disabled fills */
-  --nb-surface-hover:  rgba(28, 31, 42, 0.04);   /* interactive row/hover tint */
-  --nb-border-strong:  #8a91a6;                  /* control borders: 3.14:1 on #fff */
+  --nb-surface-sunken: #0a0c10;   /* Step 5: input wells, tab tracks, disabled fills */
+  --nb-surface-hover:  rgba(255, 255, 255, 0.04);   /* Step 5: interactive row/hover tint */
+  --nb-border-strong:  #6a7390;   /* Step 5: control borders: 3:1+ on panel and raised */
 
   /* Primary (indigo) — ink for text on light surfaces */
-  --nb-primary-ink:    #4646d6;                  /* 6.76:1 on #fff, 5.79:1 on primary tint */
+  --nb-primary-ink:    #b4b6ff;   /* Step 5: indigo text on dark; 9:1 on panel */
 
   /* Sports/brand accent (orange): brand mark, playoffs, elite OVR ONLY */
   --nb-brand-orange:         #e8630a;            /* = legacy --accent; fills/marks */
   --nb-brand-orange-dim:     rgba(232, 99, 10, 0.15);
-  --nb-brand-orange-ink:     #b84a00;            /* 5.23:1 on #fff, 4.61:1 on orange tint */
+  --nb-brand-orange-ink:     #ff8a3d;   /* Step 5: orange text on dark; 7.6:1 on panel */
   --nb-brand-orange-on-dark: #ff7a1f;            /* small text on dark chrome */
 
   /* Gold — live / on the clock / champion / warning (icon + text distinguish) */
-  --nb-gold-ink:      #7a5a00;                   /* 6.38:1 on #fff */
+  --nb-gold-ink:      #f0b429;   /* Step 5: gold text on dark; 9.5:1 on panel */
   --nb-gold-on-dark:  #f0b429;                   /* 8.30:1 on #1f2432 */
 
   /* Status ink + tint pairs */
-  --nb-positive-ink:  #12724d;                   /* 5.93:1 on #fff */
-  --nb-positive-dim:  rgba(31, 169, 113, 0.12);
-  --nb-negative-ink:  #b8322a;                   /* 5.95:1 on #fff */
-  --nb-negative-dim:  rgba(224, 72, 58, 0.12);
+  --nb-positive-ink:  #4fd69c;   /* Step 5: green text on dark; 9.7:1 on panel */
+  --nb-positive-dim:  rgba(31, 169, 113, 0.16);   /* Step 5: dark value */
+  --nb-negative-ink:  #ff7a6e;   /* Step 5: red text on dark; 7:1 on panel */
+  --nb-negative-dim:  rgba(224, 72, 58, 0.16);   /* Step 5: dark value */
   --nb-warning-ink:   var(--nb-gold-ink);
 
   /* Info — aliases of the indigo family (no new hue) */
@@ -146,19 +150,19 @@
   /* Pools — new names; legacy --pool-* (and their inline fallbacks) untouched.
      Identity = dot/ring + tint + ink text + label; never the bright fill as text. */
   --nb-pool-green:       #34d17c;
-  --nb-pool-green-ink:   #157a48;                /* 4.77:1 on green tint */
-  --nb-pool-green-tint:  #e3f6ec;
+  --nb-pool-green-ink:   #5bdc93;   /* Step 5: pool-green text on dark */
+  --nb-pool-green-tint:  rgba(52, 209, 124, 0.14);   /* Step 5: pool-green fill on dark */
   --nb-pool-blue:        #4d9bf5;
-  --nb-pool-blue-ink:    #1f63c4;                /* 4.93:1 on blue tint */
-  --nb-pool-blue-tint:   #e4eefc;
+  --nb-pool-blue-ink:    #7db4f8;   /* Step 5: pool-blue text on dark */
+  --nb-pool-blue-tint:   rgba(77, 155, 245, 0.14);   /* Step 5: pool-blue fill on dark */
   --nb-pool-white:       #d7dae0;                /* slate; drawn as a hollow ring */
-  --nb-pool-white-ink:   #4b5263;                /* 6.73:1 on white-pool tint */
-  --nb-pool-white-tint:  #eceef3;
+  --nb-pool-white-ink:   #c3c8d4;   /* Step 5: pool-white text on dark */
+  --nb-pool-white-tint:  rgba(215, 218, 224, 0.12);   /* Step 5: pool-white fill on dark */
 
   /* Chrome, overlay, focus */
   --nb-chrome-band:          var(--nb-sidebar-bg);   /* dark band (Draft on-the-clock, heroes) */
-  --nb-scrim:                rgba(10, 11, 16, 0.5);  /* matches current .nb-drawer-scrim */
-  --nb-focus-ring:           var(--nb-primary);      /* 5.00:1 on #fff */
+  --nb-scrim:                rgba(4, 5, 8, 0.72);   /* Step 5: modal backdrop */
+  --nb-focus-ring:           var(--nb-focus-ring-on-dark);   /* Step 5: focus ring on dark surfaces; 10.9:1 on panel */
   --nb-focus-ring-on-dark:   #c4c6ff;                /* 10.66:1 on #161a24 */
 
   /* Typography — Inter stays; sizes are rem so they follow the root clamp */
@@ -201,8 +205,8 @@
   --nb-r-pill:         999px;
 
   /* Elevation: level 1 is the existing --nb-surface-shadow */
-  --nb-shadow-2:       0 2px 4px rgba(20, 22, 30, 0.06), 0 8px 24px rgba(20, 22, 30, 0.10);
-  --nb-shadow-3:       0 20px 60px rgba(20, 22, 30, 0.25);   /* matches current light modals */
+  --nb-shadow-2:       0 2px 6px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.32);   /* Step 5: dark value */
+  --nb-shadow-3:       0 24px 64px rgba(0, 0, 0, 0.6);   /* Step 5: modal shadow */
 
   /* Control & row sizes */
   --nb-control-sm:     32px;
@@ -248,14 +252,25 @@
 
 /* ─── Shell tokens — Phase 2, Step 3 (additive) ────────────────────────────────
    Dark cinematic direction: the content canvas is near-black and the sidebar /
-   top bar sit one step lighter, so the shell reads as layers. Nothing existing
-   is renamed, removed or re-valued, and the seven legacy-only token names from
-   the Step 1 audit remain undeclared. */
+   top bar sit one step lighter, so the shell reads as layers. The first four
+   tokens are Step 3's (shell); the rest were appended in Step 5 (primitives).
+   Step 5 also re-valued the existing light-theme tokens earlier in this file
+   (see the note above --nb-surface). No token was renamed or removed, and the
+   seven legacy-only token names from the Step 1 audit remain undeclared. */
 :root {
   --nb-canvas:                #0d0f14;                          /* application canvas behind every view; darker than the sidebar */
   --nb-sidebar-bg-hover:      rgba(255, 255, 255, 0.05);        /* hover tint on dark chrome */
   --nb-sidebar-shadow-drawer: 12px 0 40px rgba(0, 0, 0, 0.55);  /* open mobile drawer edge */
   --nb-scrim-shell:           rgba(4, 5, 8, 0.72);              /* drawer scrim: heavier than --nb-scrim so it separates from a dark canvas */
+  --nb-surface-raised:        #1c2230;                          /* Step 5: elevated panel (secondary buttons, table header, modal) */
+  --nb-surface-lift:          #252c3d;                          /* Step 5: interactive lift (hover on raised surfaces) */
+  --nb-on-primary:            #ffffff;                          /* Step 5: text on solid indigo (5.0:1 on --nb-primary) */
+  --nb-violet-ink:            #c9a0f0;                          /* Step 5: team-assignment status */
+  --nb-violet-dim:            rgba(155, 89, 182, 0.22);
+  --nb-sky-ink:               #7fc4f5;                          /* Step 5: regular-season status */
+  --nb-sky-dim:               rgba(52, 152, 219, 0.18);
+  --nb-pink-ink:              #ff8fc4;                          /* Step 5: pick-color "pink" */
+  --nb-pink-dim:              rgba(255, 105, 180, 0.18);
 }
 
 /* Reduced motion: duration tokens collapse to zero (nothing consumes them yet) */
