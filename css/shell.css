@@ -169,13 +169,25 @@
 }
 .nb-sidebar-link.active .nb-link-icon { color: var(--nb-focus-ring-on-dark); }
 
+/* Step 4: nav icons are inline SVGs (see index.html / admin.html), drawn in
+   Lucide's outline style — 24px grid, 1.75 stroke, round caps/joins. Several
+   geometries are adapted from Lucide (https://lucide.dev, ISC License,
+   (c) Lucide Contributors); nothing is loaded from it at runtime. Color comes
+   from currentColor, so idle/hover/active/focus states set it once on the link
+   (and .active .nb-link-icon above). The icon box is 20px tall — never taller
+   than the label's line box — so row heights are unchanged from Step 3. */
 .nb-link-icon {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 1.25rem;
+  height: 20px;
   text-align: center;
   font-size: 1rem;
   line-height: 1;
 }
+.nb-link-icon svg { display: block; width: 20px; height: 20px; flex-shrink: 0; }
 .nb-link-label { overflow: hidden; text-overflow: ellipsis; }
 
 /* ─── Season widget (added pre-Phase-6, per approved spec §3.1/§9) ───────────
@@ -370,7 +382,8 @@
 
   .nb-collapsed .nb-link-label { display: none; }
   .nb-collapsed .nb-sidebar-link { justify-content: center; padding: 0.6rem; }
-  .nb-collapsed .nb-link-icon { width: auto; font-size: 1.125rem; }
+  .nb-collapsed .nb-link-icon { width: auto; height: 1.125rem; font-size: 1.125rem; }
+  .nb-collapsed .nb-link-icon svg { width: 1.125rem; height: 1.125rem; } /* 18-19px in the rail; same box as the Step 3 glyph, so rail rows don't move */
 
   .nb-collapsed .nb-sidebar-season { display: none; } /* no room to show season info meaningfully when collapsed */
   .nb-collapsed .nb-season-caption { display: none; }
