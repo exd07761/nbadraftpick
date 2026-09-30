@@ -1,226 +1,495 @@
 /**
- * draft-public.css — styling for the new public/read-only Draft view
- * (js/views/draft.js). NEW FILE — no existing rules touched.
+ * draft-public.css — styling for the public/read-only Draft view
+ * (js/views/draft.js).
  *
- * Mobile-first: the base (unprefixed) rules below ARE the phone layout —
- * glance zone (Tier A/B/C) + tabbed panels. The single @media
- * (min-width: 900px) block at the bottom is what turns it into the
- * desktop 3-column layout; nothing here is "shrink the desktop layout
- * down," per spec §5/§10.
+ * Phase 2 Step 6: cinematic "live league draft" presentation. CSS ONLY — the
+ * DOM draft.js emits, every class it uses and every hook in it are untouched.
+ *
+ * Layer model (darkest → lightest, all Step 1/5 tokens, no new colours):
+ *   --nb-canvas        page
+ *   --nb-surface-card  primary draft surfaces (hero, lists, position columns)
+ *   --nb-surface-raised secondary/raised (stat plates, column heads, round tags)
+ *   --nb-surface-sunken wells (search field, progress track)
+ * Gold = live / on the clock / just picked. Indigo = interaction (tabs, focus).
+ * Orange = elite OVR only (comes from primitives.css .pos-ovr-elite).
+ * Pool hues appear only on the pool tabs / position heads that already carry them.
+ *
+ * Mobile-first: the unprefixed rules ARE the phone layout (hero + tabbed panels
+ * + swipeable position columns). @media (min-width: 900px) turns the same DOM
+ * into the desktop workspace (tabs hidden, all panels visible); one extra
+ * @media (min-width: 1680px) moves Order/Info into a right rail once the board
+ * can keep all five position columns readable beside it.
+ *
+ * Motion: explicit properties on --nb-dur-* tokens only (Step 2 zeroes them
+ * under prefers-reduced-motion). No animation, no pulsing.
  */
 
-/* No max-width here — .main-content (now 1440px) is the only cap that
-   should apply. An earlier version of this file also capped .dft-view
-   at 1300px, which was redundant while .main-content was narrower but
-   would have re-narrowed the highest-priority page the moment
-   .main-content was widened to fix the "everything shrinks" issue. */
-/* Fix (found during Phase-7 redesign): every element here was inheriting
-   body's color: var(--text) — the OLD dark-theme token (near-white,
-   meant for dark backgrounds) that main.css never overrode for this
-   page. It was subtle enough at small sizes to go unnoticed (pale gray
-   on white, not literally invisible) in the order/history rows, but the
-   new larger "Recently Picked" card made it obvious. Setting the correct
-   light-theme text color once, here at the page root, fixes every
-   descendant that doesn't already set its own color — instead of
-   patching .dft-order-name, .dft-history-name, .dft-lastpick-name, etc.
-   individually. Scoped to this page only; body's own color is untouched. */
 .dft-view { margin: 0 auto; color: var(--nb-text); }
 
-.dft-muted { color: var(--nb-text-muted); font-size: 0.85rem; }
+.dft-muted { color: var(--nb-text-muted); font-size: var(--nb-fs-sm); }
 
-/* ─── Glance zone (Tiers A/B/C) ─────────────────────────────────────────── */
+/* ═══ 1 · LIVE HERO (Tier A on the clock / Tier B pick + progress / Tier C last pick) ═══ */
 .dft-glance {
+  position: relative;
   background: var(--nb-surface-card);
   border: 1px solid var(--nb-surface-border);
   border-radius: var(--nb-r-lg);
-  box-shadow: var(--nb-surface-shadow);
-  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-3);
+  /* Gold edge = "live". Drawn inset so it never changes the box size. */
+  box-shadow: inset 4px 0 0 var(--nb-gold), var(--nb-surface-shadow);
+  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-3) var(--nb-space-5);
   margin-bottom: var(--nb-space-4);
 }
 
-/* Tier A — who's picking: the single most dominant element on the page.
-   Fix (pre-Phase-6 review): the name itself now uses a strong dark color
-   (--nb-text, ~15:1 contrast on the white card) instead of raw
-   --nb-gold (~2.4:1 — failed even the large-text 3:1 minimum). Gold is
-   kept as an ACCENT only, via the small "ON THE CLOCK" eyebrow above the
-   name, styled the same darkened-gold-on-tint treatment already used by
-   the topbar status pill (#7a5a00 on --nb-gold-dim) — that combination
-   was already legible; the mistake was using the undarkened token
-   directly for body text elsewhere, not the motif itself. */
+/* Tier A — the single most dominant element on the page. */
 .dft-tier-a {
   display: flex;
   align-items: center;
-  gap: var(--nb-space-3);
+  gap: var(--nb-space-4);
   margin-bottom: var(--nb-space-3);
 }
-.dft-tier-a-eyebrow {
-  display: inline-block;
-  align-self: flex-start;
-  font-size: 0.65rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #7a5a00;
-  background: var(--nb-gold-dim);
-  border: 1px solid var(--nb-gold);
-  border-radius: 999px;
-  padding: 0.15rem 0.55rem;
-  margin-bottom: 0.3rem;
+/* Logo above its abbreviation: reads like a broadcast team bug. */
+.dft-tier-a .team-identity { flex-direction: column; gap: var(--nb-space-1); flex-shrink: 0; }
+.dft-tier-a .team-logo-img-lg,
+.dft-tier-a .team-badge-lg { width: 64px; height: 64px; }
+.dft-view .team-identity-abbr {
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
 }
 .dft-tier-a-identity {
-  /* Fix (pre-Phase-6 review): min-width:0 lets this flex item shrink/wrap
-     instead of forcing the row wider than the viewport; overflow-wrap
-     covers the edge case of one long unbroken word (no spaces) that
-     normal wrapping alone wouldn't catch. Deliberately NOT truncated
-     with ellipsis — losing part of "who's picking" is worse than the
-     name wrapping to a second line. */
+  /* min-width:0 lets the name wrap instead of forcing the row wider than the
+     viewport; it is deliberately NOT ellipsised — losing part of "who's
+     picking" is worse than a second line. */
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
+  gap: var(--nb-space-1);
   min-width: 0;
   flex: 1 1 auto;
 }
+.dft-tier-a-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-sm);
+  padding: 0.15rem 0.55rem;
+}
+/* Static marker (shape, not just colour) — deliberately not animated. */
+.dft-tier-a-eyebrow::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
 .dft-tier-a-name {
   display: block;
-  font-size: 1.7rem;
-  font-weight: 800;
-  letter-spacing: -0.01em;
-  line-height: 1.15;
+  font-size: clamp(1.6rem, 7vw, 2.1rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: -0.02em;
+  line-height: var(--nb-lh-tight);
   color: var(--nb-text);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-/* teamBadge() (shared-utils.js) defaults its abbreviation text to
-   --text-muted, a light-gray token meant for the app's original dark
-   cards (~3.9:1 on white — under the 4.5:1 small-text minimum). Scoped
-   fix, this page only — not touching shared-utils.js or main.css. */
-.dft-view .team-identity-abbr { color: var(--nb-text-muted); }
 
-/* Tier B — round / pick / progress: secondary size, directly under Tier A. */
+/* Tier B — round / pick plates + progress. */
 .dft-tier-b {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   flex-wrap: wrap;
   gap: var(--nb-space-2);
   margin-bottom: var(--nb-space-3);
 }
 .dft-pick-chip {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
   color: var(--nb-text-muted);
-  background: var(--nb-surface);
+  background: var(--nb-surface-raised);
   border: 1px solid var(--nb-surface-border);
-  border-radius: 999px;
-  padding: 0.25rem 0.65rem;
+  border-radius: var(--nb-r-sm);
+  padding: 0.45rem 0.7rem;
+  text-align: center;
+  white-space: nowrap;
+}
+/* "Pick N overall" is the second chip — the number everyone is waiting on. */
+.dft-pick-chip:nth-child(2) {
+  flex-grow: 1.4;
+  font-size: var(--nb-fs-body);
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  border-color: color-mix(in srgb, var(--nb-gold) 45%, transparent);
 }
 .dft-progress-wrap { flex: 1 1 100%; }
 .dft-progress-numbers {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.35rem;
 }
-.dft-progress-label { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--nb-text-dim); }
-.dft-progress-fraction { font-size: 0.78rem; font-weight: 700; color: var(--nb-text); font-variant-numeric: tabular-nums; }
-.dft-progress-pct { font-size: 0.78rem; font-weight: 800; color: var(--nb-gold); margin-left: auto; font-variant-numeric: tabular-nums; }
+.dft-progress-label { font-size: var(--nb-fs-xs); font-weight: var(--nb-fw-bold); text-transform: uppercase; letter-spacing: var(--nb-tracking-caps); color: var(--nb-text-muted); }
+.dft-progress-fraction { font-size: var(--nb-fs-sm); font-weight: var(--nb-fw-bold); color: var(--nb-text); font-variant-numeric: tabular-nums; }
+.dft-progress-pct { font-size: var(--nb-fs-sm); font-weight: var(--nb-fw-heavy); color: var(--nb-gold-ink); margin-left: auto; font-variant-numeric: tabular-nums; }
 .dft-progress-track {
   height: 6px;
-  border-radius: 999px;
-  background: var(--nb-surface);
+  border-radius: var(--nb-r-pill);
+  background: var(--nb-surface-sunken);
   border: 1px solid var(--nb-surface-border);
   overflow: hidden;
 }
 .dft-progress-fill {
   height: 100%;
   background: var(--nb-gold);
-  border-radius: 999px;
-  transition: width 0.3s ease;
+  border-radius: var(--nb-r-pill);
+  transition: width var(--nb-dur-slow) var(--nb-ease-standard);
 }
 
-/* Tier C — last pick: one compact line, visually quieter than A/B. */
+/* Tier C — last pick: quieter than A/B. */
 .dft-tier-c {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  font-size: 0.82rem;
-  padding-top: var(--nb-space-2);
-  border-top: 1px dashed var(--nb-surface-border);
+  gap: 0.15rem 0.5rem;
+  font-size: var(--nb-fs-sm);
+  padding-top: var(--nb-space-3);
+  border-top: 1px solid var(--nb-surface-border);
   color: var(--nb-text);
 }
 .dft-lastpick-label {
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
   text-transform: uppercase;
-  color: var(--nb-text-dim);
-  background: var(--nb-surface);
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-raised);
   border: 1px solid var(--nb-surface-border);
-  border-radius: 999px;
-  padding: 0.12rem 0.5rem;
-  margin-right: 0.2rem;
+  border-radius: var(--nb-r-sm);
+  padding: 0.1rem 0.5rem;
 }
-.dft-lastpick-name { font-weight: 700; }
-.dft-lastpick-meta, .dft-lastpick-by { color: var(--nb-text-muted); }
+.dft-lastpick-name { font-weight: var(--nb-fw-heavy); font-size: var(--nb-fs-body); }
+.dft-lastpick-meta, .dft-lastpick-by { color: var(--nb-text-muted); font-variant-numeric: tabular-nums; }
 
-.dft-glance-complete { background: var(--nb-surface-card); border: 1px solid var(--nb-surface-border); border-radius: var(--nb-r-lg); padding: var(--nb-space-4); margin-bottom: var(--nb-space-4); text-align: center; }
-.dft-glance-complete-title { font-size: 1.3rem; font-weight: 800; color: var(--nb-positive); }
-.dft-glance-complete-sub { color: var(--nb-text-muted); font-size: 0.85rem; margin-top: 0.25rem; }
+.dft-glance-complete {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-positive), var(--nb-surface-shadow);
+  padding: var(--nb-space-5) var(--nb-space-4);
+  margin-bottom: var(--nb-space-4);
+  text-align: center;
+}
+.dft-glance-complete-title { font-size: var(--nb-fs-hero); font-weight: var(--nb-fw-heavy); letter-spacing: var(--nb-tracking-title); color: var(--nb-positive-ink); }
+.dft-glance-complete-sub { color: var(--nb-text-muted); font-size: var(--nb-fs-sm); margin-top: 0.25rem; font-variant-numeric: tabular-nums; }
 
-/* ─── Tabs (mobile) ──────────────────────────────────────────────────────── */
+/* ═══ 2 · PANEL TABS (phone / tablet only; hidden ≥900px) ═══ */
 .dft-tabs {
   display: flex;
-  gap: var(--nb-space-3);
+  gap: var(--nb-space-1);
   margin-bottom: var(--nb-space-3);
   border-bottom: 1px solid var(--nb-surface-border);
 }
 .dft-tab {
-  /* Fix (pre-Phase-6 review): visible padding grew slightly, and a
-     transparent ::before extends the actual tappable area further —
-     ~44px tall without the tab looking visually bulkier than a normal
-     tab strip. */
+  /* Tap area ≈44px via the transparent ::before, without a bulky visible tab. */
   position: relative;
+  flex: 1 1 0;
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  padding: 0.7rem 0.35rem;
-  font-size: 0.82rem;
-  font-weight: 600;
+  padding: 0.75rem 0.25rem;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  text-align: center;
   color: var(--nb-text-muted);
   cursor: pointer;
 }
-.dft-tab::before {
-  content: '';
-  position: absolute;
-  inset: -6px -2px;
-}
-.dft-tab.active { color: var(--nb-primary); border-bottom-color: var(--nb-primary); }
+.dft-tab::before { content: ''; position: absolute; inset: -4px -2px; }
+.dft-tab.active { font-weight: var(--nb-fw-heavy); }
 
-/* ─── Panels ─────────────────────────────────────────────────────────────── */
+/* ═══ 3 · PANELS ═══ */
 .dft-panel { display: none; }
 .dft-panel.active { display: block; }
 
-.dft-board-controls { display: flex; flex-direction: column; gap: var(--nb-space-2); margin-bottom: var(--nb-space-3); }
-/* #dftSearch reuses the shared .input class, which is only defined in
-   admin.css (not loaded on the public site) — this scoped rule gives it
-   the same visual treatment here without touching main.css/admin.css or
-   any other page's search input. */
+/* ═══ 4 · SEARCH + POOL SWITCHER ═══ */
+.dft-board-controls { display: flex; flex-direction: column; gap: var(--nb-space-2); margin-bottom: var(--nb-space-2); }
+/* #dftSearch reuses .input, which admin.css defines but the public site never
+   loads — this scoped rule gives it its geometry. Colours/focus ring come from
+   the Step 5 .input/.search-input primitive. */
 #dftSearch {
   font-family: var(--font-ui);
-  font-size: 0.85rem;
-  padding: 0.55rem 0.8rem;
+  font-size: var(--nb-fs-body);
+  min-height: var(--nb-control-md);
+  padding: 0.5rem 0.85rem;
   border-radius: var(--nb-r);
-  border: 1px solid var(--nb-surface-border);
-  background: var(--nb-surface-card);
-  color: var(--nb-text);
   width: 100%;
 }
-#dftSearch:focus { outline: none; border-color: var(--nb-primary); }
+
+/* Three equal segments; the descriptor drops to a second line instead of the
+   tabs wrapping into a tall stack. */
+.dft-panel-board .pool-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--nb-space-2);
+  margin-bottom: var(--nb-space-3);
+}
+.dft-panel-board .pool-tab {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: 0.4rem;
+  row-gap: 0.1rem;
+  min-height: var(--nb-control-lg);
+  padding: 0.4rem 0.4rem;
+  border-radius: var(--nb-r);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  text-align: center;
+  line-height: var(--nb-lh-title);
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard),
+    border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.dft-panel-board .pool-tab .pool-tab-count {
+  flex: 1 1 100%;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.85;
+}
+/* Active = pool tint + ink + hue border (primitives) PLUS a bottom bar, so the
+   selected pool isn't signalled by colour alone. */
+.dft-panel-board .pool-tab.active { box-shadow: inset 0 -3px 0 currentColor; }
+
+/* ═══ 5 · PLAYER BOARD — position columns ═══
+   Phone/tablet: columns are a swipeable row (scroll-snap) with the next column
+   peeking in; the page itself scrolls vertically as normal.
+   ≥900px: see the media block below (fixed-height scroller + sticky heads). */
+#dftPlayerGrid {
+  overflow-x: auto;
+  padding-bottom: var(--nb-space-1);
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nb-border-strong) transparent;
+  color-scheme: dark;
+}
+.dft-panel-board .pos-table-grid {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: clamp(250px, 82%, 340px);
+  gap: var(--nb-space-3);
+}
+.dft-panel-board .pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  box-shadow: none;
+  overflow: clip; /* clips to the radius without becoming a scroll container (keeps sticky heads working) */
+  scroll-snap-align: start;
+}
+.dft-panel-board .pos-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 var(--nb-space-2);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+}
+/* Opaque pool-tinted heads (so they can sit over scrolling rows). */
+.dft-panel-board .pos-table-green .pos-table-head {
+  background: color-mix(in srgb, var(--nb-pool-green) 16%, var(--nb-surface-card));
+  color: var(--nb-pool-green-ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--nb-pool-green) 40%, transparent);
+}
+.dft-panel-board .pos-table-blue .pos-table-head {
+  background: color-mix(in srgb, var(--nb-pool-blue) 16%, var(--nb-surface-card));
+  color: var(--nb-pool-blue-ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--nb-pool-blue) 40%, transparent);
+}
+.dft-panel-board .pos-table-white .pos-table-head {
+  background: color-mix(in srgb, var(--nb-pool-white) 14%, var(--nb-surface-card));
+  color: var(--nb-pool-white-ink);
+  border-bottom: 1px solid color-mix(in srgb, var(--nb-pool-white) 35%, transparent);
+}
+.dft-panel-board .pos-table-columns-head {
+  height: 26px;
+  align-items: center;
+  padding: 0 0.6rem;
+  font-size: var(--nb-fs-xs);
+  background: var(--nb-surface-raised);
+  color: var(--nb-text-muted);
+  border-bottom: 1px solid var(--nb-surface-border);
+  grid-template-columns: 1.4rem 1fr 2.4rem;
+}
+.dft-panel-board .pos-table-row {
+  grid-template-columns: 1.4rem 1fr 2.4rem;
+  padding: 0.55rem 0.6rem;
+  font-size: var(--nb-fs-table);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.dft-panel-board .pos-table-row:hover:not(.drafted) { background: var(--nb-surface-hover); }
+.dft-panel-board .pos-rank { color: var(--nb-text-dim); font-size: var(--nb-fs-xs); }
+.dft-panel-board .pos-name { font-weight: var(--nb-fw-semibold); }
+/* OVR: prominent, but the name still leads. Tier colours (elite = orange) come
+   from primitives.css and are untouched. */
+.dft-panel-board .pos-ovr { font-size: var(--nb-fs-h3); line-height: 1; }
+/* Drafted stays struck + dimmed (global rule); locked stays dimmed + tagged. */
+.dft-panel-board .pos-drafted-tag {
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  background: var(--nb-surface-raised);
+  color: var(--nb-text-muted);
+  box-shadow: inset 0 0 0 1px var(--nb-surface-border);
+}
+.dft-panel-board .pos-locked-tag {
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nb-gold) 40%, transparent);
+}
+.dft-panel-board .pos-table-empty { color: var(--nb-text-muted); }
+
+/* Just-picked row: same gold language as the hero and the current order row.
+   The 3px bar is a shape cue, so it doesn't rely on the tint alone. */
+.dft-panel-board .pos-table-row.just-picked { background: var(--nb-gold-dim); position: relative; }
+.dft-panel-board .pos-table-row.just-picked::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--nb-gold);
+}
+
+/* Legend — the two markers differ in shape as well as colour. */
+.dft-board-legend {
+  display: flex;
+  gap: var(--nb-space-4);
+  margin-top: var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  color: var(--nb-text-muted);
+}
+.dft-board-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
+.dft-board-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dft-board-legend-dot-drafted { background: var(--nb-text-dim); }
+.dft-board-legend-dot-picked { width: 3px; height: 12px; border-radius: 1px; background: var(--nb-gold); }
+
+/* ═══ 6 · DRAFT ORDER / UP NEXT / HISTORY ═══ */
+.dft-order-list, .dft-history-list {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  overflow: hidden;
+}
+.dft-order-row {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-3);
+  padding: 0.55rem var(--nb-space-3);
+  border-bottom: 1px solid var(--nb-surface-border);
+  font-size: var(--nb-fs-table);
+}
+.dft-order-row:last-child, .dft-history-row:last-child { border-bottom: none; }
+.dft-order-row:nth-child(even) { background: var(--nb-surface-hover); }
+
+/* Current pick: tint + 3px bar + heavier name — unmistakable next to the rest. */
+.dft-order-row-current,
+.dft-order-row-current:nth-child(even) {
+  background: var(--nb-gold-dim);
+  position: relative;
+}
+.dft-order-row-current::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--nb-gold);
+}
+.dft-order-row-current .dft-order-name { font-weight: var(--nb-fw-heavy); }
+.dft-order-row-current .dft-order-pick { color: var(--nb-gold-ink); }
+
+.dft-order-pick {
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text-muted);
+  min-width: 2.6rem;
+  font-variant-numeric: tabular-nums;
+}
+.dft-order-name { flex: 1; min-width: 0; font-weight: var(--nb-fw-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dft-order-round {
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  background: var(--nb-surface-raised);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-sm);
+  padding: 0.05rem 0.4rem;
+}
+
+/* History: pick # | player (+ position · OVR) over "by participant". Completed
+   picks are secondary information, so they sit quieter than the order list. */
+.dft-history-row {
+  display: grid;
+  grid-template-columns: 2.6rem minmax(0, 1fr) auto;
+  grid-template-areas:
+    "pick name meta"
+    "pick by   by";
+  column-gap: var(--nb-space-3);
+  row-gap: 0.1rem;
+  align-items: baseline;
+  padding: 0.55rem var(--nb-space-3);
+  border-bottom: 1px solid var(--nb-surface-border);
+  font-size: var(--nb-fs-table);
+}
+.dft-history-pick { grid-area: pick; font-weight: var(--nb-fw-heavy); color: var(--nb-text-dim); font-variant-numeric: tabular-nums; }
+.dft-history-name { grid-area: name; min-width: 0; font-weight: var(--nb-fw-bold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dft-history-meta { grid-area: meta; color: var(--nb-text-muted); font-size: var(--nb-fs-sm); font-variant-numeric: tabular-nums; }
+.dft-history-by { grid-area: by; color: var(--nb-text-muted); font-size: var(--nb-fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dft-info-heading {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  text-transform: uppercase;
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text-muted);
+  margin: var(--nb-space-4) 0 var(--nb-space-2);
+}
+.dft-info-heading:first-child { margin-top: 0; }
+.dft-upnext-list .dft-order-row { font-size: var(--nb-fs-sm); padding: 0.45rem var(--nb-space-3); }
+.dft-recent-pick-card {
+  background: var(--nb-surface-raised);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  box-shadow: inset 3px 0 0 var(--nb-gold);
+  padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) var(--nb-space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  font-size: var(--nb-fs-sm);
+}
+.dft-recent-pick-card .dft-lastpick-name { font-size: var(--nb-fs-h2); line-height: var(--nb-lh-title); }
+
+/* ═══ 7 · LEGACY CLASSES NOT EMITTED BY THE CURRENT draft.js ═══
+   Kept (unused) so nothing that might still reference them changes meaning. */
 .dft-chip-row { display: flex; gap: 0.55rem; flex-wrap: wrap; }
 .dft-chip {
-  /* Fix (pre-Phase-6 review): same technique as .dft-tab — modest visible
-     padding increase + an invisible ::before extending the hit area,
-     rather than inflating the pill's visible size to 44px outright. */
   position: relative;
   background: var(--nb-surface-card);
   border: 1px solid var(--nb-surface-border);
@@ -231,29 +500,10 @@
   font-weight: 600;
   cursor: pointer;
 }
-.dft-chip::before {
-  content: '';
-  position: absolute;
-  inset: -7px;
-}
+.dft-chip::before { content: ''; position: absolute; inset: -7px; }
 .dft-chip.active { color: #fff; background: var(--nb-primary); border-color: var(--nb-primary); }
-
-/* Compact, scannable player list — Name | Position | OVR, one line each. */
-.dft-player-list {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  overflow: hidden;
-}
-.dft-player-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
-  align-items: center;
-  gap: var(--nb-space-3);
-  padding: 0.65rem var(--nb-space-3);
-  border-bottom: 1px solid var(--nb-surface-border);
-  font-size: 0.86rem;
-}
+.dft-player-list { background: var(--nb-surface-card); border: 1px solid var(--nb-surface-border); border-radius: var(--nb-r-lg); overflow: hidden; }
+.dft-player-row { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: var(--nb-space-3); padding: 0.65rem var(--nb-space-3); border-bottom: 1px solid var(--nb-surface-border); font-size: 0.86rem; }
 .dft-player-row:last-child { border-bottom: none; }
 .dft-player-name { font-weight: 600; color: var(--nb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dft-player-pos { color: var(--nb-text-muted); font-size: 0.78rem; }
@@ -261,226 +511,117 @@
 .dft-player-row-unavailable { opacity: 0.45; }
 .dft-player-status { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; color: var(--nb-text-dim); }
 
-/* Order / History panels — compact rows, same visual language as the player list. */
-.dft-order-list, .dft-history-list {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  overflow: hidden;
-}
-.dft-order-row, .dft-history-row {
-  display: flex;
-  align-items: center;
-  gap: var(--nb-space-3);
-  padding: 0.6rem var(--nb-space-3);
-  border-bottom: 1px solid var(--nb-surface-border);
-  font-size: 0.84rem;
-}
-.dft-order-row:last-child, .dft-history-row:last-child { border-bottom: none; }
-.dft-order-row-current {
-  background: var(--nb-gold-dim);
-  position: relative;
-}
-/* A left accent bar (not just a background tint) so the current pick
-   reads as "this one" even at a glance / in peripheral vision, matching
-   the reference's strong current-pick highlight. */
-.dft-order-row-current::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--nb-gold);
-}
-.dft-order-pick, .dft-history-pick { font-weight: 700; color: var(--nb-text-muted); min-width: 2.2rem; font-variant-numeric: tabular-nums; }
-.dft-order-row-current .dft-order-pick { color: #7a5a00; }
-.dft-order-name, .dft-history-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dft-order-round {
-  color: var(--nb-text-muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  background: var(--nb-surface);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: 999px;
-  padding: 0.1rem 0.45rem;
-}
-.dft-history-meta { color: var(--nb-text-muted); font-size: 0.78rem; }
-.dft-history-by { color: var(--nb-text-dim); font-size: 0.76rem; }
-
-/* ─── Info panel (Up Next / Recently Picked / Full History) ─────────────── */
-.dft-info-heading {
-  font-size: 0.68rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--nb-text-dim);
-  margin: var(--nb-space-4) 0 0.5rem;
-}
-.dft-info-heading:first-child { margin-top: 0; }
-.dft-upnext-list .dft-order-row { font-size: 0.8rem; padding: 0.5rem var(--nb-space-3); }
-.dft-recent-pick-card {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  padding: var(--nb-space-3);
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.85rem;
-}
-.dft-recent-pick-card .dft-lastpick-name { font-size: 1rem; }
-
-/* ─── Board legend ───────────────────────────────────────────────────────── */
-.dft-board-legend {
-  display: flex;
-  gap: var(--nb-space-4);
-  margin-top: var(--nb-space-3);
-  padding-top: var(--nb-space-2);
-  font-size: 0.72rem;
-  color: var(--nb-text-muted);
-}
-.dft-board-legend-item { display: inline-flex; align-items: center; gap: 0.4rem; }
-.dft-board-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-.dft-board-legend-dot-drafted { background: var(--nb-text-dim); }
-.dft-board-legend-dot-picked { background: var(--nb-gold); }
-
-/* Just-picked row: reuses the same gold accent as the current-draft-pick
-   highlight elsewhere on this page, so "this just happened" reads as one
-   consistent visual language across the header, order list, and pool. */
-.dft-panel-board .pos-table-row.just-picked {
-  background: var(--nb-gold-dim);
-  position: relative;
-}
-.dft-panel-board .pos-table-row.just-picked::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: var(--nb-gold);
-}
-
-/* ─── Desktop: 3-column layout (Order | Board | History), spec §3.3 ────────
-   Panels render simultaneously instead of via tabs — same DOM, same
-   render() call, CSS-only rearrangement. ───────────────────────────────── */
+/* ═══ 8 · DESKTOP WORKSPACE (≥900px) ═══
+   Same DOM, same render() — tabs disappear and all three panels show at once.
+   900–1359: board full width on top, Order + Info side by side beneath.
+   Each panel gets a small label (the tab names, which are hidden here). */
 @media (min-width: 900px) {
   .dft-tabs { display: none; }
 
   .dft-panels {
     display: grid;
-    /* Order/History trimmed a bit (260→230 / 300→270) purely to give the
-       middle board column more room — see the .pos-table-grid override
-       below for why that room matters. */
-    grid-template-columns: 230px 1fr 270px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "board board"
+      "order info";
     gap: var(--nb-space-4);
     align-items: start;
   }
+  .dft-panel { display: block; min-width: 0; }
+  .dft-panel-board   { grid-area: board; }
+  .dft-panel-order   { grid-area: order; }
+  .dft-panel-history { grid-area: info; }
 
-  .dft-panel { display: block; } /* all three always visible on desktop */
-  .dft-panel-order, .dft-panel-history { max-height: 70vh; overflow-y: auto; }
+  .dft-panel::before {
+    display: block;
+    font-size: var(--nb-fs-xs);
+    font-weight: var(--nb-fw-heavy);
+    text-transform: uppercase;
+    letter-spacing: var(--nb-tracking-caps);
+    color: var(--nb-text-muted);
+    margin-bottom: var(--nb-space-2);
+  }
+  .dft-panel-order::before   { content: 'Draft Order'; }
+  .dft-panel-board::before   { content: 'Available Players'; }
+  .dft-panel-history::before { content: 'Draft Info'; }
 
-  .dft-tier-a-name { font-size: 2.1rem; }
-
-  .dft-board-controls { flex-direction: row; align-items: center; flex-wrap: wrap; }
-  .dft-board-controls #dftSearch { flex: 1 1 240px; }
-
-  /* The Players page's positionPoolGrid uses auto-fit + minmax(190px,1fr),
-     which is fine with a full page width to work with — extra columns
-     simply wrap to a new row. Squeezed into this narrower middle board
-     column (sandwiched between two fixed-width panels), that same
-     auto-fit behavior is actively harmful: whichever position column
-     doesn't fit wraps to a new CSS Grid row, and that row starts only
-     after the *tallest* column already on screen (often 20–30+ rows
-     tall) — so the wrapped column doesn't appear just below, it appears
-     hundreds of pixels down the page, effectively invisible without a
-     long scroll.
-
-     Forcing exactly 5 fixed columns (no wrap) fixes that disappearing-
-     column problem, but a bare `minmax(0, 1fr)` floor swings too far the
-     other way below ~1500px of board width: columns shrink until player
-     names truncate to a single letter and the OVR figure itself starts
-     clipping — a different way of making the same data unreadable.
-
-     minmax(160px, 1fr) is the actual fix: every position column has a
-     real floor it won't shrink below (160px keeps a name + OVR legible),
-     and once 5×160px no longer fits the panel, the grid overflows its
-     own width instead of squeezing further — which is exactly what the
-     paired `overflow-x: auto` on #dftPlayerGrid is for: the *grid*
-     scrolls sideways within the board panel on narrower desktop widths,
-     while the search box and pool tabs above it stay put. `min-width: 0`
-     on .dft-panel-board is required alongside this — without it, a grid
-     item's automatic minimum width defaults to its content's min-content
-     size, which would force the *entire* 3-column layout (order/board/
-     history) to grow past the viewport instead of letting just the
-     inner grid scroll. Scoped to this panel only — the Players page
-     itself is untouched. */
-  .dft-panel-board { min-width: 0; }
-  #dftPlayerGrid { overflow-x: auto; padding-bottom: 0.25rem; }
-  .dft-panel-board .pos-table-grid {
-    grid-template-columns: repeat(5, minmax(160px, 1fr));
+  /* Rails scroll inside themselves so the workspace stays one screen tall. */
+  .dft-panel-order, .dft-panel-history {
+    max-height: 460px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--nb-border-strong) transparent;
+    color-scheme: dark;
   }
 
-  /* ─── Compact single-row header (spec §1) ────────────────────────────────
-     Mobile keeps tiers A/B/C stacked (glance-zone priority order, spec
-     §5/§8) — this only changes desktop, where there's enough width to lay
-     "who's picking," "round/pick/progress," and "last pick" out side by
-     side instead of stacked, which is what was making the header feel
-     like an oversized banner instead of a compact status bar. */
+  /* ── Hero, 900–1199px (sidebar + content is narrow here): Tier A gets its
+     own full-width row; Tier B and C share the row beneath it. ── */
   .dft-glance {
     display: flex;
-    align-items: center;
-    gap: var(--nb-space-4);
-    padding: var(--nb-space-3) var(--nb-space-4);
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: var(--nb-space-3) var(--nb-space-5);
+    padding: var(--nb-space-4) var(--nb-space-5);
   }
-  .dft-tier-a { margin-bottom: 0; flex: 1 1 auto; min-width: 0; }
-  .dft-tier-b {
-    flex: 0 0 200px;
-    flex-direction: column;
-    align-items: flex-start;
-    margin-bottom: 0;
-    padding-left: var(--nb-space-4);
-    border-left: 1px dashed var(--nb-surface-border);
-  }
-  .dft-progress-wrap { width: 100%; }
+  .dft-tier-a { margin-bottom: 0; flex: 1 1 100%; min-width: 0; gap: var(--nb-space-5); }
+  .dft-tier-a .team-logo-img-lg,
+  .dft-tier-a .team-badge-lg { width: 72px; height: 72px; }
+  .dft-tier-a-name { font-size: 2.6rem; }
+  .dft-tier-b { flex: 1 1 320px; margin-bottom: 0; align-content: center; }
   .dft-tier-c {
-    flex: 0 0 220px;
+    flex: 1 1 220px;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.15rem;
+    justify-content: center;
+    gap: 0.25rem;
     padding-top: 0;
-    padding-left: var(--nb-space-4);
+    padding-left: var(--nb-space-5);
     border-top: none;
-    border-left: 1px dashed var(--nb-surface-border);
+    border-left: 1px solid var(--nb-surface-border);
   }
 
-  /* ─── Draft Order panel: stronger current-pick + compact rows (spec §2) ── */
-  .dft-panel-order .dft-order-list { border-radius: var(--nb-r-lg); }
+  /* ── Board: fixed-height scroller, sticky position heads ── */
+  .dft-panel-board #dftSearch { flex: 1 1 240px; }
+  .dft-board-controls { flex-direction: row; align-items: center; flex-wrap: wrap; }
+  #dftPlayerGrid {
+    overflow: auto;
+    max-height: max(440px, calc(100vh - 380px));
+    scroll-snap-type: none;
+  }
+  /* Five equal columns that fill the board; each keeps a 190px floor, below
+     which the grid scrolls sideways inside this scroller instead of squeezing
+     names to a few letters (or wrapping a column far below the others). */
+  .dft-panel-board .pos-table-grid {
+    grid-auto-columns: minmax(190px, 1fr);
+    gap: var(--nb-space-3);
+  }
+  .dft-panel-board .pos-table-head { position: sticky; top: 0; z-index: 2; }
+  .dft-panel-board .pos-table-columns-head { position: sticky; top: 36px; z-index: 2; }
+  .dft-panel-board .pos-table-row { padding: 0.4rem 0.6rem; }
+}
 
-  /* ─── Player pool polish (spec §3) — scoped to the draft board only so
-     the public Players page (which shares these same .pos-table classes)
-     is completely untouched. ────────────────────────────────────────────── */
-  .dft-panel-board .pos-table-grid { gap: var(--nb-space-3); }
-  .dft-panel-board .pos-table {
-    border: 1px solid var(--nb-surface-border);
-    border-radius: var(--nb-r-lg);
-    box-shadow: 0 1px 2px rgba(20,22,27,0.04);
-    overflow: hidden;
+/* ≥1200px: hero collapses into one broadcast band (A | B | C). */
+@media (min-width: 1200px) {
+  .dft-glance { flex-wrap: nowrap; align-items: center; }
+  .dft-tier-a { flex: 1 1 auto; }
+  .dft-tier-b {
+    flex: 0 0 300px;
+    padding-left: var(--nb-space-5);
+    border-left: 1px solid var(--nb-surface-border);
   }
-  .dft-panel-board .pos-table-row { padding: 0.4rem 0.55rem; }
-  .dft-panel-board .pos-table-row:hover:not(.drafted) { background: var(--nb-surface); }
-  .dft-panel-board .pos-name { font-weight: 600; }
-  .dft-panel-board .pos-ovr { font-size: 0.88rem; }
+  .dft-tier-c { flex: 0 0 240px; }
+}
 
-  /* ─── Search + pool switcher polish (spec §4) — segmented-control feel. ── */
-  .dft-panel-board #dftSearch {
-    padding: 0.6rem 0.9rem;
-    box-shadow: 0 1px 2px rgba(20,22,27,0.03);
+/* ≥1680px: Order + Info become a right rail beside the board. Below that the
+   board keeps the full width — five position columns need ~190px each for
+   player names to stay legible, which a rail would take away. */
+@media (min-width: 1680px) {
+  .dft-panels {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas:
+      "board order"
+      "board info";
   }
-  .dft-panel-board .pool-tabs {
-    background: var(--nb-surface);
-    border: 1px solid var(--nb-surface-border);
-    border-radius: var(--nb-r-lg);
-    padding: 0.3rem;
-    gap: 0.3rem;
-    display: inline-flex;
-  }
-  .dft-panel-board .pool-tab { border-radius: calc(var(--nb-r-lg) - 3px); }
+  .dft-panel-order   { max-height: 420px; }
+  .dft-panel-history { max-height: max(360px, calc(100vh - 380px - 420px + 120px)); }
 }
