@@ -134,13 +134,25 @@
  * - Phase 10 (initialization): never initializes/modifies the pool;
  *   displays whatever the existing Current/All-Time/Classics ->
  *   Green/Blue/White mapping already produced.
+ *
+ * Phase 8.4 — FIRESTORE READS REPLACED WITH SUPABASE
+ * `_ensureLoaded()` now sources `nba2k27_pool`/`nba2k_players` via
+ * `SupabaseReadsNba2k27` (js/supabase-reads-nba2k27.js) instead of
+ * `firebase.firestore()` — the security-rule design described above
+ * under "PUBLIC DATA ARCHITECTURE" is now moot (Supabase RLS already
+ * grants the equivalent public read access on both tables; see that
+ * module's own header). This changed ONLY the data-loading boundary:
+ * `_buildRows()`, search/filter/sort, the pool tabs, card rendering, and
+ * the detail modal (attributes/badges/physicals/variant info) are all
+ * unmodified and unaware the data source changed, since the resulting
+ * `_pool27`/`_players` shape (an object keyed by slug) is identical
+ * either way. The old per-chunk `permission-denied` vs. generic-error
+ * distinction is collapsed to one outcome — a Postgres RLS read-denial
+ * returns an empty result rather than throwing the way a Firestore rule
+ * violation did, so that distinction no longer has a meaningful trigger
+ * condition; the error-state copy was updated accordingly since the old
+ * "needs a Firestore access rule" text would now be inaccurate.
  */
-
-// Firestore 'in' queries (used here to fetch exactly the selected
-// players' source documents by ID, and nothing else) are limited to 10
-// comparison values per query in the compat SDK — chunk to that limit
-// rather than assuming today's dataset size.
-const NBA2K27_PUBLIC_CHUNK_SIZE = 10;
 
 // ── Duplicated presentation design from js/admin/nba2k-database.js ─────
 // See file header "SHARED RENDERING DESIGN" for why these are copied
@@ -293,80 +305,40 @@ const PublicNba2k27View = {
     if (document.body.contains(container)) this._renderShell(container);
   },
 
-  _classifyError(err) {
-    return (err && err.code === 'permission-denied') ? 'permission-denied' : 'error';
-  },
-
-  // Read-only. Exactly two kinds of Firestore calls happen here, both
-  // `.get()`: the whole (typically small) `nba2k27_pool` collection
-  // once, then `nba2k_players` fetched ONLY by the specific document IDs
-  // that collection just returned, chunked to the 'in'-query limit.
-  // Never a collection-wide read of `nba2k_players`.
+  // Read-only. Phase 8.4: sourced from Supabase via
+  // SupabaseReadsNba2k27 (js/supabase-reads-nba2k27.js) instead of
+  // Firestore — the pool table once, then nba2k_players fetched ONLY for
+  // the slugs that returned. Chunking and per-chunk fault-tolerance are
+  // now the shared module's concern; see its own header for why the old
+  // 10-per-chunk Firestore `in`-query limit no longer applies, and why
+  // the permission-denied/generic-error distinction below is simplified
+  // to one outcome (a Postgres RLS read-denial returns an empty result,
+  // it doesn't throw the way a Firestore rule violation did).
   async _ensureLoaded() {
     if (this._pool27) return;
     if (this._loadPromise) { await this._loadPromise; return; }
     this._loadPromise = (async () => {
       try {
-        const poolSnap = await firebase.firestore().collection('nba2k27_pool').get();
-        const pool27 = {};
-        poolSnap.docs.forEach(d => { pool27[d.id] = d.data(); });
-        this._pool27 = pool27;
+        this._pool27 = await SupabaseReadsNba2k27.getNba2k27PoolRows();
       } catch (err) {
-        // Collection-level failure (e.g. the rule above hasn't been
-        // applied yet) — fail closed, show an explanatory empty state,
-        // never guess at or fabricate pool data.
+        // Table-level failure — fail closed, show an explanatory empty
+        // state, never guess at or fabricate pool data.
         this._pool27 = {};
         this._players = {};
-        this._loadError = this._classifyError(err);
+        this._loadError = 'error';
         return;
       }
 
       const slugs = Object.keys(this._pool27);
-      const chunks = [];
-      for (let i = 0; i < slugs.length; i += NBA2K27_PUBLIC_CHUNK_SIZE) {
-        chunks.push(slugs.slice(i, i + NBA2K27_PUBLIC_CHUNK_SIZE));
-      }
-
-      // PERFORMANCE: fire every chunk query in parallel. The previous
-      // version awaited each chunk inside a `for` loop, one at a time —
-      // with ~744+ curated players that's ~75 sequential network round
-      // trips, each one waiting for the last to finish before starting.
-      // Promise.all here means total wall-clock time is bounded by the
-      // SLOWEST single chunk, not the SUM of all of them. This changes
-      // nothing about correctness or cost: it is still the exact same
-      // number of chunk queries, the exact same 10-per-chunk 'in'-query
-      // limit, the exact same per-chunk try/catch semantics (a
-      // .catch() per promise instead of a try/catch per loop iteration,
-      // so one failed chunk can never abort the others via Promise.all's
-      // normal short-circuit-on-first-rejection behavior) — Firestore
-      // still bills the same one document read per player either way.
-      const chunkResults = await Promise.all(chunks.map(chunk =>
-        firebase.firestore().collection('nba2k_players')
-          .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
-          .get()
-          .then(snap => ({ ok: true, snap }))
-          .catch(err => ({ ok: false, err }))
-      ));
-
-      const players = {};
-      let resolvedAny = slugs.length === 0;
-      let deniedAny = false;
-      chunkResults.forEach(result => {
-        if (result.ok) {
-          result.snap.docs.forEach(d => { players[d.id] = { id: d.id, ...d.data() }; });
-          resolvedAny = true;
-        } else if (this._classifyError(result.err) === 'permission-denied') {
-          // A slug simply not resolving is handled per-row as an
-          // "orphan/unavailable" card (see `_buildRows`) — this only
-          // tracks whether EVERY chunk failed, which means the rule
-          // change above genuinely hasn't been applied yet, distinct
-          // from "this one player's doc doesn't exist."
-          deniedAny = true;
-        }
-      });
-      this._players = players;
-      if (slugs.length > 0 && !resolvedAny && deniedAny) {
-        this._loadError = 'permission-denied';
+      try {
+        this._players = await SupabaseReadsNba2k27.getNba2k27PlayersBySlugs(slugs);
+      } catch (err) {
+        // Every chunk failed — a systemic read problem, not just "this
+        // one player's doc doesn't exist" (handled per-row as an
+        // "orphan/unavailable" card by the existing, unmodified
+        // _buildRows()).
+        this._players = {};
+        if (slugs.length > 0) this._loadError = 'error';
       }
     })();
     await this._loadPromise;
@@ -467,9 +439,7 @@ const PublicNba2k27View = {
           <div class="player-db-header"><h1 class="player-db-title">NBA 2K27 Player Pool</h1></div>
           <div class="empty-state">
             <h2>2K27 pool data isn't available yet</h2>
-            <p>${this._loadError === 'permission-denied'
-              ? "This page needs a small Firestore access rule to be enabled by the commissioner before it can show players. Nothing is broken — check back soon."
-              : "Something went wrong loading the 2K27 pool. Please try again shortly."}</p>
+            <p>Something went wrong loading the 2K27 pool. Please try again shortly.</p>
           </div>
         </div>`;
       return;

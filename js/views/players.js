@@ -6,13 +6,29 @@
  * This page now sources its player list from the live NBA 2K27 pool
  * (`nba2k27_pool` + `nba2k_players`, joined by slug) instead of the old
  * NBA 2K26 promoted pool (`league/main.players` via LeagueData.
- * getAllPlayers()). The read pattern (module-level cache, chunked
- * `where(FieldPath.documentId(), 'in', chunk)` joins against
- * `nba2k_players`, effective name/overall override resolution) is
- * duplicated from — not imported from — js/views/nba2k27.js, matching
- * that file's own documented reasoning: index.html loads each public
- * view file independently, and this keeps that page and this one
- * decoupled rather than introducing new cross-file coupling.
+ * getAllPlayers()). The read pattern (module-level cache, effective
+ * name/overall override resolution) is duplicated from — not imported
+ * from — js/views/nba2k27.js, matching that file's own documented
+ * reasoning: index.html loads each public view file independently, and
+ * this keeps that page and this one decoupled rather than introducing
+ * new cross-file coupling.
+ *
+ * Phase 8.4 — FIRESTORE READS REPLACED WITH SUPABASE:
+ * `_ensureLoaded()` now sources `nba2k27_pool`/`nba2k_players` via
+ * `SupabaseReadsNba2k27` (js/supabase-reads-nba2k27.js) instead of
+ * `firebase.firestore()`. This changed ONLY the data-loading boundary —
+ * `_buildEntries()`, the draft-status join, search/filter, tabs, and the
+ * position-column grid are all unmodified and unaware the data source
+ * changed, since the resulting `_pool27`/`_players27` shape (an object
+ * keyed by slug) is identical either way. Chunking the player-slug
+ * lookup is now the shared module's concern, not this file's — see that
+ * module for why the old 10-per-chunk Firestore `in`-query limit no
+ * longer applies. The `_loadError`-based Firestore-permission
+ * distinction this file never actually rendered (dead state, confirmed
+ * before this phase) is simplified to a single generic failure marker —
+ * see js/supabase-reads-nba2k27.js's own header for why a Postgres RLS
+ * read-denial doesn't map onto Firestore's thrown `permission-denied`
+ * the same way.
  *
  * UNCHANGED from Phase 10.1: page layout, Green/Blue tabs, search bar,
  * the position-column grid (positionPoolGrid() in shared-utils.js,
@@ -61,8 +77,6 @@
  * `nba2k27_pool`, `nba2k_players`, or `league/main` — a drafted player is
  * never removed from the master 2K27 pool, only annotated for display.
  */
-const PUBLIC_PLAYERS_CHUNK_SIZE = 10; // Firestore compat-SDK 'in'-query limit — see views/nba2k27.js
-
 const PublicPlayersView = {
   _activePool: 'green',
   _filter: '',
@@ -94,47 +108,39 @@ const PublicPlayersView = {
     this._renderShell(container);
   },
 
-  // Read-only. Same two Firestore calls, same chunking, as
-  // views/nba2k27.js's _ensureLoaded(): the (typically small)
-  // nba2k27_pool collection once, then nba2k_players fetched ONLY by
-  // the specific slugs that collection returned, chunked to the
-  // 'in'-query limit and fired in parallel.
+  // Read-only. Phase 8.4: sourced from Supabase via
+  // SupabaseReadsNba2k27 (js/supabase-reads-nba2k27.js) instead of
+  // Firestore — same two-step load (the pool table once, then only the
+  // nba2k_players rows for the slugs that returned), same resulting
+  // `_pool27`/`_players27` shape keyed by slug, so _buildEntries() below
+  // needs no changes. Chunking/parallel-fetch of the player rows is now
+  // the shared module's concern, not this file's.
   async _ensureLoaded() {
     if (this._pool27) return;
     if (this._loadPromise) { await this._loadPromise; return; }
     this._loadPromise = (async () => {
       try {
-        const poolSnap = await firebase.firestore().collection('nba2k27_pool').get();
-        const pool27 = {};
-        poolSnap.docs.forEach((d) => { pool27[d.id] = d.data(); });
-        this._pool27 = pool27;
+        this._pool27 = await SupabaseReadsNba2k27.getNba2k27PoolRows();
       } catch (err) {
-        // Collection-level failure (e.g. a security rule not yet
-        // applied) — fail closed, show an explanatory empty state,
-        // never guess at or fabricate pool data.
+        // Table-level failure — fail closed, show an explanatory empty
+        // state, never guess at or fabricate pool data.
         this._pool27 = {};
         this._players27 = {};
-        this._loadError = (err && err.code === 'permission-denied') ? 'permission-denied' : 'error';
+        this._loadError = 'error';
         return;
       }
 
       const slugs = Object.keys(this._pool27);
-      const chunks = [];
-      for (let i = 0; i < slugs.length; i += PUBLIC_PLAYERS_CHUNK_SIZE) {
-        chunks.push(slugs.slice(i, i + PUBLIC_PLAYERS_CHUNK_SIZE));
+      try {
+        this._players27 = await SupabaseReadsNba2k27.getNba2k27PlayersBySlugs(slugs);
+      } catch (err) {
+        // Every chunk failed — a systemic read problem, not just "this
+        // one player's doc doesn't exist" (an unresolved slug is
+        // filtered out by _buildEntries()'s existing `.filter((e) =>
+        // e.player.name)` check, unchanged by this phase).
+        this._players27 = {};
+        if (slugs.length > 0) this._loadError = 'error';
       }
-      const chunkResults = await Promise.all(chunks.map((chunk) =>
-        firebase.firestore().collection('nba2k_players')
-          .where(firebase.firestore.FieldPath.documentId(), 'in', chunk)
-          .get()
-          .then((snap) => ({ ok: true, snap }))
-          .catch((err) => ({ ok: false, err }))
-      ));
-      const players = {};
-      chunkResults.forEach((result) => {
-        if (result.ok) result.snap.docs.forEach((d) => { players[d.id] = { id: d.id, ...d.data() }; });
-      });
-      this._players27 = players;
     })();
     await this._loadPromise;
     this._loadPromise = null;
