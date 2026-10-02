@@ -7,10 +7,9 @@
  * onboarding brand-new (overall >= 74) players into both `nba2k_players`
  * and `nba2k27_pool`. This file is entirely additive — it does not
  * modify, replace, or share any code path with `js/admin/nba2k-import.js`
- * (the original NBA2K26-era full-upsert importer), `js/admin/
- * nba2k-database.js` (the browser / promotion / pool-management admin
- * view), or `js/admin/nba2k27-position-sort.js`. All three remain exactly
- * as they were.
+ * (the original NBA2K26-era full-upsert importer), or
+ * `js/admin/nba2k-database.js` (the browser / promotion / pool-management
+ * admin view). These workflows remain separate.
  *
  * SOURCE FILES (never committed to the repo — provided locally via file
  * picker each time, exactly like the original importer's UX)
@@ -80,8 +79,8 @@
  *       `nba2k27PoolForTeamType()`'s own contract in nba2k-database.js)
  *       — neither document is created, regardless of overall.
  *     - Defensive guard: even when a brand-new player qualifies, if a
- *       `nba2k27_pool/<slug>` document *somehow* already exists (e.g. an
- *       orphaned doc from manual admin action), this importer will still
+ *       `nba2k27_pool/<slug>` document *somehow* already exists (e.g.
+ *       an orphaned doc from manual admin action), this importer will still
  *       create the player doc but will NOT touch that existing pool
  *       doc — never risk overwriting stray but real curated data.
  *
@@ -101,17 +100,16 @@
  * Reads the ENTIRE `nba2k_players` and `nba2k27_pool` collections once
  * per preview (two plain `.get()` calls) — this mirrors the established
  * convention already used throughout this codebase for these two
- * collections (`LiveNba2k27PoolCache.ensureLoaded()` in js/data.js,
- * `Nba2k27PositionSortView._ensureLoaded()`, `Nba2kDatabaseView`'s own
- * initial load), all of which already load both collections whole at
- * their current ~2,000-document scale rather than issuing per-slug
- * lookups. No writes happen during preview.
+ * collections (`LiveNba2k27PoolCache.ensureLoaded()` in js/data.js and
+ * `Nba2kDatabaseView`'s own initial load), both of which already load
+ * both collections whole at their current ~2,000-document scale rather
+ * than issuing per-slug lookups. No writes happen during preview.
  *
  * WRITE / BATCH STRATEGY
  * Three independent op lists, each chunked at the Firestore hard cap of
- * 500 ops/batch, committed in this order (players before their pool
- * docs, so nba2k27_pool's implicit "must reference an existing
- * nba2k_players slug" invariant is never violated even transiently):
+ * 500 ops/batch, committed in this order (players before their pool docs,
+ * so nba2k27_pool's implicit "must reference an existing nba2k_players slug"
+ * invariant is never violated even transiently):
  *   Phase A — existing-player `overall`/`badges` updates (`.update()`)
  *   Phase B — new-player `nba2k_players` creates (`.set()`, brand new
  *             docs only — never overwrites an existing one)
@@ -635,8 +633,8 @@ const Nba2k27LiveImportView = {
             <strong>✕ Apply failed</strong>
             <div>${escapeHtml(e.message || 'Unknown error.')}</div>
             <div>Existing players updated before failure: ${updatedCount}</div>
-            <div>New players created before failure: ${createdPlayerCount}</div>
-            <div>New pool documents created before failure: ${createdPoolCount}</div>
+            <div>New players created: ${createdPlayerCount}</div>
+            <div>New pool documents created: ${createdPoolCount}</div>
           </div>`;
       }
       if (typeof showToast === 'function') showToast('NBA 2K27 Live API Update failed.', 'error');
