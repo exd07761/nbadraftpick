@@ -2969,43 +2969,57 @@ const Nba2k27PoolView = {
     // today's ~1,757-player dataset, mirroring the existing chunking
     // convention already used for batched writes in
     // js/admin/nba2k-import.js.
-    const BATCH_LIMIT = 500;
     let created = 0, corrected = 0, processed = 0;
     let writeError = null;
 
     try {
-      for (let i = 0; i < toWrite.length; i += BATCH_LIMIT) {
-        const chunk = toWrite.slice(i, i + BATCH_LIMIT);
-        const batch = firebase.firestore().batch();
-        const chunkDocs = [];
-        for (const item of chunk) {
-          // Preserve the original `selectedAt` when correcting an
-          // existing selection's pool — only a brand-new doc gets a
-          // fresh `selectedAt`; `updatedAt` always reflects this run.
-          const prior = Nba2kDatabaseView._pool27 ? Nba2kDatabaseView._pool27[item.slug] : null;
-          const selectedAt = (!item.isNew && prior && prior.selectedAt) ? prior.selectedAt : nowIso;
-          // Only the intended fields — never attributes, badges,
-          // physicals, or images, exactly like a single Phase 7 "Add"
-          // write. `position` IS one of the intended fields as of the
-          // 2K27 Pool ⇄ Position unification — `item.position` above is
-          // always either the preserved, already-valid stored value or
-          // the explicit 'UNASSIGNED' default; this write never resets
-          // a real assignment.
-          const docData = { nba2kRef: item.slug, pool: item.pool, position: item.position, selectedAt, updatedAt: nowIso };
-          batch.set(firebase.firestore().collection('nba2k27_pool').doc(item.slug), docData);
-          chunkDocs.push({ slug: item.slug, docData, isNew: item.isNew });
-        }
-        await batch.commit();
-        Nba2kDatabaseView._pool27 = Nba2kDatabaseView._pool27 || {};
-        for (const d of chunkDocs) {
-          Nba2kDatabaseView._pool27[d.slug] = d.docData;
-          if (d.isNew) created++; else corrected++;
-        }
-        processed += chunk.length;
-      }
-    } catch (err) {
-      writeError = err;
-    }
+  // Phase 8.6: send the complete write plan to the commissioner-only
+  // Supabase RPC. The server determines created vs corrected and
+  // preserves valid existing positions / selected_at values.
+  const payload = toWrite.map(item => ({
+    slug: item.slug,
+    pool: item.pool,
+    position: item.position
+  }));
+
+  let rpcResult = { created: 0, corrected: 0 };
+
+  if (payload.length) {
+    rpcResult = await SupabaseQuery.callWriteRpc(
+    'initialize_nba2k27_pool',
+      { p_players: payload }
+    );
+  }
+
+  created = Number(rpcResult.created ?? 0);
+  corrected = Number(rpcResult.corrected ?? 0);
+
+  // Keep the existing _pool27 cache updated exactly as before.
+  // The database is authoritative; this local cache is only used by
+  // the current view/result rendering after the initialization run.
+  Nba2kDatabaseView._pool27 = Nba2kDatabaseView._pool27 || {};
+
+  for (const item of toWrite) {
+    const prior = Nba2kDatabaseView._pool27[item.slug] || null;
+    const selectedAt = prior && prior.selectedAt
+      ? prior.selectedAt
+      : nowIso;
+
+    const docData = {
+      nba2kRef: item.slug,
+      pool: item.pool,
+      position: item.position,
+      selectedAt,
+      updatedAt: nowIso
+    };
+
+    Nba2kDatabaseView._pool27[item.slug] = docData;
+  }
+
+  processed = toWrite.length;
+} catch (err) {
+  writeError = err;
+}
 
     const errors = toWrite.length - processed;
     const preview = this._computeInitPreview(); // recomputed post-write for the result breakdown
