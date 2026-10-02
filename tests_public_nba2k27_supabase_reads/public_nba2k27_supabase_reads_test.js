@@ -90,15 +90,40 @@ function playerRow(slug, overrides = {}) {
 // ── Fake Supabase client — matches SupabaseQuery's actual usage shape:
 // SupabaseClient.from(table).select('*') returns a chainable, awaitable
 // ("thenable") query builder; awaiting it resolves {data, error}. ─────
+// Phase 8.4.1: PostgREST (real Supabase) returns at most 1000 rows per
+// request UNLESS the caller paginates with `.range()` — this default cap
+// is simulated here (not just a documented assumption) so a regression
+// that drops pagination will make these tests actually fail, the same
+// way it silently truncated the real nba2k27_pool read in production.
+const POSTGREST_DEFAULT_ROW_CAP = 1000;
+
 function makeSupabaseClient(tables, shouldError) {
   const calls = [];
-  function runQuery(table, inFilter) {
-    calls.push({ table, inFilter: inFilter ? { field: inFilter.field, values: inFilter.values.slice() } : null });
+  function runQuery(table, inFilter, orderBy, range) {
+    calls.push({
+      table,
+      inFilter: inFilter ? { field: inFilter.field, values: inFilter.values.slice() } : null,
+      orderBy, range,
+    });
     if (shouldError && shouldError(table, inFilter)) {
       return Promise.resolve({ data: null, error: { message: 'simulated Supabase read failure' } });
     }
     let rows = Object.values(tables[table] || {});
     if (inFilter) rows = rows.filter((r) => inFilter.values.includes(r[inFilter.field]));
+    if (orderBy) {
+      rows = rows.slice().sort((a, b) => {
+        const av = a[orderBy.field], bv = b[orderBy.field];
+        const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+        return orderBy.ascending === false ? -cmp : cmp;
+      });
+    }
+    if (range) {
+      rows = rows.slice(range.from, range.to + 1);
+    } else if (rows.length > POSTGREST_DEFAULT_ROW_CAP) {
+      // Real PostgREST behavior: no .range() => capped at the default,
+      // not an error — exactly the shape of bug this suite must catch.
+      rows = rows.slice(0, POSTGREST_DEFAULT_ROW_CAP);
+    }
     return Promise.resolve({ data: rows, error: null });
   }
   const client = {
@@ -106,12 +131,14 @@ function makeSupabaseClient(tables, shouldError) {
       return {
         select() {
           let inFilter = null;
+          let orderBy = null;
+          let range = null;
           const qb = {
             in(field, values) { inFilter = { field, values }; return qb; },
             eq() { return qb; },
-            order() { return qb; },
-            range() { return qb; },
-            then(resolve, reject) { return runQuery(table, inFilter).then(resolve, reject); },
+            order(field, opts) { orderBy = { field, ascending: !opts || opts.ascending !== false }; return qb; },
+            range(from, to) { range = { from, to }; return qb; },
+            then(resolve, reject) { return runQuery(table, inFilter, orderBy, range).then(resolve, reject); },
             catch(onReject) { return this.then(undefined, onReject); },
           };
           return qb;
@@ -216,6 +243,51 @@ console.log('Phase 8.4 — Public NBA 2K27 player lookup Supabase migration — 
     });
   });
 
+  // ── A continued. Phase 8.4.1 — pagination fix ──────────────────────────
+  await test('A2. getNba2k27PoolRows() retrieves all 1,987 rows across multiple pages, not just the first 1,000', async () => {
+    const pool27 = {};
+    for (let i = 0; i < 1987; i++) {
+      // Zero-padded so lexicographic (nba2k_ref) ordering matches
+      // numeric order, exactly like the fake client's real .order() sort.
+      const slug = 'player-' + String(i).padStart(4, '0');
+      pool27[slug] = poolRow(slug);
+    }
+    const env = makeEnv({ pool27 });
+    const result = await env.window.SupabaseReadsNba2k27.getNba2k27PoolRows();
+    assert.strictEqual(
+      Object.keys(result).length, 1987,
+      'all 1,987 pool rows must be retrieved, not truncated at the PostgREST default 1,000-row cap'
+    );
+  });
+
+  await test('A3. getNba2k27PoolRows() includes rows from page 2 (offset >= 1000), not just page 1', async () => {
+    const pool27 = {};
+    for (let i = 0; i < 1987; i++) {
+      const slug = 'player-' + String(i).padStart(4, '0');
+      pool27[slug] = poolRow(slug);
+    }
+    const env = makeEnv({ pool27 });
+    const result = await env.window.SupabaseReadsNba2k27.getNba2k27PoolRows();
+    // 'player-1500' sorts after the first 1,000 rows (player-0000..player-0999) —
+    // its presence proves a second page was actually fetched and merged.
+    assert.ok(result['player-1500'], 'a row from page 2 (offset 1000+) must be present');
+    assert.ok(result['player-1986'], 'the very last row must be present');
+    const supabaseCalls = env.getSupabaseCalls().filter((c) => c.table === 'nba2k27_pool');
+    assert.strictEqual(supabaseCalls.length, 2, 'a 1,987-row table must be fetched in exactly 2 pages of up to 1,000');
+  });
+
+  await test('A4. getNba2k27PoolRows() returned shape is unchanged after the pagination fix: { [nba2k_ref]: normalizedPoolRow }', async () => {
+    const env = makeEnv({
+      pool27: { sga: poolRow('sga', { pool: 'blue', overall_override: 99, name_override: 'SGA', variant_group_id: 'g1', variant_label: 'S1' }) },
+    });
+    const result = JSON.parse(JSON.stringify(await env.window.SupabaseReadsNba2k27.getNba2k27PoolRows()));
+    assert.deepStrictEqual(result.sga, {
+      nba2kRef: 'sga', pool: 'blue', position: 'PG',
+      selectedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      overallOverride: 99, nameOverride: 'SGA', variantGroupId: 'g1', variantLabel: 'S1',
+    });
+  });
+
   // ── B. SupabaseReadsNba2k27.getNba2k27PlayersBySlugs() ─────────────────
   await test('B1. getNba2k27PlayersBySlugs([]) returns {} and makes no Supabase call', async () => {
     const env = makeEnv({});
@@ -270,6 +342,19 @@ console.log('Phase 8.4 — Public NBA 2K27 player lookup Supabase migration — 
     const result = await env.window.SupabaseReadsNba2k27.getNba2k27PlayersBySlugs(slugs);
     assert.strictEqual(result['player-0'], undefined, 'the failed chunk\'s players must simply be absent, not fabricated');
     assert.ok(result['player-249'], 'the OTHER, successful chunk\'s players must still be present');
+  });
+
+  await test('B4b. (Phase 8.4.1 regression guard) getNba2k27PlayersBySlugs never hits the PostgREST default row cap even at full 1,987-player pool scale', async () => {
+    const players = {};
+    const slugs = [];
+    for (let i = 0; i < 1987; i++) {
+      const slug = 'player-' + String(i).padStart(4, '0');
+      slugs.push(slug);
+      players[slug] = playerRow(slug);
+    }
+    const env = makeEnv({ players });
+    const result = await env.window.SupabaseReadsNba2k27.getNba2k27PlayersBySlugs(slugs);
+    assert.strictEqual(Object.keys(result).length, 1987, 'every player must resolve — each 200-slug chunk is well under the 1,000-row default cap');
   });
 
   await test('B5. every chunk failing rethrows, for the caller\'s own load-error handling', async () => {

@@ -87,17 +87,40 @@ const SupabaseReadsNba2k27 = (() => {
     };
   }
 
+  // Phase 8.4.1: Supabase/PostgREST returns at most 1000 rows per
+  // request by default — with nba2k27_pool at ~1,987 rows (and growing),
+  // an unpaginated read silently truncated to the first 1,000. Same
+  // page size and `.range()` pagination pattern already established in
+  // js/admin/nba2k-database.js's own `_ensureLoaded()` (Phase 8.1A).
+  const POOL_PAGE_SIZE = 1000;
+
   /**
    * Reads the entire nba2k27_pool table, keyed by slug (nba2k_ref) — the
    * Supabase equivalent of
    * `firebase.firestore().collection('nba2k27_pool').get()`. Each row is
    * normalized to the camelCase shape the existing join logic in both
-   * public view files already expects.
+   * public view files already expects. Paginated via deterministic
+   * `nba2k_ref` ordering + `.range()` so the full table is retrieved
+   * regardless of row count — see POOL_PAGE_SIZE above for why this is
+   * necessary, not optional.
    */
   async function getNba2k27PoolRows() {
-    const rows = await SupabaseQuery.select("nba2k27_pool", (qb) => qb);
     const bySlug = {};
-    rows.forEach((row) => { bySlug[row.nba2k_ref] = mapPoolRow(row); });
+    let offset = 0;
+
+    while (true) {
+      const page = await SupabaseQuery.select("nba2k27_pool", (qb) =>
+        qb
+          .order("nba2k_ref", { ascending: true })
+          .range(offset, offset + POOL_PAGE_SIZE - 1)
+      );
+
+      page.forEach((row) => { bySlug[row.nba2k_ref] = mapPoolRow(row); });
+
+      if (page.length < POOL_PAGE_SIZE) break;
+      offset += POOL_PAGE_SIZE;
+    }
+
     return bySlug;
   }
 
