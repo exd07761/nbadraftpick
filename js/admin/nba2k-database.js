@@ -365,6 +365,26 @@ function nba2k27NormalizePoolRow(row) {
   };
 }
 
+// Phase 8.6 fix: the ONLY place a raw Supabase `nba2k_players` row (snake_case
+// columns) is read directly. Mirrors nba2k27NormalizePoolRow() above, for the
+// player source table. Every raw column is kept exactly as before (the row is
+// still spread unchanged, `id` is still the slug), and the snake_case columns
+// the frontend reads under a camelCase name are added on top:
+//   team_type        -> teamType        (drives category chips, filters, and
+//                                        nba2k27PoolForTeamType())
+//   variant_group_id -> variantGroupId
+// Without this, `p.teamType` was undefined for every Supabase row, so
+// nba2k27PoolForTeamType() returned null for all of them.
+function nba2kNormalizePlayerRow(row) {
+  const player = {
+    id: row.slug,
+    ...row,
+  };
+  if (row.team_type !== undefined) player.teamType = row.team_type;
+  if (row.variant_group_id !== undefined) player.variantGroupId = row.variant_group_id;
+  return player;
+}
+
 // Phase 8.1F/8.2: maps the "PREFIX: message" errors raised by
 // add_nba2k27_pool_player()/remove_nba2k27_pool_player()/
 // update_nba2k27_pool_manual_edit() (same convention as
@@ -636,10 +656,7 @@ const Nba2kDatabaseView = {
         loadAll('nba2k27_pool', 'nba2k_ref'),
       ])
         .then(([players, pool27Rows]) => {
-          this._players = players.map(player => ({
-            id: player.slug,
-            ...player,
-          }));
+          this._players = players.map(nba2kNormalizePlayerRow);
 
           this._pool27 = {};
           pool27Rows.forEach(row => {
