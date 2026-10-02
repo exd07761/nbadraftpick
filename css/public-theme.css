@@ -86,57 +86,32 @@
 .status-scheduled        { background: var(--nb-primary-dim); color: var(--nb-primary); }
 .status-bye              { background: var(--nb-surface); color: var(--nb-text-dim); }
 
-/* ─── Dashboard ──────────────────────────────────────────────────────────── */
-.league-hero {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  box-shadow: var(--nb-surface-shadow);
-}
-.league-hero::before { display: none; } /* drop the old dark-theme glow/photo accent */
-.league-hero-eyebrow { color: var(--nb-primary); }
-.league-hero-title { color: var(--nb-text); }
-.league-hero-meta { color: var(--nb-text-muted); }
+/* ─── Dashboard / League Home ────────────────────────────────────────────────
+   Phase 2 Step 7: cinematic league command center. CSS ONLY — home.js and its
+   DOM are untouched. Every rule is scoped under .dashboard (the wrapper
+   home.js renders) because several classes below (.section-title,
+   .bracket-champion-banner, .status-*, .matchup-vs-divider) are shared with
+   other public pages and must not change there.
 
-.stat-card {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  box-shadow: var(--nb-surface-shadow);
-}
-.stat-num { color: var(--nb-primary); }
-.stat-label { color: var(--nb-text-muted); }
+   Surface layers (all Step 1/5 tokens; no new colours):
+     --nb-canvas → --nb-surface-card (primary panels) → --nb-surface-raised
+     (tiles / emphasis). Gold = live / current (draft banner, top-4 cut).
+     Indigo = links. Brand orange = league identity eyebrow. Green/pool hues
+     only where the markup already carries them.
 
-.team-card {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-}
-.team-card:hover { border-color: var(--nb-primary); }
-.team-owner { color: var(--nb-text); }
-.team-nba { color: var(--nb-text-muted); }
+   Layout: one column up to 1199px (reading order: hero, live draft, schedule
+   strip, league vitals, standings, playoffs, rosters, seasons); ≥1200px the
+   same DOM becomes hero / live / schedule strip / vitals across the top and
+   Rosters beside a Standings rail. The schedule strip lives inside the left
+   .dashboard-col in the DOM, so the two column wrappers are flattened with
+   display:contents (inside @supports :has, which also picks sections by their
+   content). Browsers without :has() keep the original two-column structure
+   with the new skin.                                                        */
 
-.mini-standings-row:nth-child(odd) { background: var(--nb-surface); }
-.mini-standings-rank { color: var(--nb-text-dim); }
-.mini-standings-rank.top4 { color: #7a5a00; font-weight: 800; } /* corrected — raw --nb-gold at this size/weight repeats the exact contrast mistake fixed on Tier A; using the same darkened treatment instead */
-.mini-standings-name { color: var(--nb-text); }
-.mini-standings-record { color: var(--nb-text-muted); }
-
-.mini-schedule-row {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r);
-}
+/* Kept UNSCOPED and unchanged from Step 6: these two classes are also rendered
+   by other public pages (schedule.js, playoffs.js), so the dashboard restyle
+   below overrides them only inside .dashboard. */
 .matchup-vs-divider { color: var(--nb-text-dim); }
-
-.seasons-list .season-row {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r);
-  color: var(--nb-text);
-}
-.season-row.active { border-color: var(--nb-primary); }
-
 .bracket-champion-banner {
   background: var(--nb-gold-dim);
   color: #7a5a00;
@@ -144,33 +119,499 @@
   border-radius: var(--nb-r-lg);
 }
 
-/* Live Draft status card (home.js addition) — same visual language as the
-   Draft page's own on-the-clock treatment, so the link to Draft feels
-   like a continuation of the same page, not a different product. */
-.dash-draft-live {
+/* ── League hero: identity + season state in one compact band ── */
+.dashboard .league-hero {
+  position: relative;
+  overflow: visible;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-brand-orange), var(--nb-surface-shadow);
+  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-4) var(--nb-space-5);
+  margin-bottom: var(--nb-space-4);
+}
+.dashboard .league-hero::before { display: none; }
+.dashboard .league-hero-eyebrow {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-brand-orange-ink);
+  margin-bottom: var(--nb-space-1);
+}
+.dashboard .league-hero-title {
+  font-size: clamp(1.5rem, 1.1rem + 2vw, 2.4rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: -0.02em;
+  line-height: var(--nb-lh-tight);
+  color: var(--nb-text);
+  margin-bottom: var(--nb-space-3);
+  overflow-wrap: anywhere;
+}
+.dashboard .league-hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--nb-space-2) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Season state is the answer to "what's happening right now", so it gets the
+   most weight in the band. Colours still come from the Step 5 status tokens. */
+.dashboard .league-hero-meta .status-chip {
+  padding: 0.3rem 0.8rem;
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+}
+
+/* ── Live draft banner (only rendered while a pick is pending) ── */
+.dashboard .dash-draft-live {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-4);
+  background: var(--nb-gold-dim);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+  padding: var(--nb-space-3) var(--nb-space-4) var(--nb-space-3) var(--nb-space-5);
+  margin-bottom: var(--nb-space-4);
+  text-decoration: none;
+  color: var(--nb-text);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.dashboard .dash-draft-live:hover { background: color-mix(in srgb, var(--nb-gold) 22%, transparent); }
+.dashboard .dash-draft-live:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.dashboard .dash-draft-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nb-gold); flex-shrink: 0; }
+.dashboard .dash-draft-live-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dashboard .dash-draft-live-eyebrow {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  text-transform: uppercase;
+  color: var(--nb-gold-ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--nb-tracking-caps);
+}
+.dashboard .dash-draft-live-name {
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The CTA is a bordered label so it reads as actionable without colour alone. */
+.dashboard .dash-draft-live-cta {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-gold-ink);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-sm);
+  padding: 0.35rem 0.7rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Section headers ── */
+.dashboard .section { margin-bottom: 0; min-width: 0; }
+.dashboard .section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nb-space-3);
+  margin-bottom: var(--nb-space-3);
+  padding-bottom: var(--nb-space-2);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.dashboard .section-title {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0;
+  padding: 0;
+  border-bottom: none;
+}
+/* Sections with no link row (All Seasons) keep their own underline. */
+.dashboard .section > .section-title {
+  margin-bottom: var(--nb-space-3);
+  padding-bottom: var(--nb-space-2);
+  border-bottom: 1px solid var(--nb-surface-border);
+  color: var(--nb-text-muted);
+}
+.dashboard .section-link {
+  color: var(--nb-primary-ink);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-decoration: none;
+  white-space: nowrap;
+  /* Padding + equal negative margin = a ~44px tap area without a taller header. */
+  padding: 0.65rem 0.4rem;
+  margin: -0.65rem -0.4rem;
+  border-radius: var(--nb-r-sm);
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.dashboard .section-link:hover { color: var(--nb-text); text-decoration: underline; text-underline-offset: 3px; }
+.dashboard .section-link:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+/* ── Schedule strip: the existing "Upcoming / Latest Results" section ─────────
+   Same .mini-schedule-row elements, laid out as a left-to-right scoreboard
+   ticker. No data changes: home.js still emits (at most) five matchups for the
+   pending round, each with teams + either a score or a status chip. It has no
+   date, time or live state to show, so none is faked. */
+.dashboard .section:has(> .mini-schedule) {
+  background: var(--nb-surface-card);
+  border-top: 1px solid var(--nb-surface-border);
+  border-bottom: 1px solid var(--nb-surface-border);
+  border-left: 1px solid var(--nb-surface-border);
+  border-right: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 0 2px 0 var(--nb-border-strong), var(--nb-surface-shadow);
+  padding: var(--nb-space-3) var(--nb-space-4) var(--nb-space-4);
+  margin-bottom: var(--nb-space-4);
+}
+.dashboard .section:has(> .mini-schedule) .section-header-row {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: var(--nb-space-3);
+}
+/* The round label is the strip's headline (there is no date to lead with). */
+.dashboard .section:has(> .mini-schedule) .section-title {
+  font-size: var(--nb-fs-h2);
+  letter-spacing: var(--nb-tracking-title);
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard .mini-schedule {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--nb-space-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--nb-space-1);
+  padding-bottom: var(--nb-space-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--nb-border-strong) transparent;
+  color-scheme: dark;
+}
+.dashboard .mini-schedule-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--nb-space-3);
+  /* Tiles fill the strip when they fit, never shrink below a readable width,
+     and scroll sideways otherwise. */
+  flex: 1 0 200px;
+  min-width: 0;
+  padding: var(--nb-space-3);
+  background: var(--nb-surface-raised);
+  border: 1px solid var(--nb-border-strong);
+  border-radius: var(--nb-r);
+  font-size: var(--nb-fs-sm);
+  scroll-snap-align: start;
+}
+.dashboard .mini-schedule-teams {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--nb-space-2);
+  row-gap: var(--nb-space-2);
+}
+.dashboard .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) {
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text);
+  min-width: 0;
+}
+.dashboard .mini-schedule-teams .team-identity-abbr { color: var(--nb-text-muted); }
+/* "vs" becomes a hairline divider between the two team lines. */
+.dashboard .mini-schedule-teams > .matchup-vs-divider {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-2);
+  padding: 0;
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+}
+.dashboard .mini-schedule-teams > .matchup-vs-divider::before,
+.dashboard .mini-schedule-teams > .matchup-vs-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--nb-surface-border);
+}
+/* Footer of each tile: the existing score or status chip. */
+.dashboard .mini-schedule-row > .status-chip { align-self: flex-start; }
+.dashboard .mini-schedule-row > .matchup-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--nb-space-2);
+  align-self: flex-start;
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  color: var(--nb-text);
+  font-variant-numeric: tabular-nums;
+}
+/* Completed tiles say FINAL in words (derived from the existing completed
+   state — the score is only rendered for completed matchups) so they never
+   rely on being dimmer to be understood. */
+.dashboard .mini-schedule-row > .matchup-score::before {
+  content: 'Final';
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-positive-ink);
+}
+/* Completed = settled, so quieter; upcoming keeps full contrast. */
+.dashboard .mini-schedule-row:has(> .matchup-score) {
+  background: var(--nb-surface-card);
+  border-color: var(--nb-surface-border);
+}
+.dashboard .mini-schedule-row:has(> .matchup-score) .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) {
+  color: var(--nb-text-muted);
+  font-weight: var(--nb-fw-semibold);
+}
+.dashboard .mini-schedule-row:has(> .matchup-score) > .matchup-score { color: var(--nb-text-muted); }
+
+/* ── League vitals: the six stat cards as one slim scoreboard band ── */
+.dashboard .stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--nb-surface-border);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+  margin-bottom: var(--nb-space-5);
+}
+.dashboard .stat-card {
+  background: var(--nb-surface-card);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--nb-space-3) var(--nb-space-4);
+  gap: var(--nb-space-1);
+}
+.dashboard .stat-num {
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  color: var(--nb-text);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard .stat-label {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text-muted);
+}
+
+/* ── Standings: dense ranked rows ── */
+.dashboard .mini-standings {
+  gap: 0;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+}
+.dashboard .mini-standings-row {
   display: flex;
   align-items: center;
   gap: var(--nb-space-3);
-  background: var(--nb-gold-dim);
-  border: 1px solid var(--nb-gold);
-  border-radius: var(--nb-r-lg);
-  padding: var(--nb-space-4);
-  margin-bottom: var(--nb-space-5);
-  text-decoration: none;
+  padding: 0.6rem var(--nb-space-4) 0.6rem var(--nb-space-3);
+  border-bottom: 1px solid var(--nb-surface-border);
+  border-radius: 0;
+  font-size: var(--nb-fs-table);
+  background: transparent;
 }
-.dash-draft-live-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  background: var(--nb-gold);
-  flex-shrink: 0;
-  /* Phase 2 Step 2: infinite pulse retired (view re-renders on every live update, which would restart it). */
+.dashboard .mini-standings-row:last-child { border-bottom: none; }
+.dashboard .mini-standings-row:nth-child(odd) { background: transparent; }
+.dashboard .mini-standings-row:nth-child(even) { background: var(--nb-surface-hover); }
+.dashboard .mini-standings-rank {
+  width: 1.6rem;
+  text-align: center;
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text-dim);
+  font-variant-numeric: tabular-nums;
 }
-.dash-draft-live-text { flex: 1; min-width: 0; }
-.dash-draft-live-eyebrow { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #7a5a00; }
-.dash-draft-live-name { font-size: 1.05rem; font-weight: 800; color: var(--nb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dash-draft-live-cta { font-size: 0.78rem; font-weight: 700; color: #7a5a00; white-space: nowrap; flex-shrink: 0; }
+/* Top-4 (existing class) = gold rank AND a 3px edge bar — shape, not just hue. */
+.dashboard .mini-standings-rank.top4 { color: var(--nb-gold-ink); }
+.dashboard .mini-standings-row:has(> .top4) { box-shadow: inset 3px 0 0 var(--nb-gold); }
+.dashboard .mini-standings-name { color: var(--nb-text); font-weight: var(--nb-fw-bold); }
+.dashboard .mini-standings-record {
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text);
+  font-variant-numeric: tabular-nums;
+}
 
+/* ── Playoffs / champion ── */
+.dashboard .bracket-champion-banner {
+  background: var(--nb-gold-dim);
+  color: var(--nb-gold-ink);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+  padding: var(--nb-space-3) var(--nb-space-4);
+  font-size: var(--nb-fs-h2);
+  justify-content: flex-start;
+  text-align: left;
+}
+.dashboard .section > p.muted {
+  margin: 0;
+  padding: var(--nb-space-3) var(--nb-space-4);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  color: var(--nb-text-muted);
+}
+
+/* ── Rosters: compact team tiles ── */
+.dashboard .team-grid {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--nb-space-2);
+}
+.dashboard .team-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  padding: var(--nb-space-3);
+  gap: var(--nb-space-3);
+  min-width: 0;
+}
+.dashboard .team-card:hover { border-color: var(--nb-surface-border); } /* not interactive: no hover affordance */
+.dashboard .team-details { min-width: 0; }
+.dashboard .team-owner {
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-bold);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+  overflow-wrap: anywhere;
+}
+.dashboard .team-nba { font-size: var(--nb-fs-xs); color: var(--nb-text-muted); }
+.dashboard .team-card .team-identity { flex-shrink: 0; }
+
+/* ── All seasons ── */
+.dashboard .seasons-list { gap: var(--nb-space-2); }
+.dashboard .seasons-list .season-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nb-space-3);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  padding: var(--nb-space-2) var(--nb-space-3);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-table);
+}
+.dashboard .season-row .status-chip { white-space: nowrap; flex-shrink: 0; }
+/* Current season: indigo border + edge bar + heavier name (not colour alone). */
+.dashboard .season-row.active {
+  border-color: var(--nb-primary);
+  box-shadow: inset 3px 0 0 var(--nb-primary);
+  color: var(--nb-text);
+  font-weight: var(--nb-fw-heavy);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────────
+   Base (and fallback without :has): the original two-column structure. */
+.dashboard .dashboard-grid { gap: var(--nb-space-5); }
+.dashboard .dashboard-col { gap: var(--nb-space-5); }
+
+@media (min-width: 900px) {
+  .dashboard .stats-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
 @media (max-width: 900px) {
-  .dashboard-grid { grid-template-columns: 1fr; }
+  .dashboard .dashboard-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .dashboard .league-hero { padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) var(--nb-space-4); }
+  .dashboard .dash-draft-live { flex-wrap: wrap; gap: var(--nb-space-2) var(--nb-space-3); padding-left: var(--nb-space-4); }
+  .dashboard .dash-draft-live-text { flex: 1 1 calc(100% - 28px); }
+  .dashboard .dash-draft-live-cta { flex: 1 1 100%; text-align: center; padding: 0.6rem 0.7rem; }
+  .dashboard .section:has(> .mini-schedule) { padding: var(--nb-space-3); }
+  /* One tile + a peek of the next one, so the strip visibly scrolls. */
+  .dashboard .mini-schedule-row { flex: 0 0 min(78vw, 280px); }
+  .dashboard .stat-card { padding: var(--nb-space-3); }
+  .dashboard .team-grid { grid-template-columns: 1fr; }
+}
+
+@supports selector(:has(*)) {
+  /* <1200px: one column. The wrappers are flattened so every section can be
+     placed individually; `order` sets reading order (see top of block). */
+  .dashboard { display: flex; flex-direction: column; }
+  .dashboard > * { min-width: 0; }
+  .dashboard .dashboard-grid,
+  .dashboard .dashboard-col { display: contents; }
+  .dashboard .league-hero { order: 0; }
+  .dashboard .dash-draft-live { order: 1; }
+  .dashboard .section:has(> .mini-schedule) { order: 2; }
+  .dashboard .stats-row { order: 3; }
+  .dashboard .section:has(> .mini-standings) { order: 4; margin-bottom: var(--nb-space-5); }
+  .dashboard .section:has(> .bracket-champion-banner),
+  .dashboard .section:has(> p.muted) { order: 5; margin-bottom: var(--nb-space-5); }
+  .dashboard .section:has(> .team-grid) { order: 6; margin-bottom: var(--nb-space-5); }
+  .dashboard .section:has(> .seasons-list) { order: 7; margin-bottom: var(--nb-space-5); }
+}
+
+/* ≥1200px: hero / live / schedule strip / vitals span the top; Rosters beside a
+   Standings + Playoffs + Seasons rail (the right .dashboard-col, kept as a real
+   box so its sections flow naturally without empty-row gaps). */
+@media (min-width: 1200px) {
+  @supports selector(:has(*)) {
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      grid-template-areas:
+        "hero   hero"
+        "live   live"
+        "sched  sched"
+        "stats  stats"
+        "rosters side";
+      column-gap: var(--nb-space-5);
+      align-content: start;
+    }
+    .dashboard .league-hero { grid-area: hero; }
+    .dashboard .dash-draft-live { grid-area: live; }
+    .dashboard .section:has(> .mini-schedule) { grid-area: sched; }
+    .dashboard .stats-row { grid-area: stats; }
+    .dashboard .section:has(> .team-grid) { grid-area: rosters; margin-bottom: 0; }
+    .dashboard .dashboard-col:last-child {
+      display: flex;
+      flex-direction: column;
+      gap: var(--nb-space-5);
+      grid-area: side;
+      min-width: 0;
+    }
+    .dashboard .dashboard-col:last-child .section { margin-bottom: 0; }
+    /* Nothing in the rail (or no rosters): collapse to a single column. */
+    .dashboard:not(:has(.dashboard-col:last-child .section)) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "hero" "live" "sched" "stats" "rosters";
+    }
+    .dashboard:not(:has(.dashboard-col:last-child .section)) .dashboard-col:last-child { display: none; }
+    .dashboard:not(:has(.section:has(> .team-grid))) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "hero" "live" "sched" "stats" "side";
+    }
+  }
 }
 
 /* ─── Rosters ────────────────────────────────────────────────────────────── */
