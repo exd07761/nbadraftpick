@@ -665,6 +665,347 @@
   .roster-card-table td:last-child { display: none; }
 }
 
+/* ─── Rosters · Phase 2 Step 8A: public roster screen ─────────────────────────
+   CSS ONLY — roster.js and its DOM are untouched. Every rule below is scoped
+   under .all-rosters-view (the wrapper roster.js renders) because several of the
+   classes it uses are shared: the Roster Simulator reuses .all-rosters-title /
+   -season-label / -season-picker and .roster-table (Step 8B), Standings uses
+   .cap-over-text, and the orphaned Teams view uses .empty-roster. The unscoped
+   Step 6 rules above are left exactly as they were for those consumers.
+
+   Same vocabulary as Step 7: a lower-third header band with the orange rule,
+   dark panels (--nb-surface-card) lit from the top by --nb-surface-raised, a
+   recessed --nb-surface-sunken "scoreboard" strip for the cap numbers, hairline
+   separators, tabular numerals. No new colours, no new tokens.
+
+   Layout: the old grid used repeat(3, 1fr), whose min-content tracks let a long
+   name or the 7-column table push the whole page wider than the viewport. The
+   tracks now have a real minimum (30.5rem — what the 7-column table needs — capped at 100%) so cards reflow 3 → 2
+   → 1 with the available width — which also tracks the collapsed/expanded
+   sidebar — and every card is min-width:0 so wide content scrolls inside its own
+   .table-scroll instead of the page.
+
+   Not done here (needs markup, so deliberately left for approval): pool hue
+   (poolLabel() renders bare text) and the elite-orange OVR tier (.ovr carries
+   no tier class on this page). */
+
+.all-rosters-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nb-section-gap);
+  min-width: 0;
+}
+
+/* ── Header: lower-third band ── */
+.all-rosters-view .all-rosters-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nb-space-3) var(--nb-space-4);
+  margin-bottom: 0;
+  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-4) var(--nb-space-5);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-brand-orange), var(--nb-surface-shadow);
+}
+.all-rosters-view .all-rosters-title {
+  margin: 0 auto 0 0;
+  font-size: var(--nb-fs-display);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-tight);
+  letter-spacing: var(--nb-tracking-title);
+  color: var(--nb-text);
+}
+.all-rosters-view .all-rosters-season-label {
+  gap: var(--nb-space-2);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+}
+.all-rosters-view .all-rosters-season-picker {
+  min-height: var(--nb-control-md);
+  max-width: 100%;
+  padding: 0 var(--nb-space-3);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-border-strong);
+  color: var(--nb-text);
+  color-scheme: dark;
+  text-overflow: ellipsis;
+  transition:
+    border-color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.all-rosters-view .all-rosters-season-picker:hover:not(:disabled) { border-color: var(--nb-text-dim); }
+.all-rosters-view .all-rosters-season-picker:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 2px;
+  border-color: var(--nb-focus-ring);
+}
+.all-rosters-view .all-rosters-season-picker:focus:not(:focus-visible) { outline: none; }
+.all-rosters-view .all-rosters-season-picker:disabled {
+  background: var(--nb-surface);
+  border-color: var(--nb-surface-border);
+  color: var(--nb-text-muted);
+  opacity: 1;
+}
+/* Past season: neutral (gold stays reserved for live/current) and labelled in
+   words, so it never relies on colour. */
+.all-rosters-view .all-rosters-old-season-badge {
+  padding: 0.25rem var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  background: var(--nb-surface-lift);
+  color: var(--nb-text);
+  box-shadow: inset 0 0 0 1px var(--nb-border-strong);
+}
+.all-rosters-view .all-rosters-cap-note {
+  padding: 0.25rem var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-pill);
+}
+
+/* ── Grid ── */
+.all-rosters-view .roster-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 30.5rem), 1fr));
+  gap: var(--nb-space-4);
+  align-items: start;
+}
+
+/* ── Roster card: masthead (owner + team) → scoreboard strip → player table ── */
+.all-rosters-view .roster-card {
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--nb-surface-raised) 0, var(--nb-surface-card) 9rem);
+}
+.all-rosters-view .roster-card-head {
+  align-items: flex-start;
+  gap: var(--nb-space-3);
+  padding: var(--nb-space-4) var(--nb-space-4) 0;
+}
+/* Whose roster? — wraps rather than truncating, so a long name is never lost. */
+.all-rosters-view .roster-card-name {
+  min-width: 0;
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-title);
+  letter-spacing: var(--nb-tracking-title);
+  color: var(--nb-text);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+.all-rosters-view .roster-card-count {
+  padding: 0.125rem var(--nb-space-2);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-pill);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-team {
+  min-width: 0;
+  padding: var(--nb-space-2) var(--nb-space-4) var(--nb-space-4);
+}
+.all-rosters-view .roster-card-team .team-identity { gap: var(--nb-space-3); max-width: 100%; }
+.all-rosters-view .roster-card-team .team-logo-img-lg,
+.all-rosters-view .roster-card-team .team-badge-lg { width: 44px; height: 44px; }
+.all-rosters-view .roster-card-team .team-identity-name {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  white-space: normal;
+}
+.all-rosters-view .roster-card-team .team-identity-name-empty { color: var(--nb-text-dim); }
+
+/* Scoreboard strip: OVR total · cap · bar · remaining. Values unchanged. */
+.all-rosters-view .roster-card-cap {
+  padding: var(--nb-space-3) var(--nb-space-4);
+  background: var(--nb-surface-sunken);
+  border-top: 1px solid var(--nb-surface-border);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.all-rosters-view .roster-card-cap-labels {
+  align-items: baseline;
+  gap: var(--nb-space-3);
+  margin-bottom: var(--nb-space-2);
+}
+.all-rosters-view .roster-card-ovr-total {
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-tight);
+  letter-spacing: var(--nb-tracking-title);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text);
+}
+.all-rosters-view .roster-card-ovr-total.cap-over-text { color: var(--nb-negative-ink); }
+.all-rosters-view .roster-card-cap-value {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+.all-rosters-view .cap-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--nb-surface-raised);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--nb-surface-border);
+}
+.all-rosters-view .cap-bar-fill {
+  border-radius: 3px;
+  transition: width var(--nb-dur-slow) var(--nb-ease-standard);
+}
+.all-rosters-view .roster-card-remaining {
+  margin-top: var(--nb-space-2);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+.all-rosters-view .roster-card-remaining.cap-over-text {
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-negative-ink);
+}
+
+/* Player table: compact, single-line rows; name first, OVR the loudest number. */
+.all-rosters-view .roster-card .table-scroll { border-radius: 0; }
+.all-rosters-view .roster-card-table { font-size: var(--nb-fs-sm); }
+.all-rosters-view .roster-card-table th {
+  padding: var(--nb-space-2) 0.375rem;
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-table td {
+  padding: 0.5rem 0.375rem;
+  line-height: var(--nb-lh-table);
+  vertical-align: middle;
+}
+.all-rosters-view .roster-card-table tbody tr {
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.all-rosters-view .roster-card-table tbody tr:last-child td { border-bottom: 0; }
+
+/* Every column except Player shrink-wraps, so spare width flows to the name
+   (long surnames stay whole whenever the card is wider than the table minimum). */
+.all-rosters-view .roster-card-table th:not(:nth-child(2)) { width: 1%; }
+.all-rosters-view .roster-card-table th:first-child,
+.all-rosters-view .roster-card-table td:first-child {
+  padding-left: var(--nb-space-3);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-dim);
+}
+.all-rosters-view .roster-card-table td:nth-child(2) {
+  min-width: 6.5rem;
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text);
+  overflow-wrap: anywhere; /* wraps inside the name column; breaks mid-word only if one word is wider than the column */
+}
+.all-rosters-view .roster-card-table td:nth-child(3) {
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-table td:nth-child(5) {
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--nb-text-muted);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-table th:nth-child(6),
+.all-rosters-view .roster-card-table td.ovr { text-align: right; }
+.all-rosters-view .roster-card-table td.ovr {
+  padding-right: var(--nb-space-3);
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-tight);
+}
+.all-rosters-view .roster-card-table th:nth-child(6) { padding-right: var(--nb-space-3); }
+.all-rosters-view .roster-card-table th:last-child,
+.all-rosters-view .roster-card-table td:last-child { padding-right: var(--nb-space-3); }
+.all-rosters-view .roster-card-table .pick-color-badge { padding-inline: 0.4rem; }
+.all-rosters-view .roster-card-source {
+  font-size: var(--nb-fs-xs);
+  color: var(--nb-text-dim);
+  white-space: nowrap;
+}
+
+/* Vacated draft slot: quieter row, still labelled in words. */
+.all-rosters-view .roster-row-empty td {
+  background: color-mix(in srgb, var(--nb-surface-sunken) 55%, transparent);
+  color: var(--nb-text-dim);
+}
+.all-rosters-view .roster-row-empty td:nth-child(2) {
+  min-width: 0;
+  font-weight: var(--nb-fw-medium);
+  color: var(--nb-text-dim);
+}
+.all-rosters-view .roster-card-table tbody tr.roster-row-empty:hover { background: transparent; }
+
+.all-rosters-view .empty-roster {
+  padding: var(--nb-space-5) var(--nb-space-4);
+  text-align: center;
+  font-size: var(--nb-fs-sm);
+  color: var(--nb-text-muted);
+  border-top: 1px solid var(--nb-surface-border);
+}
+.all-rosters-view .empty-roster p { margin: 0; }
+
+/* "No Teams Yet" inside the page frame. */
+.all-rosters-view > .empty-state { margin: 0; }
+
+/* ── Narrow screens: restack the header, keep names + OVR readable. The old
+   main.css ≤700px rule set table text to 0.72rem (below the 0.75rem floor);
+   it is overridden here, scoped, rather than edited. ── */
+@media (max-width: 700px) {
+  .all-rosters-view .all-rosters-header { padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) var(--nb-space-4); }
+  .all-rosters-view .all-rosters-title { flex: 1 0 100%; margin-right: 0; }
+  .all-rosters-view .all-rosters-season-label { flex: 1 1 auto; }
+  .all-rosters-view .all-rosters-season-picker { min-height: var(--nb-control-lg); flex: 1 1 auto; min-width: 0; }
+  .all-rosters-view .roster-card-grid { gap: var(--nb-space-3); }
+  .all-rosters-view .roster-card-table { font-size: var(--nb-fs-sm); }
+  .all-rosters-view .roster-card-table td:nth-child(2) { min-width: 6.5rem; }
+}
+@media (max-width: 480px) {
+  .all-rosters-view .roster-card-head { padding: var(--nb-space-3) var(--nb-space-3) 0; }
+  .all-rosters-view .roster-card-team { padding: var(--nb-space-2) var(--nb-space-3) var(--nb-space-3); }
+  .all-rosters-view .roster-card-cap { padding: var(--nb-space-3); }
+  .all-rosters-view .roster-card-table th,
+  .all-rosters-view .roster-card-table td { padding: 0.5rem 0.25rem; }
+  .all-rosters-view .roster-card-table th { letter-spacing: 0.02em; }
+  /* A name that cannot fit hyphenates at a syllable instead of being cut mid-letter. */
+  .all-rosters-view .roster-card-table td:nth-child(2) { min-width: 4rem; hyphens: auto; -webkit-hyphens: auto; }
+  .all-rosters-view .roster-card-table td:nth-child(3),
+  .all-rosters-view .roster-card-table td:nth-child(5) { font-size: var(--nb-fs-xs); }
+  .all-rosters-view .roster-card-table td:nth-child(5) { white-space: normal; letter-spacing: 0; }
+  .all-rosters-view .roster-card-table th:first-child,
+  .all-rosters-view .roster-card-table td:first-child { padding-inline: 0.5rem 0.25rem; }
+  .all-rosters-view .roster-card-table .pick-color-badge { padding-inline: 0.25rem; letter-spacing: 0; }
+  /* "Pick #" may break onto two lines here so the first column stays narrow. */
+  .all-rosters-view .roster-card-table th:first-child { white-space: normal; }
+  .all-rosters-view .roster-card-table td.ovr,
+  .all-rosters-view .roster-card-table th:nth-child(6) { padding-right: var(--nb-space-3); }
+}
+
 /* ─── Hall of Fame ───────────────────────────────────────────────────────── */
 .hof-card {
   background: var(--nb-surface-card);
