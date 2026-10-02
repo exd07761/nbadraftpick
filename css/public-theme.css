@@ -1896,3 +1896,411 @@
   .standings-view .standings-card { padding: var(--nb-space-3); gap: var(--nb-space-2); }
   .standings-view .standings-card-record { font-size: var(--nb-fs-xs); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8D — Public Playoffs (cinematic bracket presentation)
+
+   CSS ONLY. js/views/playoffs.js, its DOM, IDs, classes, data-* attributes,
+   the round quick-jump handler and the bracket generation/standings/data code
+   are untouched. Everything below is scoped under .playoffs-view (the wrapper
+   playoffs.js renders), so the Dashboard's champion tile (.dashboard
+   .bracket-champion-banner) and every other public page are unaffected, and
+   admin.html never loads this file.
+
+   Existing markup states that are styled (none are invented):
+     .bracket-card (upcoming) / .active (games recorded, no winner yet)
+     / .decided (winner recorded) · .bracket-card-row.won (advancing team)
+     · .bracket-card-row without .won inside .decided (eliminated)
+     · .bracket-card-tbd + .team-badge-empty (empty / unplayed slots)
+     · last .bracket-col (Championship) · .bracket-champion-banner
+     · .bracket-jump-btn.current (the view's own "current round" heuristic).
+   There is no live-game flag and no per-round "status" text in the markup, so
+   .active is styled as "in progress" with gold and nothing is labelled LIVE.
+
+   Colour roles: orange = winner / advancement path (competitive emphasis);
+   gold = in-progress series + the Championship stage; indigo = current-round
+   marker + interaction; everything else is the Step 1/5 dark surface ramp.
+   Winner/loser are separated by more than colour (bar, weight, size, dimmed
+   logo). Motion: colour transitions only, collapsed by the global
+   prefers-reduced-motion rule. No animations, no transition: all.
+
+   Layout: the bracket keeps its 4-column grid and stays inside its own
+   .bracket-scroll viewport (the page never scrolls sideways). ≤700px the
+   columns become fixed-width, snap-aligned panes so one round plus a peek of
+   the next fills the phone viewport; the existing quick-jump row drives them.
+   Team rows are re-laid out with grid + display:contents on the existing
+   .team-identity wrapper so the abbreviation sits under the name and long
+   names wrap (2 lines) instead of truncating to a few letters.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page header (same identity bar as Schedule / Standings) ── */
+.playoffs-view > h2.section-title {
+  font-size: clamp(1.125rem, 4.6vw, var(--nb-fs-display));
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0 0 var(--nb-space-4);
+  padding: 0 0 0 var(--nb-space-3);
+  border-bottom: 0;
+  border-left: 4px solid var(--nb-brand-orange);
+}
+
+/* ── Champion banner (Playoffs page only) ── */
+.playoffs-view .bracket-champion-banner {
+  justify-content: flex-start;
+  margin-bottom: var(--nb-space-4);
+  padding: var(--nb-space-4) var(--nb-space-5);
+  background: linear-gradient(90deg, var(--nb-gold-dim), transparent 75%), var(--nb-surface-card);
+  color: var(--nb-text);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-gold), var(--nb-surface-shadow);
+  font-size: clamp(1.125rem, 3.4vw, 1.75rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* ── Round quick-jump → segmented strip. The original only showed it ≤900px, but the
+   bracket (min-width 880px) already scrolls inside its viewport up to 1245px, where the
+   sidebar is back and the row was hidden; show it exactly while the bracket can scroll. ── */
+@media (max-width: 1245px) {
+  .playoffs-view .bracket-jump {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--nb-space-1);
+    padding: var(--nb-space-1);
+    margin-bottom: var(--nb-space-3);
+    background: var(--nb-surface-sunken);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+  }
+}
+.playoffs-view .bracket-jump-btn {
+  min-height: var(--nb-control-lg);
+  padding: 0 var(--nb-space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--nb-r);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  line-height: var(--nb-lh-tight);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard), color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.playoffs-view .bracket-jump-btn::before { inset: 0; }   /* the button is now 44px itself; no oversized overlap */
+.playoffs-view .bracket-jump-btn:hover { background: var(--nb-surface-hover); color: var(--nb-text); }
+.playoffs-view .bracket-jump-btn:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.playoffs-view .bracket-jump-btn.current {
+  background: var(--nb-primary-dim);
+  border-color: var(--nb-primary);
+  color: var(--nb-text);
+  font-weight: var(--nb-fw-heavy);
+}
+@media (max-width: 640px) {
+  .playoffs-view .bracket-jump { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Bracket stage: a sunken viewport; scrolling stays inside it ── */
+.playoffs-view .bracket-scroll {
+  padding: var(--nb-space-4) var(--nb-space-3);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--nb-space-3);
+  -webkit-overflow-scrolling: touch;
+}
+.playoffs-view .bracket-scroll:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.playoffs-view .bracket {
+  --bk-half: 0.75rem;                                   /* half the gutter between columns */
+  --bk-line: color-mix(in srgb, var(--nb-border-strong) 75%, transparent);
+  --bk-path: var(--nb-brand-orange);                    /* advancement path */
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  min-width: 880px;
+}
+.playoffs-view .bracket-col { scroll-snap-align: start; }
+
+/* ── Round headers ── */
+.playoffs-view .bracket-col-header {
+  margin: 0 0 var(--nb-space-2);
+  padding: 0 var(--nb-space-3) var(--nb-space-2);
+  border-bottom: 2px solid var(--nb-surface-border);
+  color: var(--nb-text);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-align: left;
+}
+.playoffs-view .bracket-col-sub {
+  margin-top: 2px;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+}
+.playoffs-view .bracket-col:last-child .bracket-col-header {
+  color: var(--nb-gold-ink);
+  border-bottom-color: color-mix(in srgb, var(--nb-gold) 70%, transparent);
+}
+/* The view's own current-round heuristic (.current on the matching jump button)
+   marks the matching column header — pure CSS, no new state. */
+.playoffs-view:has(.bracket-jump-btn:nth-child(1).current) .bracket-col:nth-child(1) .bracket-col-header,
+.playoffs-view:has(.bracket-jump-btn:nth-child(2).current) .bracket-col:nth-child(2) .bracket-col-header,
+.playoffs-view:has(.bracket-jump-btn:nth-child(3).current) .bracket-col:nth-child(3) .bracket-col-header,
+.playoffs-view:has(.bracket-jump-btn:nth-child(4).current) .bracket-col:nth-child(4) .bracket-col-header {
+  border-bottom-color: var(--nb-primary);
+  background: linear-gradient(180deg, transparent, var(--nb-primary-dim));
+}
+
+/* ── Slots + connectors ── */
+.playoffs-view .bracket-slot { padding: 0.4rem var(--bk-half); }
+.playoffs-view .bracket-col:not(:last-child) .bracket-slot::after,
+.playoffs-view .bracket-col:not(:first-child) .bracket-slot::before {
+  content: '';
+  display: block;               /* main.css hides these ≤900px; the grid is unchanged there, so keep them */
+  position: absolute;
+  top: calc(50% - 1px);
+  width: var(--bk-half);
+  height: 2px;
+  background: var(--bk-line);
+  border: 0;
+}
+.playoffs-view .bracket-col:not(:last-child) .bracket-slot::after { right: 0; left: auto; }
+.playoffs-view .bracket-col:not(:first-child) .bracket-slot::before { left: 0; right: auto; }
+
+/* Round 1 → Round 2: Round 2 pairings are picked, not fed 1:1, so keep this
+   as a quiet dotted lead-in rather than a hard link. */
+.playoffs-view .bracket-col:nth-child(1) .bracket-slot::after,
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot::before {
+  height: 0;
+  background: none;
+  border-top: 2px dotted var(--bk-line);
+}
+
+/* Round 2 → Semifinals and Semifinals → Championship: two series feed one
+   (sourceSeriesIds in the data), so draw a real join. Within each column the
+   slots alternate first/second of a pair (header is child 1). */
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot::after,
+.playoffs-view .bracket-col:nth-child(3) .bracket-slot::after {
+  right: -1px;
+  width: calc(var(--bk-half) + 1px);
+  background: none;
+  border-right: 2px solid var(--bk-line);
+}
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot:nth-child(even)::after,
+.playoffs-view .bracket-col:nth-child(3) .bracket-slot:nth-child(even)::after {
+  top: calc(50% - 1px);
+  height: calc(50% + 1px);
+  border-top: 2px solid var(--bk-line);
+}
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot:nth-child(odd)::after,
+.playoffs-view .bracket-col:nth-child(3) .bracket-slot:nth-child(odd)::after {
+  top: 0;
+  height: calc(50% + 1px);
+  border-bottom: 2px solid var(--bk-line);
+}
+/* Advancement path: a decided series lights its outgoing join; a card that has
+   received a team lights its incoming stub. */
+.playoffs-view .bracket-col:nth-child(n+2):nth-child(-n+3) .bracket-slot:has(> .bracket-card.decided)::after { border-color: var(--bk-path); }
+.playoffs-view .bracket-col:nth-child(n+3) .bracket-slot:has(> .bracket-card .bracket-card-row)::before { background: var(--bk-path); }
+
+/* ── Matchup cards ── */
+.playoffs-view .bracket-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  box-shadow: var(--nb-surface-shadow);
+  font-size: var(--nb-fs-body);
+  transition: border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.playoffs-view .bracket-card.active {
+  border-color: var(--nb-gold);
+  border-left-width: 3px;
+}
+.playoffs-view .bracket-card.decided { border-color: var(--nb-border-strong); }
+
+/* Empty / unplayed slot (the card is only a .bracket-card-tbd placeholder) */
+.playoffs-view .bracket-card:has(> .bracket-card-tbd) {
+  background: transparent;
+  border: 1px dashed var(--nb-border-strong);
+  box-shadow: none;
+}
+.playoffs-view .bracket-card-tbd {
+  padding: var(--nb-space-4) var(--nb-space-3);
+  color: var(--nb-text-dim);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  font-style: italic;
+  line-height: var(--nb-lh-table);
+}
+
+/* ── Team rows: [seed] [logo] [name / abbr] [score] ── */
+.playoffs-view .bracket-card-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "seed logo name  score"
+    "seed logo abbr score";
+  align-items: center;
+  column-gap: 0;
+  min-height: 3rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--nb-surface-border);
+  background: transparent;
+}
+.playoffs-view .bracket-card-row .team-identity { display: contents; }   /* children join the row grid; DOM untouched */
+.playoffs-view .bracket-card-row .team-logo-img,
+.playoffs-view .bracket-card-row .team-badge {
+  grid-area: logo;
+  margin-right: var(--nb-space-2);
+}
+.playoffs-view .bracket-card-row .team-logo-img-sm,
+.playoffs-view .bracket-card-row .team-badge-sm { width: 28px; height: 28px; }
+.playoffs-view .bracket-card-row .team-badge-sm { font-size: 0.625rem; border-radius: 6px; }
+.playoffs-view .bracket-card-row .team-badge-empty {
+  background: transparent;
+  border: 1px dashed var(--nb-border-strong);
+  box-shadow: none;
+  color: var(--nb-text-dim);
+}
+
+.playoffs-view .bracket-seed {
+  grid-area: seed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  margin-right: var(--nb-space-2);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-sm);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.playoffs-view .bracket-seed:empty { background: none; border-color: transparent; }   /* keeps the opponent row aligned under the seed */
+
+.playoffs-view .bracket-team-name {
+  grid-area: name;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  color: var(--nb-text);
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-bold);
+  line-height: 1.2;
+}
+.playoffs-view .bracket-card-row .team-identity-abbr {
+  grid-area: abbr;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  line-height: 1.25;
+}
+.playoffs-view .bracket-team-score {
+  grid-area: score;
+  min-width: 2ch;
+  margin-left: var(--nb-space-2);
+  color: var(--nb-text-muted);
+  font-size: 1.375rem;
+  font-weight: var(--nb-fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+}
+
+/* Empty opponent slot inside an otherwise real matchup */
+.playoffs-view .bracket-card-row:has(.team-badge-empty) .bracket-team-name {
+  color: var(--nb-text-dim);
+  font-style: italic;
+  font-weight: var(--nb-fw-semibold);
+}
+
+/* Winner / advancing team */
+.playoffs-view .bracket-card-row.won {
+  background: var(--nb-surface-raised);
+  box-shadow: inset 3px 0 0 var(--nb-brand-orange);
+}
+.playoffs-view .bracket-card-row.won .bracket-team-name { color: var(--nb-text); font-weight: var(--nb-fw-heavy); }
+.playoffs-view .bracket-card-row.won .bracket-team-score { color: var(--nb-brand-orange-ink); }
+.playoffs-view .bracket-card-row.won .bracket-seed:not(:empty) { color: var(--nb-text); border-color: var(--nb-border-strong); }
+
+/* Eliminated team (the non-winning row of a decided matchup) */
+.playoffs-view .bracket-card.decided .bracket-card-row:not(.won) .bracket-team-name {
+  color: var(--nb-text-muted);
+  font-weight: var(--nb-fw-semibold);
+}
+.playoffs-view .bracket-card.decided .bracket-card-row:not(.won) .team-logo-img,
+.playoffs-view .bracket-card.decided .bracket-card-row:not(.won) .team-badge {
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+/* Footer line (game result / series label / games played) */
+.playoffs-view .bracket-format-tag {
+  padding: 0.4rem 0.65rem;
+  background: var(--nb-surface-sunken);
+  border-top: 0;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.playoffs-view .bracket-card-row:last-of-type { border-bottom: 0; }
+.playoffs-view .bracket-card-row:last-child { border-bottom: 0; }
+.playoffs-view .bracket-card-row:has(+ .bracket-format-tag) { border-bottom: 1px solid var(--nb-surface-border); }
+
+/* ── Championship / final stage ── */
+.playoffs-view .bracket-col:last-child .bracket-card {
+  border-color: color-mix(in srgb, var(--nb-gold) 60%, transparent);
+  border-top: 3px solid var(--nb-gold);
+  box-shadow: 0 0 0 1px var(--nb-gold-dim), var(--nb-shadow-2);
+}
+.playoffs-view .bracket-col:last-child .bracket-card:has(> .bracket-card-tbd) {
+  border: 1px dashed color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  box-shadow: none;
+}
+.playoffs-view .bracket-col:last-child .bracket-card-row { min-height: 3.5rem; padding-block: 0.5rem; }
+.playoffs-view .bracket-col:last-child .bracket-team-name { font-size: var(--nb-fs-h3); }
+.playoffs-view .bracket-col:last-child .bracket-team-score { font-size: 1.875rem; }
+.playoffs-view .bracket-col:last-child .bracket-card-row.won {
+  background: linear-gradient(90deg, var(--nb-gold-dim), transparent 85%), var(--nb-surface-raised);
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+}
+.playoffs-view .bracket-col:last-child .bracket-card-row.won .bracket-team-score { color: var(--nb-gold-ink); }
+
+/* ── Phones / small tablets: fixed-width snapping panes inside the bracket viewport ── */
+@media (max-width: 700px) {
+  .playoffs-view .bracket-scroll { padding: var(--nb-space-3) var(--nb-space-2); scroll-padding-inline: var(--nb-space-2); }
+  .playoffs-view .bracket {
+    --bk-colw: clamp(15rem, 74vw, 17.5rem);
+    grid-template-columns: repeat(4, var(--bk-colw));
+    width: max-content;
+    min-width: 0;
+  }
+  .playoffs-view .bracket-col-header { font-size: var(--nb-fs-sm); }
+  .playoffs-view .bracket-team-score { font-size: 1.25rem; }
+  .playoffs-view .bracket-col:last-child .bracket-team-score { font-size: 1.625rem; }
+}
+@media (max-width: 400px) {
+  .playoffs-view .bracket-card-row { padding-inline: 0.5rem; }
+  .playoffs-view .bracket-champion-banner { padding: var(--nb-space-3) var(--nb-space-4); }
+}
