@@ -5,7 +5,7 @@
  *  - Round 2 still generates 24 games after completed Round 1.
  *  - Round 3 requires completed Round 2 and generates another 24 games.
  *  - Round 3 stores round3Groups and advances groupStageState.stage to 3.
- *  - Round 3 rejects a rematch from either Round 1 or Round 2.
+ *  - Round 3 allows rematches from either Round 1 or Round 2.
  *  - Round 2 games are locked after Round 3 is generated.
  */
 const fs = require('fs');
@@ -22,7 +22,7 @@ const assignments = Object.fromEntries(Array.from({length: 16}, (_, i) => [`p${i
 const order = Object.keys(participants);
 const round1 = { A:['p1','p2','p3','p4'], B:['p5','p6','p7','p8'], C:['p9','p10','p11','p12'], D:['p13','p14','p15','p16'] };
 const round2 = { A:['p1','p5','p9','p13'], B:['p2','p6','p10','p14'], C:['p3','p7','p11','p15'], D:['p4','p8','p12','p16'] };
-const round3 = { A:['p1','p6','p11','p16'], B:['p2','p7','p12','p13'], C:['p3','p8','p9','p14'], D:['p4','p5','p10','p15'] };
+const round3 = { A:['p1','p2','p5','p16'], B:['p6','p7','p11','p13'], C:['p3','p8','p9','p14'], D:['p4','p10','p12','p15'] };
 
 const fixture = {
   settings: { currentSeasonId: 's' }, players: {},
@@ -55,6 +55,18 @@ let season = cache.seasons.s;
 assert.strictEqual(season.schedule.flatMap(r => r.matchups).length, 24);
 season.schedule.forEach(r => r.matchups.forEach(m => { if (m.teamB !== null) { m.status = 'completed'; m.scoreA = 100; m.scoreB = 90; m.winner = m.teamA; } }));
 
+// Round 2 must still reject a rematch from Round 1.
+const invalidRound2 = {
+  A:['p1','p2','p5','p9'],
+  B:['p6','p10','p13','p14'],
+  C:['p3','p7','p11','p15'],
+  D:['p4','p8','p12','p16']
+};
+assert.throws(
+  () => sandbox.AdminActions.generateGroupStageRound2('s', invalidRound2),
+  /Round 2 contains .*rematch.*prior Group Stage round/
+);
+
 sandbox.AdminActions.generateGroupStageRound2('s', round2);
 cache = sandbox.FirebaseSync.getCache(); season = cache.seasons.s;
 assert.strictEqual(season.groupStageState.stage, 2);
@@ -63,6 +75,9 @@ season.schedule.filter(r => r.matchups.some(m => m.stage === 2)).forEach(r => r.
 
 sandbox.AdminActions.generateGroupStageRound3('s', round3);
 cache = sandbox.FirebaseSync.getCache(); season = cache.seasons.s;
+const stage3Matchups = season.schedule.flatMap(r => r.matchups).filter(m => m.stage === 3 && m.teamB !== null);
+assert(stage3Matchups.some(m => [m.teamA, m.teamB].sort().join('|') === ['p1', 'p2'].sort().join('|')), 'Stage 3 should allow the Round 1 rematch p1 vs p2.');
+assert(stage3Matchups.some(m => [m.teamA, m.teamB].sort().join('|') === ['p1', 'p5'].sort().join('|')), 'Stage 3 should allow the Round 2 rematch p1 vs p5.');
 assert.strictEqual(season.groupStageState.stage, 3);
 assert.deepStrictEqual(season.groupStageState.round3Groups, round3);
 assert.strictEqual(season.schedule.length, 9);

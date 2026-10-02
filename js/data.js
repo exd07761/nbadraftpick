@@ -4971,16 +4971,29 @@ const AdminActions = {
       );
     }
 
-    const rematches = findGroupStageRematches(priorMatchups, proposedGroups);
+    // Rematch protection applies to Round 2 only.
+    // Round 3 intentionally allows teams to face opponents
+    // they already played in Round 1 or Round 2.
+    if (targetStage === 2) {
+     const rematches = findGroupStageRematches(
+      priorMatchups, 
+      proposedGroups
+    );
+
     if (rematches.length > 0) {
       const detail = rematches
-        .map((r) => `${season.participants[r.teamA]?.name || r.teamA} vs ${season.participants[r.teamB]?.name || r.teamB} — already played in a prior Group Stage round`)
+        .map(
+          (r) =>
+            `${season.participants[r.teamA]?.name || r.teamA} vs ${season.participants[r.teamB]?.name || r.teamB} — already played in a prior Group Stage round`
+        )
         .join("; ");
+
       throw new Error(
-        `Round ${targetStage} contains ${rematches.length} rematch${rematches.length === 1 ? '' : 'es'} from a prior Group Stage round: ${detail}. ` +
-        `Adjust the group assignment and try again — groups are never automatically rearranged.`
+      `Round ${targetStage} contains ${rematches.length} rematch${rematches.length === 1 ? "" : "es"} from a prior Group Stage round: ${detail}. ` +
+      `Adjust the group assignment and try again — groups are never automatically rearranged.`
       );
     }
+  }
 
     const priorStandings = LeagueData.getGroupStageStandings(seasonId, targetStage - 1);
     if (!priorStandings) {
