@@ -3194,3 +3194,300 @@
   .pub2k27-modal-card .nba2k-attr-groups { grid-template-columns: 1fr; }
   .pub2k27-modal-card .nba2k-attr-row { grid-template-columns: minmax(92px, 1fr) minmax(0, 1.2fr) 2rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8G — Public Hall of Fame (trophy-case presentation)
+
+   CSS ONLY. js/views/hall-of-fame.js, its DOM, classes, data-hof-index,
+   aria-expanded and the per-entry expand/collapse handler are untouched.
+   Everything below is scoped under .hof-view (the wrapper hall-of-fame.js
+   renders), so no other public page is affected, and admin.html never loads
+   this file. The older "Hall of Fame" block above is left in place; these
+   rules sit after it and win on specificity.
+
+   Existing markup that is styled (nothing is invented):
+     h2.section-title · .hof-list > .hof-card
+       .hof-card-head > .hof-season + .hof-champion + .hof-champion-badge
+       .hof-roster (slots 1-5) · .hof-roster-extra[hidden] (slots 6-10)
+       .hof-row > .hof-row-slot + .hof-row-player + .hof-row-pos + .hof-row-ovr
+       .hof-toggle-btn[aria-expanded] · .empty-state (empty / read-failed)
+   The data has no per-player award, stat line, MVP flag or rank, so none is
+   drawn: the card shows season, champion, the roster and the existing
+   CHAMPION label, and the OVR figure is emphasised only as a number.
+
+   Colour roles: gold = Hall of Fame / championship (title bar, card top rule,
+   CHAMPION label, empty-state rule); orange = player OVR; indigo = the one
+   interactive control (expand toggle); everything else is the Step 1/5 dark
+   surface ramp. Information (the card) and control (the toggle) are separated
+   by a full-bleed footer band, so the historical record never looks clickable.
+   Motion: colour transitions on --nb-dur-fast only (0ms under
+   prefers-reduced-motion). No animations, no transition: all.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page header ── */
+.hof-view > h2.section-title {
+  font-size: clamp(1.125rem, 4.6vw, var(--nb-fs-display));
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0 0 var(--nb-space-5);
+  padding: 0 0 var(--nb-space-3) var(--nb-space-3);
+  border-left: 4px solid var(--nb-gold);
+  border-bottom: 0;
+  position: relative;
+}
+.hof-view > h2.section-title::after {
+  content: "";
+  position: absolute;
+  left: var(--nb-space-3);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--nb-gold) 70%, transparent), var(--nb-surface-border) 45%, transparent);
+}
+
+/* ── Trophy case: two-up when there is room, one column otherwise ── */
+.hof-view .hof-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: var(--nb-space-5);
+  align-items: start;
+}
+
+/* ── Championship card ── */
+.hof-view .hof-card {
+  gap: 0;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--nb-gold-dim), transparent 9rem),
+    var(--nb-surface-card);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 26%, var(--nb-surface-border));
+  border-top: 3px solid var(--nb-gold);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-shadow-2);
+}
+
+/* Head: season eyebrow + CHAMPION label on one line, champion name beneath */
+.hof-view .hof-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "season badge" "champion champion";
+  align-items: center;
+  gap: var(--nb-space-2) var(--nb-space-3);
+  padding: var(--nb-space-4) var(--nb-space-5) var(--nb-space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--nb-gold) 22%, var(--nb-surface-border));
+}
+.hof-view .hof-season {
+  grid-area: season;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  overflow-wrap: anywhere;
+}
+.hof-view .hof-champion {
+  grid-area: champion;
+  font-size: clamp(1.25rem, 4.2vw, 1.625rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.hof-view .hof-champion-badge {
+  grid-area: badge;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.25rem 0.65rem 0.25rem 0.5rem;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-pill);
+}
+/* Decorative trophy mark (same glyph as the sidebar link); carries no text. */
+.hof-view .hof-champion-badge::before {
+  content: "";
+  width: 0.95rem;
+  height: 0.95rem;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--hof-trophy) center / contain no-repeat;
+  mask: var(--hof-trophy) center / contain no-repeat;
+  --hof-trophy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/%3E%3Cpath d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/%3E%3Cpath d='M4 22h16'/%3E%3Cpath d='M10 14.66V17c0 .55-.47.98-1.04 1.21C7.85 18.75 7 20.24 7 22'/%3E%3Cpath d='M14 14.66V17c0 .55.47.98 1.04 1.21C16.15 18.75 17 20.24 17 22'/%3E%3Cpath d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/%3E%3C/svg%3E");
+}
+
+/* ── Roster ── */
+.hof-view .hof-roster { padding: var(--nb-space-2) var(--nb-space-5); }
+/* Defensive: an entry whose roster is missing/empty shows just its head. */
+.hof-view .hof-roster:not(:has(.hof-row)) { display: none; }
+.hof-view .hof-card:not(:has(.hof-row)) .hof-card-head { border-bottom: 0; }
+.hof-view .hof-roster-extra[hidden] { display: none; }
+/* Players 6-10: an inset tray, so the second group reads as a separate set. */
+.hof-view .hof-roster-extra {
+  background: var(--nb-surface-sunken);
+  border-top: 1px solid var(--nb-surface-border);
+  box-shadow: inset 0 6px 8px -8px rgba(0, 0, 0, 0.7);
+}
+
+.hof-view .hof-row {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) 2.75rem 3rem;
+  align-items: center;
+  gap: var(--nb-space-3);
+  min-height: 2.75rem;
+  padding: 0.35rem 0;
+  font-size: var(--nb-fs-body);
+  line-height: var(--nb-lh-table);
+  color: var(--nb-text);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.hof-view .hof-roster .hof-row:last-child { border-bottom: 0; }
+
+.hof-view .hof-row-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-sm);
+}
+.hof-view .hof-roster-extra .hof-row-slot { background: var(--nb-surface-card); }
+
+.hof-view .hof-row-player {
+  min-width: 0;
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text);
+  white-space: normal;          /* names wrap instead of truncating with an ellipsis */
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+.hof-view .hof-roster-extra .hof-row-player { font-weight: var(--nb-fw-medium); }
+
+.hof-view .hof-row-pos {
+  justify-self: center;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-align: center;
+  color: var(--nb-text-muted);
+}
+
+.hof-view .hof-row-ovr {
+  justify-self: end;
+  min-width: 2.5rem;
+  padding: 0.15rem 0.45rem;
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-heavy);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--nb-brand-orange-ink);
+  background: var(--nb-brand-orange-dim);
+  border-radius: var(--nb-r-sm);
+}
+.hof-view .hof-row-ovr:empty { background: none; }   /* no figure supplied: draw nothing */
+
+/* ── Expand control: full-bleed footer band, visually apart from the record ── */
+.hof-view .hof-toggle-btn {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--nb-control-lg);
+  margin: 0;
+  padding: var(--nb-space-2) var(--nb-space-4);
+  font-family: var(--font-ui);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-raised);
+  border: 0;
+  border-top: 1px solid var(--nb-surface-border);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard),
+              color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hof-view .hof-toggle-btn:hover {
+  color: var(--nb-primary-ink);
+  background: var(--nb-surface-lift);
+  border-color: var(--nb-surface-border);
+}
+.hof-view .hof-toggle-btn[aria-expanded="true"] {
+  color: var(--nb-primary-ink);
+  background: var(--nb-primary-dim);
+}
+.hof-view .hof-toggle-btn:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: -4px;          /* inside the band: the card clips an outset ring */
+}
+
+/* ── Empty / read-failed state ── */
+.hof-view .empty-state {
+  padding: var(--nb-space-7) var(--nb-space-5);
+  background:
+    linear-gradient(180deg, var(--nb-gold-dim), transparent 8rem),
+    var(--nb-surface-card);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 26%, var(--nb-surface-border));
+  border-top: 3px solid var(--nb-gold);
+  box-shadow: var(--nb-shadow-2);
+}
+.hof-view .empty-state h2 {
+  font-size: var(--nb-fs-display);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  text-transform: uppercase;
+}
+.hof-view .empty-state p { max-width: 28rem; line-height: var(--nb-lh-body); }
+
+/* ── Tablets / phones ── */
+@media (max-width: 700px) {
+  .hof-view .hof-list { gap: var(--nb-space-4); }
+  .hof-view .hof-card-head { padding: var(--nb-space-3) var(--nb-space-4); }
+  .hof-view .hof-roster { padding: var(--nb-space-1) var(--nb-space-4); }
+  .hof-view .hof-row {
+    grid-template-columns: 1.75rem minmax(0, 1fr) 2.5rem 2.75rem;
+    gap: var(--nb-space-2);
+    font-size: var(--nb-fs-body);
+  }
+  .hof-view .hof-champion-badge { margin: 0; }
+}
+
+/* Phones: the name takes the full row; position sits beneath it. */
+@media (max-width: 480px) {
+  .hof-view .hof-row {
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    grid-template-areas: "slot player ovr" "slot pos ovr";
+    column-gap: var(--nb-space-3);
+    row-gap: 0;
+    padding-block: var(--nb-space-2);
+  }
+  .hof-view .hof-row-slot   { grid-area: slot; align-self: start; margin-top: 0.1rem; }
+  .hof-view .hof-row-player { grid-area: player; }
+  .hof-view .hof-row-pos    { grid-area: pos; justify-self: start; text-align: left; }
+  .hof-view .hof-row-ovr    { grid-area: ovr; align-self: center; font-size: 1.125rem; min-width: 2.75rem; }
+  .hof-view .hof-champion-badge { padding-inline: 0.45rem 0.55rem; letter-spacing: 0.06em; }
+}
