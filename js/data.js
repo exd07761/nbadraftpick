@@ -2198,9 +2198,11 @@ const FirebaseSync = (() => {
     },
   };
 })();
+const ActiveSync = window.USE_SUPABASE_SYNC ? SupabaseSync : FirebaseSync;
+
 
 function loadData(seasonId) {
-  const cache = FirebaseSync.getCache();
+  const cache = ActiveSync.getCache();
   if (!cache) return getDefaultData();
   // Deep clone on every call — every caller must get an independent copy,
   // exactly like the old JSON.parse(localStorage.getItem(...)) did. This is
@@ -2234,7 +2236,7 @@ function loadData(seasonId) {
 }
 
 function saveData(data) {
-  FirebaseSync.save(data);
+  ActiveSync.save(data);
 }
 
 // ─── ID Generation ────────────────────────────────────────────────────────────
@@ -3938,7 +3940,7 @@ const AdminActions = {
     season.playerPoolScope = seasonId;
 
     try {
-      await FirebaseSync.saveAndConfirm(data);
+      await ActiveSync.saveAndConfirm(data);
     } catch (err) {
       throw new Error(`Seed failed — nothing was saved, safe to retry (${err && err.message ? err.message : err}).`);
     }
