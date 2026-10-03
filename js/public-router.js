@@ -118,11 +118,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // loading state of their own. Logged, not fatal, on failure — the rest
   // of the public site (schedule, standings, financial...) doesn't depend
   // on it and shouldn't be blocked by it.
+  // LiveNba2k27PoolCache.ensureLoaded() joins this same gate
   await Promise.all([
     ActiveSync.init(),
-    LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
-      console.error('[public-router] Failed to load the live NBA2K27 pool:', err);
-    }),
     // Supabase live pool: this is the cache loadData() actually merges for a
     // live-scoped season (bafcde3 moved it off LiveNba2k27PoolCache above), so
     // it must be loaded before the first render. Hardened so it can never hurt

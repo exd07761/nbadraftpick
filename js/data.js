@@ -1832,101 +1832,6 @@ const LIVE_NBA2K27_POOL_SCOPE = "__LIVE_NBA2K27_POOL__";
 function nba2k27LivePlayerId(slug) {
   return `p27live_${slug}`;
 }
-
-const LiveNba2k27PoolCache = (() => {
-  let _entries = null; // null = not loaded yet; an object (possibly {}) once it is
-  let _loadPromise = null;
-
-  // Minimal standalone duplicates of js/admin/nba2k-database.js's
-  // nba2k27PoolPositionValid/nba2k27EffectiveName/nba2k27EffectiveOverall —
-  // NOT imported from there, because that file is admin-only (never
-  // loaded on the public site — see index.html) while this cache also
-  // backs the public Draft/Roster pages. Same "duplicate rather than
-  // couple admin and public" call js/views/players.js already documents
-  // for its own copy of this exact logic. Kept in lockstep by hand if the
-  // source ever changes.
-  const VALID_POSITIONS = ["PG", "SG", "SF", "PF", "C"];
-  function effectiveName(entry, player) {
-    const o = entry && typeof entry.nameOverride === "string" ? entry.nameOverride.trim() : "";
-    return o || (player && player.name) || "";
-  }
-  function effectiveOverall(entry, player) {
-    const o = entry && entry.overallOverride;
-    return (typeof o === "number" && Number.isFinite(o)) ? o : (player ? player.overall : null);
-  }
-
-  // Same eligibility rules as the old seedSeasonFromNba2k27Pool: skip
-  // orphans (no matching nba2k_players record), UNASSIGNED/invalid
-  // positions, invalid pool values, a missing effective name, and an
-  // out-of-range effective overall. Nothing here writes anywhere.
-  function buildEntries(poolSnap, playersSnap) {
-    const sourcePlayers = {};
-    playersSnap.docs.forEach((d) => { sourcePlayers[d.id] = { id: d.id, ...d.data() }; });
-
-    const entries = {};
-    poolSnap.docs.forEach((doc) => {
-      const slug = doc.id;
-      const entry = doc.data() || {};
-      const sourcePlayer = sourcePlayers[slug];
-      if (!sourcePlayer) return;
-      const position = entry.position;
-      if (!position || position === "UNASSIGNED" || !VALID_POSITIONS.includes(position)) return;
-      if (!["green", "blue", "white"].includes(entry.pool)) return;
-      const name = effectiveName(entry, sourcePlayer);
-      if (!name) return;
-      const overall = effectiveOverall(entry, sourcePlayer);
-      if (typeof overall !== "number" || !Number.isFinite(overall) || overall < 75 || overall > 99) return;
-      const variantGroup = (typeof entry.variantGroupId === "string" && entry.variantGroupId.trim())
-        ? entry.variantGroupId.trim()
-        : undefined;
-
-      const id = nba2k27LivePlayerId(slug);
-      const player = createPlayer(id, {
-        name,
-        position,
-        overall,
-        pool: entry.pool,
-        variantGroup,
-        nba2kRef: slug,
-        edition: "2K27",
-      });
-      player.seasonId = LIVE_NBA2K27_POOL_SCOPE;
-      entries[id] = player;
-    });
-    return entries;
-  }
-
-  return {
-    LIVE_NBA2K27_POOL_SCOPE,
-    livePlayerId: nba2k27LivePlayerId,
-    isLoaded() { return _entries !== null; },
-    getEntries() { return _entries || {}; },
-    /**
-     * Fetches nba2k27_pool + nba2k_players once per page load and builds
-     * the in-memory cache. Safe to call repeatedly/concurrently — every
-     * caller shares the same in-flight fetch (or the already-resolved
-     * cache) rather than issuing duplicate Firestore reads.
-     */
-    ensureLoaded() {
-      if (_entries !== null) return Promise.resolve(_entries);
-      if (_loadPromise) return _loadPromise;
-      _loadPromise = Promise.all([
-        firebase.firestore().collection("nba2k27_pool").get(),
-        firebase.firestore().collection("nba2k_players").get(),
-      ]).then(([poolSnap, playersSnap]) => {
-        _entries = buildEntries(poolSnap, playersSnap);
-        return _entries;
-      }).catch((err) => {
-        _loadPromise = null; // allow a retry on the next call
-        throw err;
-      });
-      return _loadPromise;
-    },
-    // Test-only escape hatch — never called by app code.
-    _resetForTests() { _entries = null; _loadPromise = null; },
-  };
-})();
-
 /**
  * Removes any LiveNba2k27PoolCache-sourced entry from `data.players`
  * before a write — see the module comment above. A no-op (returns `data`
@@ -3839,15 +3744,43 @@ const AdminActions = {
       if (p.seasonId === seasonId && p.nba2kRef) alreadySeeded.add(p.nba2kRef);
     });
 
-    const [poolSnap, playersSnap] = await Promise.all([
-      firebase.firestore().collection("nba2k27_pool").get(),
-      firebase.firestore().collection("nba2k_players").get(),
-    ]);
-    const sourcePlayers = {};
-    playersSnap.docs.forEach((d) => { sourcePlayers[d.id] = { id: d.id, ...d.data() }; });
+    const PAGE_SIZE = 1000;
+
+    const loadAll = async (table, orderColumn) => {
+      const rows = [];
+      let offset = 0;
+
+      while (true) {
+        const page = await SupabaseQuery.select(table, (qb) =>
+        qb
+          .order(orderColumn, { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1)
+        );
+
+        rows.push(...page);
+
+        if (page.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+    }
+
+    return rows;
+  };
+
+  const [poolRows, playerRows] = await Promise.all([
+    loadAll("nba2k27_pool", "nba2k_ref"),
+    loadAll("nba2k_players", "slug"),
+  ]);
+
+  const sourcePlayers = {};
+  playerRows.forEach((row) => {
+    sourcePlayers[row.slug] = {
+      id: row.slug,
+      ...row,
+  };
+});
 
     const result = {
-      totalExamined: poolSnap.size,
+      totalExamined: poolRows.length,
       seeded: 0,
       alreadySeeded: 0,
       unassigned: 0,
@@ -3860,10 +3793,19 @@ const AdminActions = {
     };
     const toAdd = [];
 
-    poolSnap.docs.forEach((doc) => {
-      const slug = doc.id;
-      const entry = doc.data() || {};
+    poolRows.forEach((row) => {
+      const slug = row.nba2k_ref;
       const sourcePlayer = sourcePlayers[slug];
+      const entry = nba2k27NormalizePoolRow(row);
+      if (entry.variantGroupId === undefined && row.variantGroupId !== undefined) {
+        entry.variantGroupId = row.variantGroupId;
+      }
+      if (entry.nameOverride === undefined && row.nameOverride !== undefined) {
+        entry.nameOverride = row.nameOverride;
+      }
+      if (entry.overallOverride === undefined && row.overallOverride !== undefined) {
+        entry.overallOverride = row.overallOverride;
+      }
 
       if (alreadySeeded.has(slug)) {
         result.alreadySeeded++;

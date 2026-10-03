@@ -37,6 +37,7 @@ function makeSandbox(opts = {}) {
 
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     escapeHtml: (s) => String(s),
     showToast: () => {},
     normalizePlayerName: (n) => String(n).trim().toLowerCase(),
@@ -72,6 +73,23 @@ function makeSandbox(opts = {}) {
         enablePersistence: () => Promise.resolve(),
       }),
     },
+     SupabaseQuery: {
+      select: async (table, builder) => {
+        const rows = table === 'nba2k27_pool'
+          ? Object.entries(nba2k27PoolDocs).map(([nba2k_ref, row]) => ({ nba2k_ref, ...row }))
+          : table === 'nba2k_players'
+            ? Object.entries(nba2kPlayersDocs).map(([slug, row]) => ({ slug, ...row }))
+            : [];
+
+        const qb = {
+          order: () => qb,
+          range: () => Promise.resolve(rows),
+        };
+
+        return builder(qb);
+      },
+    },
+
   };
   vm.createContext(sandbox);
   vm.runInContext(dataSrc, sandbox, { filename: 'data.js' });
@@ -479,13 +497,14 @@ console.log('NBA2K27 season-cutover tests');
   });
 
   await test('27. White composition behavior counts toward the Blue-pool composition cap', () => {
-    // 6 White players (MAX_BLUE_PLAYERS is 5) — should trip the SAME
-    // "too many Blue-like players" rule that 6 real Blue players would.
+    // 7 White players (MAX_BLUE_PLAYERS is 6) — should trip the SAME
+    // "too many Blue-like players" rule that 7 real Blue players would.
     const seasons = { s1: baseSeason({
       currentRosters: { p1: [
         { playerId: 'w1', source: 'draft' }, { playerId: 'w2', source: 'draft' },
         { playerId: 'w3', source: 'draft' }, { playerId: 'w4', source: 'draft' },
         { playerId: 'w5', source: 'draft' }, { playerId: 'w6', source: 'draft' },
+        { playerId: 'w7', source: 'draft' },
       ] },
     }) };
     const players = {
@@ -495,10 +514,11 @@ console.log('NBA2K27 season-cutover tests');
       w4: { id: 'w4', name: 'W4', overall: 90, pool: 'white', position: 'PF' },
       w5: { id: 'w5', name: 'W5', overall: 90, pool: 'white', position: 'C' },
       w6: { id: 'w6', name: 'W6', overall: 90, pool: 'white', position: 'PG' },
+      w7: { id: 'w7', name: 'W7', overall: 90, pool: 'white', position: 'SG' },
     };
     const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
     const result = LeagueData.validateAllRosters('s1');
-    assert.ok(result.errors.some(e => e.type === 'BLUE_COMPOSITION'), '6 White players should trip the same composition cap 6 Blue players would');
+    assert.ok(result.errors.some(e => e.type === 'BLUE_COMPOSITION'), '7 White players should trip the same composition cap 7 Blue players would');
   });
 
   await test('28. White draft-cap behavior: phase-1 cap treats White same as Blue', () => {

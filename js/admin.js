@@ -131,12 +131,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // shouldn't be blocked by a pool fetch it doesn't need); any view that
   // does need it (Draft/Roster/Seasons) will simply show no NBA2K27
   // players until a retry succeeds.
+  // LiveNba2k27PoolCache.ensureLoaded() joins this same gate
   const [, isSignedIn] = await Promise.all([
     ActiveSync.init(),
     AuthBoundary.ready(),
-    LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
-      console.error('[AdminApp] Failed to load the live NBA2K27 pool:', err);
-    }),
     // Supabase live pool: this is the cache loadData() actually merges for a
     // live-scoped season (bafcde3 moved it off LiveNba2k27PoolCache above), so
     // it must be loaded before the first render. Hardened so it can never hurt
