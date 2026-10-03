@@ -119,7 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // of the public site (schedule, standings, financial...) doesn't depend
   // on it and shouldn't be blocked by it.
   await Promise.all([
-    FirebaseSync.init(),
+    ActiveSync.init(),
     LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
       console.error('[public-router] Failed to load the live NBA2K27 pool:', err);
     }),
@@ -142,7 +142,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Live updates: when an admin saves a change (a trade, a score, a new
   // draft pick...), Firestore pushes it here too — re-render whatever
   // public page is currently open so visitors see it without refreshing.
-  FirebaseSync.onRemoteChange(() => {
+  ActiveSync.onRemoteChange(() => {
     if (currentRoute) navigate(currentRoute);
   });
   initSupabaseRealtime();

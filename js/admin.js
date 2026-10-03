@@ -92,7 +92,7 @@ const AdminApp = {
     // Live multi-device sync: when another admin/device saves a change,
     // Firestore pushes it here — re-render whatever view is currently open
     // so it doesn't go stale until a manual refresh.
-    FirebaseSync.onRemoteChange(() => {
+    ActiveSync.onRemoteChange(() => {
       if (!document.getElementById('adminShell').classList.contains('hidden')) {
         this.renderView(this._currentView);
       }
@@ -132,7 +132,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // does need it (Draft/Roster/Seasons) will simply show no NBA2K27
   // players until a retry succeeds.
   const [, isSignedIn] = await Promise.all([
-    FirebaseSync.init(),
+    ActiveSync.init(),
     AuthBoundary.ready(),
     LiveNba2k27PoolCache.ensureLoaded().catch((err) => {
       console.error('[AdminApp] Failed to load the live NBA2K27 pool:', err);

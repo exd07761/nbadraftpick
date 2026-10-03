@@ -120,8 +120,8 @@
 
     updateStatusPill();
     setInterval(updateStatusPill, 5000);
-    if (typeof FirebaseSync !== 'undefined' && FirebaseSync.onRemoteChange) {
-      FirebaseSync.onRemoteChange(updateStatusPill);
+    if (typeof ActiveSync !== 'undefined' && ActiveSync.onRemoteChange) {
+      ActiveSync.onRemoteChange(updateStatusPill);
     }
 
     // ── Season selector ─────────────────────────────────────────────────
@@ -174,8 +174,8 @@
 
     updateSeasonWidget();
     setInterval(updateSeasonWidget, 5000);
-    if (typeof FirebaseSync !== 'undefined' && FirebaseSync.onRemoteChange) {
-      FirebaseSync.onRemoteChange(updateSeasonWidget);
+    if (typeof ActiveSync !== 'undefined' && ActiveSync.onRemoteChange) {
+      ActiveSync.onRemoteChange(updateSeasonWidget);
     }
   });
 })();
