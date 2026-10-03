@@ -21,6 +21,12 @@ later.
 
 ### Admin Panel Backup
 
+> **Update:** the Admin Panel backup now reads Supabase and downloads a
+> `supabase-json-v1` file ("Download Full Supabase JSON"). The description
+> below is the earlier Firestore-based design, kept for history. See
+> "Supabase backup & restore (`supabase-json-v1`)" below for the current
+> format and how to restore it.
+
 ```text
 Admin → Backup → Download Full Firestore JSON
 ```
@@ -170,6 +176,98 @@ The dry run prints:
   project your current credentials point at.
 
 Nothing is written unless `--confirm` is passed explicitly.
+
+## Supabase backup & restore (`supabase-json-v1`)
+
+Two restore tools now exist side by side and do not interact:
+
+| Tool | Reads | Writes |
+|---|---|---|
+| `npm run restore` (`scripts/restore.js`) | legacy **Firestore** backup *directory* (`metadata.json` + `firestore/*.json`, made by `npm run backup`) | Firestore, via the Admin SDK — **unchanged**, still available |
+| `npm run restore:supabase` (`scripts/restore-supabase.js`) | a single **`supabase-json-v1`** file (Admin → Backup → "Download Full Supabase JSON") | Supabase |
+
+The two formats are not interchangeable: `restore.js` cannot read a
+`supabase-json-v1` file, and `restore-supabase.js` cannot read a legacy
+Firestore backup directory.
+
+### The `supabase-json-v1` file
+
+```json
+{
+  "metadata": { "format": "supabase-json-v1", "createdAt": "...", "tables": ["league_state", "nba2k_players", "nba2k27_pool"] },
+  "league_state": { "id": "main", "data": { ... }, "updated_at": "..." },
+  "nba2k_players": [ { "slug": "...", ... } ],
+  "nba2k27_pool":  [ { "nba2k_ref": "...", ... } ]
+}
+```
+
+### Running a Supabase restore
+
+```bash
+# 1. Dry run (the default) — validates the file, reads live state, writes NOTHING:
+node scripts/restore-supabase.js path/to/supabase-backup-2026-10-04-120000.json
+
+# 2. Only once you're sure — actually write (needs the service-role key):
+export SUPABASE_SERVICE_ROLE_KEY=...        # never commit or paste this anywhere
+npm run restore:supabase -- path/to/supabase-backup-....json --apply
+
+# Optional flags (--apply only):
+#   --yes                   skip ONLY the final typed confirmation (the safety snapshot is still taken)
+#   --snapshot-dir <dir>    where to write the pre-restore snapshot (must be OUTSIDE the git repo)
+```
+
+- **`--apply` is required to write anything.** Without it the tool is a dry
+  run. A dry run needs no credentials (it then validates offline and skips
+  the live comparison); with `SUPABASE_SERVICE_ROLE_KEY` set it also reads
+  live Supabase and reports: backup vs live `league_state.updated_at`,
+  backup vs live row counts, how many rows already exist (would be
+  overwritten) vs would be created, and any live rows that are not in the
+  backup.
+- **Everything is validated locally first.** Format, required datasets,
+  `league_state.id === "main"`, `league_state.data` is an object, unique
+  `slug` / `nba2k_ref`, every column of the verified production schema
+  (types, NOT NULL, the `pool`/`position` allowed values), and that every
+  pool row's `nba2k_ref` exists in the backup's players (the database has a
+  real foreign key). Rows with any column outside the whitelist are rejected.
+  If anything fails, nothing is sent to Supabase.
+- **Restore order** (with `--apply`): safety snapshot → typed confirmation
+  (unless `--yes`) → `nba2k_players` → `nba2k27_pool` → `league_state`.
+  Players go first because the pool has a foreign key to them.
+- **ROLL-FORWARD OVERWRITE — extra live rows will NOT be deleted.** The two
+  NBA tables are written with upserts only (on `slug` / `nba2k_ref`, in
+  batches of 500). Nothing is ever deleted, truncated or patched, so rows
+  that exist live but not in the backup are left as they are. This is not a
+  point-in-time restore of those tables.
+- **Timestamps and overrides are preserved exactly** for the NBA tables
+  (`last_updated`, `imported_at`, `selected_at`, `updated_at`, and the
+  nullable override columns are sent back as backed up; only the verified
+  columns are ever written).
+- **⚠ `league_state` is REPLACED, not merged.** It is restored last through
+  the `save_league_state(p_data)` RPC, which replaces the entire league
+  data with the backup's `league_state.data` (only `data` is sent; `id` and
+  `updated_at` are never written — the database sets `updated_at`).
+  Anything saved to the league since the backup was taken is lost. Make
+  sure nobody is editing in Admin while you restore: an open Admin tab saves
+  its whole cached document and could overwrite the restored state.
+- **Safety snapshot.** Before any write, the current live `league_state`,
+  `nba2k_players` and `nba2k27_pool` are saved to a timestamped file outside
+  the repo (default: `DraftP-Backups/supabase-restore-snapshots/<timestamp>/`
+  next to the repo checkout, or the directory given with `--snapshot-dir`).
+  The snapshot uses the same `supabase-json-v1` shape. If it cannot be
+  written (or is inside the git repo), the restore aborts with nothing
+  written. Its path is printed on success and on every failure.
+- **Not atomic, no automatic rollback.** If `nba2k_players` fails, nothing
+  after it runs. If `nba2k27_pool` fails, `league_state` is not written. If
+  `league_state` fails, the two NBA tables have already been restored.
+  Earlier batches are never rolled back automatically; to go back, restore
+  the safety snapshot with this same tool.
+- **Read-back verification.** After a successful apply the tool reads
+  `league_state` and both tables back and compares the whitelisted columns
+  with the backup. It prints `RESTORE COMPLETE` (players restored, pool rows
+  restored, league state restored, snapshot location) only if everything
+  matches; otherwise it reports a failure even though the writes succeeded.
+- **Tests:** `node tests_restore_supabase/restore_supabase_test.js` (stubbed
+  network; never contacts Supabase).
 
 ## Where backups are stored
 
