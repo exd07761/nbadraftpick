@@ -86,57 +86,32 @@
 .status-scheduled        { background: var(--nb-primary-dim); color: var(--nb-primary); }
 .status-bye              { background: var(--nb-surface); color: var(--nb-text-dim); }
 
-/* ─── Dashboard ──────────────────────────────────────────────────────────── */
-.league-hero {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  box-shadow: var(--nb-surface-shadow);
-}
-.league-hero::before { display: none; } /* drop the old dark-theme glow/photo accent */
-.league-hero-eyebrow { color: var(--nb-primary); }
-.league-hero-title { color: var(--nb-text); }
-.league-hero-meta { color: var(--nb-text-muted); }
+/* ─── Dashboard / League Home ────────────────────────────────────────────────
+   Phase 2 Step 7: cinematic league command center. CSS ONLY — home.js and its
+   DOM are untouched. Every rule is scoped under .dashboard (the wrapper
+   home.js renders) because several classes below (.section-title,
+   .bracket-champion-banner, .status-*, .matchup-vs-divider) are shared with
+   other public pages and must not change there.
 
-.stat-card {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-  box-shadow: var(--nb-surface-shadow);
-}
-.stat-num { color: var(--nb-primary); }
-.stat-label { color: var(--nb-text-muted); }
+   Surface layers (all Step 1/5 tokens; no new colours):
+     --nb-canvas → --nb-surface-card (primary panels) → --nb-surface-raised
+     (tiles / emphasis). Gold = live / current (draft banner, top-4 cut).
+     Indigo = links. Brand orange = league identity eyebrow. Green/pool hues
+     only where the markup already carries them.
 
-.team-card {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r-lg);
-}
-.team-card:hover { border-color: var(--nb-primary); }
-.team-owner { color: var(--nb-text); }
-.team-nba { color: var(--nb-text-muted); }
+   Layout: one column up to 1199px (reading order: hero, live draft, schedule
+   strip, league vitals, standings, playoffs, rosters, seasons); ≥1200px the
+   same DOM becomes hero / live / schedule strip / vitals across the top and
+   Rosters beside a Standings rail. The schedule strip lives inside the left
+   .dashboard-col in the DOM, so the two column wrappers are flattened with
+   display:contents (inside @supports :has, which also picks sections by their
+   content). Browsers without :has() keep the original two-column structure
+   with the new skin.                                                        */
 
-.mini-standings-row:nth-child(odd) { background: var(--nb-surface); }
-.mini-standings-rank { color: var(--nb-text-dim); }
-.mini-standings-rank.top4 { color: #7a5a00; font-weight: 800; } /* corrected — raw --nb-gold at this size/weight repeats the exact contrast mistake fixed on Tier A; using the same darkened treatment instead */
-.mini-standings-name { color: var(--nb-text); }
-.mini-standings-record { color: var(--nb-text-muted); }
-
-.mini-schedule-row {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r);
-}
+/* Kept UNSCOPED and unchanged from Step 6: these two classes are also rendered
+   by other public pages (schedule.js, playoffs.js), so the dashboard restyle
+   below overrides them only inside .dashboard. */
 .matchup-vs-divider { color: var(--nb-text-dim); }
-
-.seasons-list .season-row {
-  background: var(--nb-surface-card);
-  border: 1px solid var(--nb-surface-border);
-  border-radius: var(--nb-r);
-  color: var(--nb-text);
-}
-.season-row.active { border-color: var(--nb-primary); }
-
 .bracket-champion-banner {
   background: var(--nb-gold-dim);
   color: #7a5a00;
@@ -144,33 +119,499 @@
   border-radius: var(--nb-r-lg);
 }
 
-/* Live Draft status card (home.js addition) — same visual language as the
-   Draft page's own on-the-clock treatment, so the link to Draft feels
-   like a continuation of the same page, not a different product. */
-.dash-draft-live {
+/* ── League hero: identity + season state in one compact band ── */
+.dashboard .league-hero {
+  position: relative;
+  overflow: visible;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-brand-orange), var(--nb-surface-shadow);
+  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-4) var(--nb-space-5);
+  margin-bottom: var(--nb-space-4);
+}
+.dashboard .league-hero::before { display: none; }
+.dashboard .league-hero-eyebrow {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-brand-orange-ink);
+  margin-bottom: var(--nb-space-1);
+}
+.dashboard .league-hero-title {
+  font-size: clamp(1.5rem, 1.1rem + 2vw, 2.4rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: -0.02em;
+  line-height: var(--nb-lh-tight);
+  color: var(--nb-text);
+  margin-bottom: var(--nb-space-3);
+  overflow-wrap: anywhere;
+}
+.dashboard .league-hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--nb-space-2) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Season state is the answer to "what's happening right now", so it gets the
+   most weight in the band. Colours still come from the Step 5 status tokens. */
+.dashboard .league-hero-meta .status-chip {
+  padding: 0.3rem 0.8rem;
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+}
+
+/* ── Live draft banner (only rendered while a pick is pending) ── */
+.dashboard .dash-draft-live {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-4);
+  background: var(--nb-gold-dim);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+  padding: var(--nb-space-3) var(--nb-space-4) var(--nb-space-3) var(--nb-space-5);
+  margin-bottom: var(--nb-space-4);
+  text-decoration: none;
+  color: var(--nb-text);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.dashboard .dash-draft-live:hover { background: color-mix(in srgb, var(--nb-gold) 22%, transparent); }
+.dashboard .dash-draft-live:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.dashboard .dash-draft-live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--nb-gold); flex-shrink: 0; }
+.dashboard .dash-draft-live-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.dashboard .dash-draft-live-eyebrow {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  text-transform: uppercase;
+  color: var(--nb-gold-ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--nb-tracking-caps);
+}
+.dashboard .dash-draft-live-name {
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The CTA is a bordered label so it reads as actionable without colour alone. */
+.dashboard .dash-draft-live-cta {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-gold-ink);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-sm);
+  padding: 0.35rem 0.7rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Section headers ── */
+.dashboard .section { margin-bottom: 0; min-width: 0; }
+.dashboard .section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nb-space-3);
+  margin-bottom: var(--nb-space-3);
+  padding-bottom: var(--nb-space-2);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.dashboard .section-title {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0;
+  padding: 0;
+  border-bottom: none;
+}
+/* Sections with no link row (All Seasons) keep their own underline. */
+.dashboard .section > .section-title {
+  margin-bottom: var(--nb-space-3);
+  padding-bottom: var(--nb-space-2);
+  border-bottom: 1px solid var(--nb-surface-border);
+  color: var(--nb-text-muted);
+}
+.dashboard .section-link {
+  color: var(--nb-primary-ink);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-decoration: none;
+  white-space: nowrap;
+  /* Padding + equal negative margin = a ~44px tap area without a taller header. */
+  padding: 0.65rem 0.4rem;
+  margin: -0.65rem -0.4rem;
+  border-radius: var(--nb-r-sm);
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.dashboard .section-link:hover { color: var(--nb-text); text-decoration: underline; text-underline-offset: 3px; }
+.dashboard .section-link:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+/* ── Schedule strip: the existing "Upcoming / Latest Results" section ─────────
+   Same .mini-schedule-row elements, laid out as a left-to-right scoreboard
+   ticker. No data changes: home.js still emits (at most) five matchups for the
+   pending round, each with teams + either a score or a status chip. It has no
+   date, time or live state to show, so none is faked. */
+.dashboard .section:has(> .mini-schedule) {
+  background: var(--nb-surface-card);
+  border-top: 1px solid var(--nb-surface-border);
+  border-bottom: 1px solid var(--nb-surface-border);
+  border-left: 1px solid var(--nb-surface-border);
+  border-right: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 0 2px 0 var(--nb-border-strong), var(--nb-surface-shadow);
+  padding: var(--nb-space-3) var(--nb-space-4) var(--nb-space-4);
+  margin-bottom: var(--nb-space-4);
+}
+.dashboard .section:has(> .mini-schedule) .section-header-row {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: var(--nb-space-3);
+}
+/* The round label is the strip's headline (there is no date to lead with). */
+.dashboard .section:has(> .mini-schedule) .section-title {
+  font-size: var(--nb-fs-h2);
+  letter-spacing: var(--nb-tracking-title);
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.dashboard .mini-schedule {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--nb-space-3);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--nb-space-1);
+  padding-bottom: var(--nb-space-2);
+  scrollbar-width: thin;
+  scrollbar-color: var(--nb-border-strong) transparent;
+  color-scheme: dark;
+}
+.dashboard .mini-schedule-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: var(--nb-space-3);
+  /* Tiles fill the strip when they fit, never shrink below a readable width,
+     and scroll sideways otherwise. */
+  flex: 1 0 200px;
+  min-width: 0;
+  padding: var(--nb-space-3);
+  background: var(--nb-surface-raised);
+  border: 1px solid var(--nb-border-strong);
+  border-radius: var(--nb-r);
+  font-size: var(--nb-fs-sm);
+  scroll-snap-align: start;
+}
+.dashboard .mini-schedule-teams {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--nb-space-2);
+  row-gap: var(--nb-space-2);
+}
+.dashboard .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) {
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text);
+  min-width: 0;
+}
+.dashboard .mini-schedule-teams .team-identity-abbr { color: var(--nb-text-muted); }
+/* "vs" becomes a hairline divider between the two team lines. */
+.dashboard .mini-schedule-teams > .matchup-vs-divider {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-2);
+  padding: 0;
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+}
+.dashboard .mini-schedule-teams > .matchup-vs-divider::before,
+.dashboard .mini-schedule-teams > .matchup-vs-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--nb-surface-border);
+}
+/* Footer of each tile: the existing score or status chip. */
+.dashboard .mini-schedule-row > .status-chip { align-self: flex-start; }
+.dashboard .mini-schedule-row > .matchup-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--nb-space-2);
+  align-self: flex-start;
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  color: var(--nb-text);
+  font-variant-numeric: tabular-nums;
+}
+/* Completed tiles say FINAL in words (derived from the existing completed
+   state — the score is only rendered for completed matchups) so they never
+   rely on being dimmer to be understood. */
+.dashboard .mini-schedule-row > .matchup-score::before {
+  content: 'Final';
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-positive-ink);
+}
+/* Completed = settled, so quieter; upcoming keeps full contrast. */
+.dashboard .mini-schedule-row:has(> .matchup-score) {
+  background: var(--nb-surface-card);
+  border-color: var(--nb-surface-border);
+}
+.dashboard .mini-schedule-row:has(> .matchup-score) .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) {
+  color: var(--nb-text-muted);
+  font-weight: var(--nb-fw-semibold);
+}
+.dashboard .mini-schedule-row:has(> .matchup-score) > .matchup-score { color: var(--nb-text-muted); }
+
+/* ── League vitals: the six stat cards as one slim scoreboard band ── */
+.dashboard .stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--nb-surface-border);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+  margin-bottom: var(--nb-space-5);
+}
+.dashboard .stat-card {
+  background: var(--nb-surface-card);
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--nb-space-3) var(--nb-space-4);
+  gap: var(--nb-space-1);
+}
+.dashboard .stat-num {
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  color: var(--nb-text);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard .stat-label {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text-muted);
+}
+
+/* ── Standings: dense ranked rows ── */
+.dashboard .mini-standings {
+  gap: 0;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+}
+.dashboard .mini-standings-row {
   display: flex;
   align-items: center;
   gap: var(--nb-space-3);
-  background: var(--nb-gold-dim);
-  border: 1px solid var(--nb-gold);
-  border-radius: var(--nb-r-lg);
-  padding: var(--nb-space-4);
-  margin-bottom: var(--nb-space-5);
-  text-decoration: none;
+  padding: 0.6rem var(--nb-space-4) 0.6rem var(--nb-space-3);
+  border-bottom: 1px solid var(--nb-surface-border);
+  border-radius: 0;
+  font-size: var(--nb-fs-table);
+  background: transparent;
 }
-.dash-draft-live-dot {
-  width: 10px; height: 10px; border-radius: 50%;
-  background: var(--nb-gold);
-  flex-shrink: 0;
-  animation: nb-pulse 1.4s ease-in-out infinite;
+.dashboard .mini-standings-row:last-child { border-bottom: none; }
+.dashboard .mini-standings-row:nth-child(odd) { background: transparent; }
+.dashboard .mini-standings-row:nth-child(even) { background: var(--nb-surface-hover); }
+.dashboard .mini-standings-rank {
+  width: 1.6rem;
+  text-align: center;
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text-dim);
+  font-variant-numeric: tabular-nums;
 }
-.dash-draft-live-text { flex: 1; min-width: 0; }
-.dash-draft-live-eyebrow { font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: #7a5a00; }
-.dash-draft-live-name { font-size: 1.05rem; font-weight: 800; color: var(--nb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dash-draft-live-cta { font-size: 0.78rem; font-weight: 700; color: #7a5a00; white-space: nowrap; flex-shrink: 0; }
+/* Top-4 (existing class) = gold rank AND a 3px edge bar — shape, not just hue. */
+.dashboard .mini-standings-rank.top4 { color: var(--nb-gold-ink); }
+.dashboard .mini-standings-row:has(> .top4) { box-shadow: inset 3px 0 0 var(--nb-gold); }
+.dashboard .mini-standings-name { color: var(--nb-text); font-weight: var(--nb-fw-bold); }
+.dashboard .mini-standings-record {
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text);
+  font-variant-numeric: tabular-nums;
+}
 
+/* ── Playoffs / champion ── */
+.dashboard .bracket-champion-banner {
+  background: var(--nb-gold-dim);
+  color: var(--nb-gold-ink);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+  padding: var(--nb-space-3) var(--nb-space-4);
+  font-size: var(--nb-fs-h2);
+  justify-content: flex-start;
+  text-align: left;
+}
+.dashboard .section > p.muted {
+  margin: 0;
+  padding: var(--nb-space-3) var(--nb-space-4);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  color: var(--nb-text-muted);
+}
+
+/* ── Rosters: compact team tiles ── */
+.dashboard .team-grid {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--nb-space-2);
+}
+.dashboard .team-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  padding: var(--nb-space-3);
+  gap: var(--nb-space-3);
+  min-width: 0;
+}
+.dashboard .team-card:hover { border-color: var(--nb-surface-border); } /* not interactive: no hover affordance */
+.dashboard .team-details { min-width: 0; }
+.dashboard .team-owner {
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-bold);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+  overflow-wrap: anywhere;
+}
+.dashboard .team-nba { font-size: var(--nb-fs-xs); color: var(--nb-text-muted); }
+.dashboard .team-card .team-identity { flex-shrink: 0; }
+
+/* ── All seasons ── */
+.dashboard .seasons-list { gap: var(--nb-space-2); }
+.dashboard .seasons-list .season-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nb-space-3);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  padding: var(--nb-space-2) var(--nb-space-3);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-table);
+}
+.dashboard .season-row .status-chip { white-space: nowrap; flex-shrink: 0; }
+/* Current season: indigo border + edge bar + heavier name (not colour alone). */
+.dashboard .season-row.active {
+  border-color: var(--nb-primary);
+  box-shadow: inset 3px 0 0 var(--nb-primary);
+  color: var(--nb-text);
+  font-weight: var(--nb-fw-heavy);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────────
+   Base (and fallback without :has): the original two-column structure. */
+.dashboard .dashboard-grid { gap: var(--nb-space-5); }
+.dashboard .dashboard-col { gap: var(--nb-space-5); }
+
+@media (min-width: 900px) {
+  .dashboard .stats-row { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+}
 @media (max-width: 900px) {
-  .dashboard-grid { grid-template-columns: 1fr; }
+  .dashboard .dashboard-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .dashboard .league-hero { padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) var(--nb-space-4); }
+  .dashboard .dash-draft-live { flex-wrap: wrap; gap: var(--nb-space-2) var(--nb-space-3); padding-left: var(--nb-space-4); }
+  .dashboard .dash-draft-live-text { flex: 1 1 calc(100% - 28px); }
+  .dashboard .dash-draft-live-cta { flex: 1 1 100%; text-align: center; padding: 0.6rem 0.7rem; }
+  .dashboard .section:has(> .mini-schedule) { padding: var(--nb-space-3); }
+  /* One tile + a peek of the next one, so the strip visibly scrolls. */
+  .dashboard .mini-schedule-row { flex: 0 0 min(78vw, 280px); }
+  .dashboard .stat-card { padding: var(--nb-space-3); }
+  .dashboard .team-grid { grid-template-columns: 1fr; }
+}
+
+@supports selector(:has(*)) {
+  /* <1200px: one column. The wrappers are flattened so every section can be
+     placed individually; `order` sets reading order (see top of block). */
+  .dashboard { display: flex; flex-direction: column; }
+  .dashboard > * { min-width: 0; }
+  .dashboard .dashboard-grid,
+  .dashboard .dashboard-col { display: contents; }
+  .dashboard .league-hero { order: 0; }
+  .dashboard .dash-draft-live { order: 1; }
+  .dashboard .section:has(> .mini-schedule) { order: 2; }
+  .dashboard .stats-row { order: 3; }
+  .dashboard .section:has(> .mini-standings) { order: 4; margin-bottom: var(--nb-space-5); }
+  .dashboard .section:has(> .bracket-champion-banner),
+  .dashboard .section:has(> p.muted) { order: 5; margin-bottom: var(--nb-space-5); }
+  .dashboard .section:has(> .team-grid) { order: 6; margin-bottom: var(--nb-space-5); }
+  .dashboard .section:has(> .seasons-list) { order: 7; margin-bottom: var(--nb-space-5); }
+}
+
+/* ≥1200px: hero / live / schedule strip / vitals span the top; Rosters beside a
+   Standings + Playoffs + Seasons rail (the right .dashboard-col, kept as a real
+   box so its sections flow naturally without empty-row gaps). */
+@media (min-width: 1200px) {
+  @supports selector(:has(*)) {
+    .dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      grid-template-areas:
+        "hero   hero"
+        "live   live"
+        "sched  sched"
+        "stats  stats"
+        "rosters side";
+      column-gap: var(--nb-space-5);
+      align-content: start;
+    }
+    .dashboard .league-hero { grid-area: hero; }
+    .dashboard .dash-draft-live { grid-area: live; }
+    .dashboard .section:has(> .mini-schedule) { grid-area: sched; }
+    .dashboard .stats-row { grid-area: stats; }
+    .dashboard .section:has(> .team-grid) { grid-area: rosters; margin-bottom: 0; }
+    .dashboard .dashboard-col:last-child {
+      display: flex;
+      flex-direction: column;
+      gap: var(--nb-space-5);
+      grid-area: side;
+      min-width: 0;
+    }
+    .dashboard .dashboard-col:last-child .section { margin-bottom: 0; }
+    /* Nothing in the rail (or no rosters): collapse to a single column. */
+    .dashboard:not(:has(.dashboard-col:last-child .section)) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "hero" "live" "sched" "stats" "rosters";
+    }
+    .dashboard:not(:has(.dashboard-col:last-child .section)) .dashboard-col:last-child { display: none; }
+    .dashboard:not(:has(.section:has(> .team-grid))) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "hero" "live" "sched" "stats" "side";
+    }
+  }
 }
 
 /* ─── Rosters ────────────────────────────────────────────────────────────── */
@@ -222,6 +663,347 @@
 @media (max-width: 480px) {
   .roster-card-table th:last-child,
   .roster-card-table td:last-child { display: none; }
+}
+
+/* ─── Rosters · Phase 2 Step 8A: public roster screen ─────────────────────────
+   CSS ONLY — roster.js and its DOM are untouched. Every rule below is scoped
+   under .all-rosters-view (the wrapper roster.js renders) because several of the
+   classes it uses are shared: the Roster Simulator reuses .all-rosters-title /
+   -season-label / -season-picker and .roster-table (Step 8B), Standings uses
+   .cap-over-text, and the orphaned Teams view uses .empty-roster. The unscoped
+   Step 6 rules above are left exactly as they were for those consumers.
+
+   Same vocabulary as Step 7: a lower-third header band with the orange rule,
+   dark panels (--nb-surface-card) lit from the top by --nb-surface-raised, a
+   recessed --nb-surface-sunken "scoreboard" strip for the cap numbers, hairline
+   separators, tabular numerals. No new colours, no new tokens.
+
+   Layout: the old grid used repeat(3, 1fr), whose min-content tracks let a long
+   name or the 7-column table push the whole page wider than the viewport. The
+   tracks now have a real minimum (30.5rem — what the 7-column table needs — capped at 100%) so cards reflow 3 → 2
+   → 1 with the available width — which also tracks the collapsed/expanded
+   sidebar — and every card is min-width:0 so wide content scrolls inside its own
+   .table-scroll instead of the page.
+
+   Not done here (needs markup, so deliberately left for approval): pool hue
+   (poolLabel() renders bare text) and the elite-orange OVR tier (.ovr carries
+   no tier class on this page). */
+
+.all-rosters-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nb-section-gap);
+  min-width: 0;
+}
+
+/* ── Header: lower-third band ── */
+.all-rosters-view .all-rosters-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nb-space-3) var(--nb-space-4);
+  margin-bottom: 0;
+  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-4) var(--nb-space-5);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-brand-orange), var(--nb-surface-shadow);
+}
+.all-rosters-view .all-rosters-title {
+  margin: 0 auto 0 0;
+  font-size: var(--nb-fs-display);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-tight);
+  letter-spacing: var(--nb-tracking-title);
+  color: var(--nb-text);
+}
+.all-rosters-view .all-rosters-season-label {
+  gap: var(--nb-space-2);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+}
+.all-rosters-view .all-rosters-season-picker {
+  min-height: var(--nb-control-md);
+  max-width: 100%;
+  padding: 0 var(--nb-space-3);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-border-strong);
+  color: var(--nb-text);
+  color-scheme: dark;
+  text-overflow: ellipsis;
+  transition:
+    border-color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.all-rosters-view .all-rosters-season-picker:hover:not(:disabled) { border-color: var(--nb-text-dim); }
+.all-rosters-view .all-rosters-season-picker:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 2px;
+  border-color: var(--nb-focus-ring);
+}
+.all-rosters-view .all-rosters-season-picker:focus:not(:focus-visible) { outline: none; }
+.all-rosters-view .all-rosters-season-picker:disabled {
+  background: var(--nb-surface);
+  border-color: var(--nb-surface-border);
+  color: var(--nb-text-muted);
+  opacity: 1;
+}
+/* Past season: neutral (gold stays reserved for live/current) and labelled in
+   words, so it never relies on colour. */
+.all-rosters-view .all-rosters-old-season-badge {
+  padding: 0.25rem var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  background: var(--nb-surface-lift);
+  color: var(--nb-text);
+  box-shadow: inset 0 0 0 1px var(--nb-border-strong);
+}
+.all-rosters-view .all-rosters-cap-note {
+  padding: 0.25rem var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-pill);
+}
+
+/* ── Grid ── */
+.all-rosters-view .roster-card-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 30.5rem), 1fr));
+  gap: var(--nb-space-4);
+  align-items: start;
+}
+
+/* ── Roster card: masthead (owner + team) → scoreboard strip → player table ── */
+.all-rosters-view .roster-card {
+  min-width: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--nb-surface-raised) 0, var(--nb-surface-card) 9rem);
+}
+.all-rosters-view .roster-card-head {
+  align-items: flex-start;
+  gap: var(--nb-space-3);
+  padding: var(--nb-space-4) var(--nb-space-4) 0;
+}
+/* Whose roster? — wraps rather than truncating, so a long name is never lost. */
+.all-rosters-view .roster-card-name {
+  min-width: 0;
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-title);
+  letter-spacing: var(--nb-tracking-title);
+  color: var(--nb-text);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+.all-rosters-view .roster-card-count {
+  padding: 0.125rem var(--nb-space-2);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-pill);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-team {
+  min-width: 0;
+  padding: var(--nb-space-2) var(--nb-space-4) var(--nb-space-4);
+}
+.all-rosters-view .roster-card-team .team-identity { gap: var(--nb-space-3); max-width: 100%; }
+.all-rosters-view .roster-card-team .team-logo-img-lg,
+.all-rosters-view .roster-card-team .team-badge-lg { width: 44px; height: 44px; }
+.all-rosters-view .roster-card-team .team-identity-name {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  white-space: normal;
+}
+.all-rosters-view .roster-card-team .team-identity-name-empty { color: var(--nb-text-dim); }
+
+/* Scoreboard strip: OVR total · cap · bar · remaining. Values unchanged. */
+.all-rosters-view .roster-card-cap {
+  padding: var(--nb-space-3) var(--nb-space-4);
+  background: var(--nb-surface-sunken);
+  border-top: 1px solid var(--nb-surface-border);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.all-rosters-view .roster-card-cap-labels {
+  align-items: baseline;
+  gap: var(--nb-space-3);
+  margin-bottom: var(--nb-space-2);
+}
+.all-rosters-view .roster-card-ovr-total {
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-tight);
+  letter-spacing: var(--nb-tracking-title);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text);
+}
+.all-rosters-view .roster-card-ovr-total.cap-over-text { color: var(--nb-negative-ink); }
+.all-rosters-view .roster-card-cap-value {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+.all-rosters-view .cap-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--nb-surface-raised);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--nb-surface-border);
+}
+.all-rosters-view .cap-bar-fill {
+  border-radius: 3px;
+  transition: width var(--nb-dur-slow) var(--nb-ease-standard);
+}
+.all-rosters-view .roster-card-remaining {
+  margin-top: var(--nb-space-2);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+.all-rosters-view .roster-card-remaining.cap-over-text {
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-negative-ink);
+}
+
+/* Player table: compact, single-line rows; name first, OVR the loudest number. */
+.all-rosters-view .roster-card .table-scroll { border-radius: 0; }
+.all-rosters-view .roster-card-table { font-size: var(--nb-fs-sm); }
+.all-rosters-view .roster-card-table th {
+  padding: var(--nb-space-2) 0.375rem;
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-table td {
+  padding: 0.5rem 0.375rem;
+  line-height: var(--nb-lh-table);
+  vertical-align: middle;
+}
+.all-rosters-view .roster-card-table tbody tr {
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.all-rosters-view .roster-card-table tbody tr:last-child td { border-bottom: 0; }
+
+/* Every column except Player shrink-wraps, so spare width flows to the name
+   (long surnames stay whole whenever the card is wider than the table minimum). */
+.all-rosters-view .roster-card-table th:not(:nth-child(2)) { width: 1%; }
+.all-rosters-view .roster-card-table th:first-child,
+.all-rosters-view .roster-card-table td:first-child {
+  padding-left: var(--nb-space-3);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-dim);
+}
+.all-rosters-view .roster-card-table td:nth-child(2) {
+  min-width: 6.5rem;
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text);
+  overflow-wrap: anywhere; /* wraps inside the name column; breaks mid-word only if one word is wider than the column */
+}
+.all-rosters-view .roster-card-table td:nth-child(3) {
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-table td:nth-child(5) {
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--nb-text-muted);
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-table th:nth-child(6),
+.all-rosters-view .roster-card-table td.ovr { text-align: right; }
+.all-rosters-view .roster-card-table td.ovr {
+  padding-right: var(--nb-space-3);
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-tight);
+}
+.all-rosters-view .roster-card-table th:nth-child(6) { padding-right: var(--nb-space-3); }
+.all-rosters-view .roster-card-table th:last-child,
+.all-rosters-view .roster-card-table td:last-child { padding-right: var(--nb-space-3); }
+.all-rosters-view .roster-card-table .pick-color-badge { padding-inline: 0.4rem; }
+.all-rosters-view .roster-card-source {
+  font-size: var(--nb-fs-xs);
+  color: var(--nb-text-dim);
+  white-space: nowrap;
+}
+
+/* Vacated draft slot: quieter row, still labelled in words. */
+.all-rosters-view .roster-row-empty td {
+  background: color-mix(in srgb, var(--nb-surface-sunken) 55%, transparent);
+  color: var(--nb-text-dim);
+}
+.all-rosters-view .roster-row-empty td:nth-child(2) {
+  min-width: 0;
+  font-weight: var(--nb-fw-medium);
+  color: var(--nb-text-dim);
+}
+.all-rosters-view .roster-card-table tbody tr.roster-row-empty:hover { background: transparent; }
+
+.all-rosters-view .empty-roster {
+  padding: var(--nb-space-5) var(--nb-space-4);
+  text-align: center;
+  font-size: var(--nb-fs-sm);
+  color: var(--nb-text-muted);
+  border-top: 1px solid var(--nb-surface-border);
+}
+.all-rosters-view .empty-roster p { margin: 0; }
+
+/* "No Teams Yet" inside the page frame. */
+.all-rosters-view > .empty-state { margin: 0; }
+
+/* ── Narrow screens: restack the header, keep names + OVR readable. The old
+   main.css ≤700px rule set table text to 0.72rem (below the 0.75rem floor);
+   it is overridden here, scoped, rather than edited. ── */
+@media (max-width: 700px) {
+  .all-rosters-view .all-rosters-header { padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) var(--nb-space-4); }
+  .all-rosters-view .all-rosters-title { flex: 1 0 100%; margin-right: 0; }
+  .all-rosters-view .all-rosters-season-label { flex: 1 1 auto; }
+  .all-rosters-view .all-rosters-season-picker { min-height: var(--nb-control-lg); flex: 1 1 auto; min-width: 0; }
+  .all-rosters-view .roster-card-grid { gap: var(--nb-space-3); }
+  .all-rosters-view .roster-card-table { font-size: var(--nb-fs-sm); }
+  .all-rosters-view .roster-card-table td:nth-child(2) { min-width: 6.5rem; }
+}
+@media (max-width: 480px) {
+  .all-rosters-view .roster-card-head { padding: var(--nb-space-3) var(--nb-space-3) 0; }
+  .all-rosters-view .roster-card-team { padding: var(--nb-space-2) var(--nb-space-3) var(--nb-space-3); }
+  .all-rosters-view .roster-card-cap { padding: var(--nb-space-3); }
+  .all-rosters-view .roster-card-table th,
+  .all-rosters-view .roster-card-table td { padding: 0.5rem 0.25rem; }
+  .all-rosters-view .roster-card-table th { letter-spacing: 0.02em; }
+  /* A name that cannot fit hyphenates at a syllable instead of being cut mid-letter. */
+  .all-rosters-view .roster-card-table td:nth-child(2) { min-width: 4rem; hyphens: auto; -webkit-hyphens: auto; }
+  .all-rosters-view .roster-card-table td:nth-child(3),
+  .all-rosters-view .roster-card-table td:nth-child(5) { font-size: var(--nb-fs-xs); }
+  .all-rosters-view .roster-card-table td:nth-child(5) { white-space: normal; letter-spacing: 0; }
+  .all-rosters-view .roster-card-table th:first-child,
+  .all-rosters-view .roster-card-table td:first-child { padding-inline: 0.5rem 0.25rem; }
+  .all-rosters-view .roster-card-table .pick-color-badge { padding-inline: 0.25rem; letter-spacing: 0; }
+  /* "Pick #" may break onto two lines here so the first column stays narrow. */
+  .all-rosters-view .roster-card-table th:first-child { white-space: normal; }
+  .all-rosters-view .roster-card-table td.ovr,
+  .all-rosters-view .roster-card-table th:nth-child(6) { padding-right: var(--nb-space-3); }
 }
 
 /* ─── Hall of Fame ───────────────────────────────────────────────────────── */
@@ -590,4 +1372,2122 @@
   .nba2k-detail-header { flex-wrap: wrap; }
   .pub2k27-modal-card { padding: 2.25rem 1rem 1.25rem; max-height: 92vh; }
   .pub2k27-controls .input { flex: 1 1 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8C — Public Schedule + Standings (cinematic league presentation)
+
+   CSS ONLY. js/views/schedule.js and js/views/standings.js, their DOM, IDs,
+   classes, data-* attributes and the group-card collapse handler are untouched.
+   Everything below is scoped under .schedule-view / .standings-view (the
+   wrappers those two views render), so no other public page is affected, and
+   admin.html never loads this file.
+
+   Surfaces: canvas → --nb-surface-card (cards) → --nb-surface-raised (header
+   bands, winner rows) → --nb-surface-sunken (inset score rows).
+   Colour roles: indigo = active tab / upcoming / interaction; green = Final
+   (the existing "complete" meaning); brand orange = winner + league leader +
+   page identity bar; gold = top-4 cut (same meaning as the Dashboard standings
+   rail). The markup has no live-game state, so none is invented here.
+   Motion: colour/background transitions on --nb-dur-fast only (0ms under
+   prefers-reduced-motion). No animations, no transition: all.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page headers ── */
+.schedule-view > h2.section-title,
+.standings-view > h2.section-title {
+  font-size: clamp(1.125rem, 4.6vw, var(--nb-fs-display));
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0 0 var(--nb-space-3);
+  padding: 0 0 0 var(--nb-space-3);
+  border-bottom: 0;
+  border-left: 4px solid var(--nb-brand-orange);
+}
+.schedule-view > .helper-text {
+  margin: 0 0 var(--nb-space-4);
+  padding-left: calc(4px + var(--nb-space-3));
+  font-size: var(--nb-fs-sm);
+  line-height: var(--nb-lh-body);
+  color: var(--nb-text-muted);
+}
+
+/* ── Round selector: a segmented broadcast strip ── */
+.schedule-view .round-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nb-space-1);
+  margin: var(--nb-space-4) 0 var(--nb-space-5);
+  padding: var(--nb-space-1);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.schedule-view .round-tab {
+  min-height: 44px;
+  padding: 0 var(--nb-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--nb-r);
+  background: transparent;
+  box-shadow: none;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.schedule-view .round-tab:hover { color: var(--nb-text); background: var(--nb-surface-hover); }
+.schedule-view .round-tab.active {
+  color: var(--nb-text);
+  background: var(--nb-primary-dim);
+  border-color: var(--nb-primary);
+  box-shadow: none;
+}
+.schedule-view .round-tab:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 2px;
+}
+
+/* ── Game cards ── */
+.schedule-view .schedule-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: var(--nb-space-4);
+}
+.schedule-view .matchup-card {
+  gap: var(--nb-space-3);
+  padding: var(--nb-space-4);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0, rgba(255, 255, 255, 0) 64px),
+    var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 0 3px 0 var(--nb-primary), var(--nb-surface-shadow);   /* upcoming: indigo edge */
+}
+.schedule-view .matchup-card.is-completed {
+  border-color: var(--nb-surface-border);
+  box-shadow: inset 0 3px 0 var(--nb-positive), var(--nb-surface-shadow);  /* final: green edge */
+}
+.schedule-view .matchup-card.is-bye {
+  opacity: 1;
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--nb-border-strong);
+  box-shadow: none;
+}
+
+/* Status + context row */
+.schedule-view .matchup-card-top {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: var(--nb-space-1) var(--nb-space-3);
+}
+.schedule-view .matchup-card-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  padding: 3px 10px;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  line-height: 1.4;
+}
+.schedule-view .matchup-card-status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.schedule-view .matchup-card-status.status-complete  { background: var(--nb-positive-dim); color: var(--nb-positive-ink); }
+.schedule-view .matchup-card-status.status-scheduled { background: var(--nb-primary-dim);  color: var(--nb-primary-ink); }
+.schedule-view .matchup-card-status.status-bye       { background: var(--nb-surface-raised); color: var(--nb-text-muted); }
+.schedule-view .matchup-card-streamer {
+  max-width: 100%;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text-muted);
+}
+
+/* Matchup: two full-width team rows (logo/abbr · participant · score). The
+   .reverse side is DOM-ordered score·name·identity, so row-reverse puts it in
+   the same left→right reading order as the first side. */
+.schedule-view .matchup-card-body {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--nb-space-1);
+}
+.schedule-view .matchup-side,
+.schedule-view .matchup-side.reverse {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--nb-space-3);
+  min-height: 64px;
+  padding: var(--nb-space-2) var(--nb-space-3);
+  background: var(--nb-surface-sunken);
+  border-radius: var(--nb-r);
+  text-align: left;
+}
+.schedule-view .matchup-side.reverse { flex-direction: row-reverse; }
+.schedule-view .matchup-side .team-identity { gap: var(--nb-space-2); }
+.schedule-view .matchup-side .team-logo-img-md,
+.schedule-view .matchup-side .team-badge-md { width: 40px; height: 40px; }
+.schedule-view .matchup-side .team-identity-abbr {
+  min-width: 3ch;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text-muted);
+}
+.schedule-view .matchup-side-name {
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-bold);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+}
+.schedule-view .matchup-side-score {
+  min-width: 2.5ch;
+  font-size: var(--nb-fs-stat);
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  text-align: right;
+  color: var(--nb-text);
+}
+
+/* Completed: winner lit (orange bar, raised row, white score); loser recedes
+   but stays ≥7:1 (muted ink) so it is never hard to read. */
+.schedule-view .matchup-card.is-completed .matchup-side.winner {
+  background: var(--nb-surface-raised);
+  box-shadow: inset 4px 0 0 var(--nb-brand-orange);
+}
+.schedule-view .matchup-card.is-completed .matchup-side.winner .matchup-side-name,
+.schedule-view .matchup-card.is-completed .matchup-side.winner .matchup-side-score { color: var(--nb-text); }
+.schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .matchup-side-name,
+.schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .matchup-side-score { color: var(--nb-text-muted); }
+.schedule-view .matchup-card.is-completed .matchup-side.winner .team-identity-abbr { color: var(--nb-brand-orange-ink); }
+
+/* Divider: "VS" label on upcoming games; kept for screen readers but visually
+   removed on completed games, where the score rows already read as a scoreboard. */
+.schedule-view .matchup-vs-divider {
+  align-self: center;
+  padding: 0;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  line-height: 1.6;
+  color: var(--nb-text-dim);
+}
+.schedule-view .matchup-card.is-completed .matchup-vs-divider {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Bye: a quiet dashed placeholder row */
+.schedule-view .matchup-card.is-bye .matchup-card-body {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--nb-space-3);
+  font-size: var(--nb-fs-body);
+  color: var(--nb-text-muted);
+}
+
+/* The ≤400px rule in main.css restacks sides; the two-row layout above already
+   stacks, so pin it here (higher specificity) rather than let it flip the order. */
+@media (max-width: 400px) {
+  .schedule-view .matchup-card-body { flex-direction: column; align-items: stretch; gap: var(--nb-space-1); }
+  .schedule-view .matchup-card.is-bye .matchup-card-body { flex-direction: row; align-items: center; }
+  .schedule-view .matchup-side.reverse { flex-direction: row-reverse; }
+  .schedule-view .matchup-card { padding: var(--nb-space-3); }
+}
+
+/* Round tabs become a contained horizontal scroller on small screens */
+@media (max-width: 700px) {
+  .schedule-view .round-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: thin;
+    color-scheme: dark;
+  }
+  .schedule-view .round-tab { flex: 0 0 auto; scroll-snap-align: start; }
+}
+
+/* ── Standings ── */
+.standings-view .helper-text {
+  max-width: 78ch;
+  font-size: var(--nb-fs-sm);
+  line-height: var(--nb-lh-body);
+  color: var(--nb-text-muted);
+}
+.standings-view h3.section-title {
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  border-bottom: 0;
+  margin-bottom: var(--nb-space-3);
+}
+.standings-view h4.section-title {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-3);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-brand-orange-ink);
+  border-bottom: 0;
+}
+.standings-view h4.section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--nb-surface-border);
+}
+
+/* Table shell */
+.standings-view .table-scroll {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.standings-view .standings-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--nb-fs-table);
+}
+.standings-view .standings-table th {
+  padding: var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  letter-spacing: var(--nb-tracking-caps);
+  text-align: left;
+  white-space: nowrap;
+}
+.standings-view .standings-table td {
+  padding: var(--nb-space-3);
+  vertical-align: middle;
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.standings-view .standings-table tbody tr:last-child td { border-bottom: 0; }
+.standings-view .standings-table .team-logo-img-sm,
+.standings-view .standings-table .team-badge-sm { width: 30px; height: 30px; }
+.standings-view .standings-table .team-badge-sm { font-size: 0.62rem; }
+.standings-view .standings-table td > .team-identity { display: flex; }   /* centre logo + abbr on the row's midline */
+.standings-view .standings-table .team-identity-abbr {
+  font-weight: var(--nb-fw-bold);
+  font-size: var(--nb-fs-sm);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text);
+}
+
+/* Point differential: signed text (+/−), never colour alone */
+.standings-view .pd-pos { color: var(--nb-positive-ink); }
+.standings-view .pd-neg { color: var(--nb-negative-ink); }
+
+/* Season table: rank · team · participant · GP W L Win% PF PA PD Rem */
+.standings-view #teamStandingsTable th:first-child,
+.standings-view #teamStandingsTable td:first-child { width: 3.25rem; text-align: center; }
+.standings-view #teamStandingsTable th:nth-child(n+4),
+.standings-view #teamStandingsTable td:nth-child(n+4) { text-align: right; }
+.standings-view #teamStandingsTable td:first-child {
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text-dim);
+}
+.standings-view #teamStandingsTable td.standings-abbr {
+  color: var(--nb-gold-ink);                       /* top-4 cut, same meaning as the Dashboard rail */
+  box-shadow: inset 3px 0 0 var(--nb-gold);
+}
+.standings-view #teamStandingsTable tbody tr:first-child td:first-child { color: var(--nb-brand-orange-ink); }  /* leader */
+.standings-view #teamStandingsTable td:nth-child(3) { font-weight: var(--nb-fw-bold); }
+.standings-view #teamStandingsTable td:nth-child(5) { font-weight: var(--nb-fw-heavy); font-size: var(--nb-fs-h3); }                  /* W */
+.standings-view #teamStandingsTable td:nth-child(6) { color: var(--nb-text-muted); font-size: var(--nb-fs-h3); font-weight: var(--nb-fw-semibold); } /* L */
+.standings-view #teamStandingsTable td:nth-child(7) { font-weight: var(--nb-fw-bold); }                                                  /* Win% */
+.standings-view #teamStandingsTable td:nth-child(8),
+.standings-view #teamStandingsTable td:nth-child(9),
+.standings-view #teamStandingsTable td:nth-child(11) { color: var(--nb-text-muted); }
+.standings-view #teamStandingsTable td:nth-child(10) { font-weight: var(--nb-fw-heavy); font-size: var(--nb-fs-h3); }                     /* +/- */
+.standings-view #teamStandingsTable td:nth-child(10):not(.pd-pos):not(.pd-neg) { color: var(--nb-text-muted); }
+
+/* Group / conference cards */
+.standings-view .group-stage-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--nb-space-4);
+}
+.standings-view .group-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.standings-view .group-card-summary {
+  min-height: 44px;
+  padding: var(--nb-space-2) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text);
+  background: var(--nb-surface-raised);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.standings-view .group-card-body { border-top: 1px solid var(--nb-border-strong); }
+.standings-view .group-card-summary::after { color: var(--nb-primary-ink); font-size: var(--nb-fs-xs); }
+.standings-view .group-card-summary:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: -3px;                           /* inside the card: overflow:hidden would clip an outer ring */
+}
+.standings-view .group-card .table-scroll {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.standings-view .group-standings-table th,
+.standings-view .group-standings-table td { padding: var(--nb-space-3) var(--nb-space-2); }
+.standings-view .group-standings-table th:first-child,
+.standings-view .group-standings-table td:first-child { width: 2.5rem; text-align: center; }
+.standings-view .group-standings-table th:nth-child(n+3),
+.standings-view .group-standings-table td:nth-child(n+3) { text-align: right; }
+.standings-view .group-standings-table td:first-child {
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-heavy);
+  color: var(--nb-text-dim);
+}
+.standings-view .group-standings-table tbody tr:first-child td:first-child { color: var(--nb-brand-orange-ink); }
+.standings-view .group-team-name {
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text);
+}
+.standings-view .group-standings-table td:nth-child(3) { font-weight: var(--nb-fw-heavy); font-size: var(--nb-fs-h3); }
+.standings-view .group-standings-table td:nth-child(4) { color: var(--nb-text-muted); font-size: var(--nb-fs-h3); font-weight: var(--nb-fw-semibold); }
+.standings-view .group-standings-table td:nth-child(5) { font-weight: var(--nb-fw-heavy); font-size: var(--nb-fs-h3); }
+.standings-view .group-standings-table td:nth-child(5):not(.pd-pos):not(.pd-neg) { color: var(--nb-text-muted); }
+/* Conference table's status column (existing text: Qualifies / Eliminated) */
+.standings-view .group-standings-table td.muted:last-child {
+  color: var(--nb-positive-ink);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.02em;
+}
+.standings-view .group-standings-table td.cap-over-text {
+  color: var(--nb-negative-ink);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.02em;
+}
+
+/* Streamer leaderboard */
+.standings-view .streamer-table td:first-child { font-weight: var(--nb-fw-bold); }
+.standings-view .streamer-table th:nth-child(2),
+.standings-view .streamer-table td:nth-child(2) { text-align: right; width: 9rem; }
+.standings-view .streamer-table td:nth-child(2) { font-weight: var(--nb-fw-heavy); font-size: var(--nb-fs-h3); }
+
+/* Season table at tablet width: tighter cells so all 11 columns fit */
+@media (max-width: 900px) {
+  .standings-view #teamStandingsTable th,
+  .standings-view #teamStandingsTable td { padding: var(--nb-space-3) var(--nb-space-2); }
+  .standings-view #teamStandingsTable th:first-child,
+  .standings-view #teamStandingsTable td:first-child { width: 2.5rem; }
+}
+
+/* Two group cards per row get narrow below ~1100px: stack the team cell and
+   tighten padding so every column (incl. Qualifies / Eliminated) stays visible. */
+@media (max-width: 1100px) {
+  .standings-view .group-standings-table th,
+  .standings-view .group-standings-table td { padding: var(--nb-space-2) 6px; }
+  .standings-view .group-standings-table th:first-child,
+  .standings-view .group-standings-table td:first-child { width: 2rem; }
+  .standings-view .group-team-cell { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .standings-view .group-team-name { max-width: 6.5rem; }
+}
+
+/* Phone: stacked standings cards + full-width group cards */
+@media (max-width: 700px) {
+  /* main.css declares the base 2-column .group-stage-grid AFTER its own ≤700px
+     single-column rule, so the single column never applied and W / L / +/-
+     were clipped on phones. Restated here with higher specificity. */
+  .standings-view .group-stage-grid { grid-template-columns: minmax(0, 1fr); }
+  .standings-view .standings-cards { gap: var(--nb-space-2); }
+  .standings-view .standings-card {
+    gap: var(--nb-space-3);
+    padding: var(--nb-space-3) var(--nb-space-4);
+    background: var(--nb-surface-card);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+    box-shadow: var(--nb-surface-shadow);
+  }
+  .standings-view .standings-card:first-child .standings-card-rank { color: var(--nb-brand-orange-ink); }
+  .standings-view .standings-card:has(> .standings-card-rank.top4) {
+    box-shadow: inset 4px 0 0 var(--nb-gold), var(--nb-surface-shadow);
+  }
+  .standings-view .standings-card-rank {
+    width: 2rem;
+    font-size: 1.375rem;
+    font-weight: var(--nb-fw-heavy);
+    line-height: 1;
+    color: var(--nb-text-dim);
+  }
+  .standings-view .standings-card-rank.top4 { color: var(--nb-gold-ink); }
+  .standings-view .standings-card:first-child .standings-card-rank.top4 { color: var(--nb-brand-orange-ink); }
+  .standings-view .standings-card-owner {
+    font-size: var(--nb-fs-h3);
+    font-weight: var(--nb-fw-bold);
+    color: var(--nb-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .standings-view .standings-card-record {
+    margin-top: 2px;
+    font-size: var(--nb-fs-sm);
+    font-weight: var(--nb-fw-semibold);
+    color: var(--nb-text-muted);
+  }
+  .standings-view .standings-card-pd {
+    min-width: 3.75rem;
+    padding: 6px 10px;
+    border: 1px solid var(--nb-surface-border);
+    border-radius: 999px;
+    background: var(--nb-surface-sunken);
+    color: var(--nb-text-muted);
+    font-size: var(--nb-fs-body);
+    font-weight: var(--nb-fw-heavy);
+    text-align: center;
+  }
+  .standings-view .standings-card-pd.pd-pos { color: var(--nb-positive-ink); background: var(--nb-positive-dim); border-color: var(--nb-positive); }
+  .standings-view .standings-card-pd.pd-neg { color: var(--nb-negative-ink); background: var(--nb-negative-dim); border-color: var(--nb-negative); }
+
+  .standings-view .group-card-summary:hover { background: var(--nb-surface-hover); }
+  .standings-view .group-standings-table th,
+  .standings-view .group-standings-table td { padding: var(--nb-space-2) var(--nb-space-2); font-size: var(--nb-fs-sm); }
+  .standings-view .group-standings-table td:first-child { font-size: var(--nb-fs-h3); }
+  .standings-view .group-team-cell { flex-direction: row; align-items: center; gap: var(--nb-space-2); }
+  .standings-view .group-team-name { max-width: 9rem; }
+}
+@media (max-width: 480px) {
+  .standings-view .group-standings-table th,
+  .standings-view .group-standings-table td { padding: var(--nb-space-2) 4px; }
+  .standings-view .group-standings-table th:first-child,
+  .standings-view .group-standings-table td:first-child { width: 1.75rem; }
+  .standings-view .group-team-cell { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .standings-view .group-team-name { max-width: 5.5rem; }
+  /* Streamer names can be long: wrap instead of forcing a sideways scroll */
+  .standings-view .streamer-table td:first-child { overflow-wrap: anywhere; }
+  .standings-view .streamer-table th:nth-child(2),
+  .standings-view .streamer-table td:nth-child(2) { width: 5.5rem; }
+  .standings-view .streamer-table th { white-space: normal; }
+  /* Logo above abbreviation so the record line ("W-L · Win% · GP") keeps one line */
+  .standings-view .standings-card .team-identity { flex-direction: column; gap: 2px; }
+  .standings-view .standings-card-pd { min-width: 3.25rem; padding: 6px 8px; }
+}
+@media (max-width: 400px) {
+  .standings-view .group-team-cell { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .standings-view .standings-card { padding: var(--nb-space-3); gap: var(--nb-space-2); }
+  .standings-view .standings-card-record { font-size: var(--nb-fs-xs); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8D — Public Playoffs (cinematic bracket presentation)
+
+   CSS ONLY. js/views/playoffs.js, its DOM, IDs, classes, data-* attributes,
+   the round quick-jump handler and the bracket generation/standings/data code
+   are untouched. Everything below is scoped under .playoffs-view (the wrapper
+   playoffs.js renders), so the Dashboard's champion tile (.dashboard
+   .bracket-champion-banner) and every other public page are unaffected, and
+   admin.html never loads this file.
+
+   Existing markup states that are styled (none are invented):
+     .bracket-card (upcoming) / .active (games recorded, no winner yet)
+     / .decided (winner recorded) · .bracket-card-row.won (advancing team)
+     · .bracket-card-row without .won inside .decided (eliminated)
+     · .bracket-card-tbd + .team-badge-empty (empty / unplayed slots)
+     · last .bracket-col (Championship) · .bracket-champion-banner
+     · .bracket-jump-btn.current (the view's own "current round" heuristic).
+   There is no live-game flag and no per-round "status" text in the markup, so
+   .active is styled as "in progress" with gold and nothing is labelled LIVE.
+
+   Colour roles: orange = winner / advancement path (competitive emphasis);
+   gold = in-progress series + the Championship stage; indigo = current-round
+   marker + interaction; everything else is the Step 1/5 dark surface ramp.
+   Winner/loser are separated by more than colour (bar, weight, size, dimmed
+   logo). Motion: colour transitions only, collapsed by the global
+   prefers-reduced-motion rule. No animations, no transition: all.
+
+   Layout: the bracket keeps its 4-column grid and stays inside its own
+   .bracket-scroll viewport (the page never scrolls sideways). ≤700px the
+   columns become fixed-width, snap-aligned panes so one round plus a peek of
+   the next fills the phone viewport; the existing quick-jump row drives them.
+   Team rows are re-laid out with grid + display:contents on the existing
+   .team-identity wrapper so the abbreviation sits under the name and long
+   names wrap (2 lines) instead of truncating to a few letters.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page header (same identity bar as Schedule / Standings) ── */
+.playoffs-view > h2.section-title {
+  font-size: clamp(1.125rem, 4.6vw, var(--nb-fs-display));
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0 0 var(--nb-space-4);
+  padding: 0 0 0 var(--nb-space-3);
+  border-bottom: 0;
+  border-left: 4px solid var(--nb-brand-orange);
+}
+
+/* ── Champion banner (Playoffs page only) ── */
+.playoffs-view .bracket-champion-banner {
+  justify-content: flex-start;
+  margin-bottom: var(--nb-space-4);
+  padding: var(--nb-space-4) var(--nb-space-5);
+  background: linear-gradient(90deg, var(--nb-gold-dim), transparent 75%), var(--nb-surface-card);
+  color: var(--nb-text);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 4px 0 0 var(--nb-gold), var(--nb-surface-shadow);
+  font-size: clamp(1.125rem, 3.4vw, 1.75rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* ── Round quick-jump → segmented strip. The original only showed it ≤900px, but the
+   bracket (min-width 880px) already scrolls inside its viewport up to 1245px, where the
+   sidebar is back and the row was hidden; show it exactly while the bracket can scroll. ── */
+@media (max-width: 1245px) {
+  .playoffs-view .bracket-jump {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--nb-space-1);
+    padding: var(--nb-space-1);
+    margin-bottom: var(--nb-space-3);
+    background: var(--nb-surface-sunken);
+    border: 1px solid var(--nb-surface-border);
+    border-radius: var(--nb-r-lg);
+  }
+}
+.playoffs-view .bracket-jump-btn {
+  min-height: var(--nb-control-lg);
+  padding: 0 var(--nb-space-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--nb-r);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  line-height: var(--nb-lh-tight);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard), color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.playoffs-view .bracket-jump-btn::before { inset: 0; }   /* the button is now 44px itself; no oversized overlap */
+.playoffs-view .bracket-jump-btn:hover { background: var(--nb-surface-hover); color: var(--nb-text); }
+.playoffs-view .bracket-jump-btn:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.playoffs-view .bracket-jump-btn.current {
+  background: var(--nb-primary-dim);
+  border-color: var(--nb-primary);
+  color: var(--nb-text);
+  font-weight: var(--nb-fw-heavy);
+}
+@media (max-width: 640px) {
+  .playoffs-view .bracket-jump { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Bracket stage: a sunken viewport; scrolling stays inside it ── */
+.playoffs-view .bracket-scroll {
+  padding: var(--nb-space-4) var(--nb-space-3);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: var(--nb-space-3);
+  -webkit-overflow-scrolling: touch;
+}
+.playoffs-view .bracket-scroll:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.playoffs-view .bracket {
+  --bk-half: 0.75rem;                                   /* half the gutter between columns */
+  --bk-line: color-mix(in srgb, var(--nb-border-strong) 75%, transparent);
+  --bk-path: var(--nb-brand-orange);                    /* advancement path */
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  min-width: 880px;
+}
+.playoffs-view .bracket-col { scroll-snap-align: start; }
+
+/* ── Round headers ── */
+.playoffs-view .bracket-col-header {
+  margin: 0 0 var(--nb-space-2);
+  padding: 0 var(--nb-space-3) var(--nb-space-2);
+  border-bottom: 2px solid var(--nb-surface-border);
+  color: var(--nb-text);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-align: left;
+}
+.playoffs-view .bracket-col-sub {
+  margin-top: 2px;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+}
+.playoffs-view .bracket-col:last-child .bracket-col-header {
+  color: var(--nb-gold-ink);
+  border-bottom-color: color-mix(in srgb, var(--nb-gold) 70%, transparent);
+}
+/* The view's own current-round heuristic (.current on the matching jump button)
+   marks the matching column header — pure CSS, no new state. */
+.playoffs-view:has(.bracket-jump-btn:nth-child(1).current) .bracket-col:nth-child(1) .bracket-col-header,
+.playoffs-view:has(.bracket-jump-btn:nth-child(2).current) .bracket-col:nth-child(2) .bracket-col-header,
+.playoffs-view:has(.bracket-jump-btn:nth-child(3).current) .bracket-col:nth-child(3) .bracket-col-header,
+.playoffs-view:has(.bracket-jump-btn:nth-child(4).current) .bracket-col:nth-child(4) .bracket-col-header {
+  border-bottom-color: var(--nb-primary);
+  background: linear-gradient(180deg, transparent, var(--nb-primary-dim));
+}
+
+/* ── Slots + connectors ── */
+.playoffs-view .bracket-slot { padding: 0.4rem var(--bk-half); }
+.playoffs-view .bracket-col:not(:last-child) .bracket-slot::after,
+.playoffs-view .bracket-col:not(:first-child) .bracket-slot::before {
+  content: '';
+  display: block;               /* main.css hides these ≤900px; the grid is unchanged there, so keep them */
+  position: absolute;
+  top: calc(50% - 1px);
+  width: var(--bk-half);
+  height: 2px;
+  background: var(--bk-line);
+  border: 0;
+}
+.playoffs-view .bracket-col:not(:last-child) .bracket-slot::after { right: 0; left: auto; }
+.playoffs-view .bracket-col:not(:first-child) .bracket-slot::before { left: 0; right: auto; }
+
+/* Round 1 → Round 2: Round 2 pairings are picked, not fed 1:1, so keep this
+   as a quiet dotted lead-in rather than a hard link. */
+.playoffs-view .bracket-col:nth-child(1) .bracket-slot::after,
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot::before {
+  height: 0;
+  background: none;
+  border-top: 2px dotted var(--bk-line);
+}
+
+/* Round 2 → Semifinals and Semifinals → Championship: two series feed one
+   (sourceSeriesIds in the data), so draw a real join. Within each column the
+   slots alternate first/second of a pair (header is child 1). */
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot::after,
+.playoffs-view .bracket-col:nth-child(3) .bracket-slot::after {
+  right: -1px;
+  width: calc(var(--bk-half) + 1px);
+  background: none;
+  border-right: 2px solid var(--bk-line);
+}
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot:nth-child(even)::after,
+.playoffs-view .bracket-col:nth-child(3) .bracket-slot:nth-child(even)::after {
+  top: calc(50% - 1px);
+  height: calc(50% + 1px);
+  border-top: 2px solid var(--bk-line);
+}
+.playoffs-view .bracket-col:nth-child(2) .bracket-slot:nth-child(odd)::after,
+.playoffs-view .bracket-col:nth-child(3) .bracket-slot:nth-child(odd)::after {
+  top: 0;
+  height: calc(50% + 1px);
+  border-bottom: 2px solid var(--bk-line);
+}
+/* Advancement path: a decided series lights its outgoing join; a card that has
+   received a team lights its incoming stub. */
+.playoffs-view .bracket-col:nth-child(n+2):nth-child(-n+3) .bracket-slot:has(> .bracket-card.decided)::after { border-color: var(--bk-path); }
+.playoffs-view .bracket-col:nth-child(n+3) .bracket-slot:has(> .bracket-card .bracket-card-row)::before { background: var(--bk-path); }
+
+/* ── Matchup cards ── */
+.playoffs-view .bracket-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  box-shadow: var(--nb-surface-shadow);
+  font-size: var(--nb-fs-body);
+  transition: border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.playoffs-view .bracket-card.active {
+  border-color: var(--nb-gold);
+  border-left-width: 3px;
+}
+.playoffs-view .bracket-card.decided { border-color: var(--nb-border-strong); }
+
+/* Empty / unplayed slot (the card is only a .bracket-card-tbd placeholder) */
+.playoffs-view .bracket-card:has(> .bracket-card-tbd) {
+  background: transparent;
+  border: 1px dashed var(--nb-border-strong);
+  box-shadow: none;
+}
+.playoffs-view .bracket-card-tbd {
+  padding: var(--nb-space-4) var(--nb-space-3);
+  color: var(--nb-text-dim);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  font-style: italic;
+  line-height: var(--nb-lh-table);
+}
+
+/* ── Team rows: [seed] [logo] [name / abbr] [score] ── */
+.playoffs-view .bracket-card-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "seed logo name  score"
+    "seed logo abbr score";
+  align-items: center;
+  column-gap: 0;
+  min-height: 3rem;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--nb-surface-border);
+  background: transparent;
+}
+.playoffs-view .bracket-card-row .team-identity { display: contents; }   /* children join the row grid; DOM untouched */
+.playoffs-view .bracket-card-row .team-logo-img,
+.playoffs-view .bracket-card-row .team-badge {
+  grid-area: logo;
+  margin-right: var(--nb-space-2);
+}
+.playoffs-view .bracket-card-row .team-logo-img-sm,
+.playoffs-view .bracket-card-row .team-badge-sm { width: 28px; height: 28px; }
+.playoffs-view .bracket-card-row .team-badge-sm { font-size: 0.625rem; border-radius: 6px; }
+.playoffs-view .bracket-card-row .team-badge-empty {
+  background: transparent;
+  border: 1px dashed var(--nb-border-strong);
+  box-shadow: none;
+  color: var(--nb-text-dim);
+}
+
+.playoffs-view .bracket-seed {
+  grid-area: seed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  margin-right: var(--nb-space-2);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-sm);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.playoffs-view .bracket-seed:empty { background: none; border-color: transparent; }   /* keeps the opponent row aligned under the seed */
+
+.playoffs-view .bracket-team-name {
+  grid-area: name;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  color: var(--nb-text);
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-bold);
+  line-height: 1.2;
+}
+.playoffs-view .bracket-card-row .team-identity-abbr {
+  grid-area: abbr;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  line-height: 1.25;
+}
+.playoffs-view .bracket-team-score {
+  grid-area: score;
+  min-width: 2ch;
+  margin-left: var(--nb-space-2);
+  color: var(--nb-text-muted);
+  font-size: 1.375rem;
+  font-weight: var(--nb-fw-heavy);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: right;
+}
+
+/* Empty opponent slot inside an otherwise real matchup */
+.playoffs-view .bracket-card-row:has(.team-badge-empty) .bracket-team-name {
+  color: var(--nb-text-dim);
+  font-style: italic;
+  font-weight: var(--nb-fw-semibold);
+}
+
+/* Winner / advancing team */
+.playoffs-view .bracket-card-row.won {
+  background: var(--nb-surface-raised);
+  box-shadow: inset 3px 0 0 var(--nb-brand-orange);
+}
+.playoffs-view .bracket-card-row.won .bracket-team-name { color: var(--nb-text); font-weight: var(--nb-fw-heavy); }
+.playoffs-view .bracket-card-row.won .bracket-team-score { color: var(--nb-brand-orange-ink); }
+.playoffs-view .bracket-card-row.won .bracket-seed:not(:empty) { color: var(--nb-text); border-color: var(--nb-border-strong); }
+
+/* Eliminated team (the non-winning row of a decided matchup) */
+.playoffs-view .bracket-card.decided .bracket-card-row:not(.won) .bracket-team-name {
+  color: var(--nb-text-muted);
+  font-weight: var(--nb-fw-semibold);
+}
+.playoffs-view .bracket-card.decided .bracket-card-row:not(.won) .team-logo-img,
+.playoffs-view .bracket-card.decided .bracket-card-row:not(.won) .team-badge {
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+/* Footer line (game result / series label / games played) */
+.playoffs-view .bracket-format-tag {
+  padding: 0.4rem 0.65rem;
+  background: var(--nb-surface-sunken);
+  border-top: 0;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.playoffs-view .bracket-card-row:last-of-type { border-bottom: 0; }
+.playoffs-view .bracket-card-row:last-child { border-bottom: 0; }
+.playoffs-view .bracket-card-row:has(+ .bracket-format-tag) { border-bottom: 1px solid var(--nb-surface-border); }
+
+/* ── Championship / final stage ── */
+.playoffs-view .bracket-col:last-child .bracket-card {
+  border-color: color-mix(in srgb, var(--nb-gold) 60%, transparent);
+  border-top: 3px solid var(--nb-gold);
+  box-shadow: 0 0 0 1px var(--nb-gold-dim), var(--nb-shadow-2);
+}
+.playoffs-view .bracket-col:last-child .bracket-card:has(> .bracket-card-tbd) {
+  border: 1px dashed color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  box-shadow: none;
+}
+.playoffs-view .bracket-col:last-child .bracket-card-row { min-height: 3.5rem; padding-block: 0.5rem; }
+.playoffs-view .bracket-col:last-child .bracket-team-name { font-size: var(--nb-fs-h3); }
+.playoffs-view .bracket-col:last-child .bracket-team-score { font-size: 1.875rem; }
+.playoffs-view .bracket-col:last-child .bracket-card-row.won {
+  background: linear-gradient(90deg, var(--nb-gold-dim), transparent 85%), var(--nb-surface-raised);
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+}
+.playoffs-view .bracket-col:last-child .bracket-card-row.won .bracket-team-score { color: var(--nb-gold-ink); }
+
+/* ── Phones / small tablets: fixed-width snapping panes inside the bracket viewport ── */
+@media (max-width: 700px) {
+  .playoffs-view .bracket-scroll { padding: var(--nb-space-3) var(--nb-space-2); scroll-padding-inline: var(--nb-space-2); }
+  .playoffs-view .bracket {
+    --bk-colw: clamp(15rem, 74vw, 17.5rem);
+    grid-template-columns: repeat(4, var(--bk-colw));
+    width: max-content;
+    min-width: 0;
+  }
+  .playoffs-view .bracket-col-header { font-size: var(--nb-fs-sm); }
+  .playoffs-view .bracket-team-score { font-size: 1.25rem; }
+  .playoffs-view .bracket-col:last-child .bracket-team-score { font-size: 1.625rem; }
+}
+@media (max-width: 400px) {
+  .playoffs-view .bracket-card-row { padding-inline: 0.5rem; }
+  .playoffs-view .bracket-champion-banner { padding: var(--nb-space-3) var(--nb-space-4); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8E — Public Players visual redesign (UI/UX only, CSS only)
+   Every rule below is scoped under `.players-view`, the wrapper rendered
+   only by js/views/players.js (PublicPlayersView). The shared
+   positionPoolGrid() markup (.pos-table*, .pos-*) is also used by the Draft
+   and NBA 2K27 Pool pages, which never sit inside .players-view, so none of
+   them are affected. No JS, HTML, IDs, classes, data-* hooks or selectors
+   are changed. OVR emphasis uses only the tier classes the existing markup
+   already emits (.pos-ovr-elite / -good / -role); no tier logic is added.
+   No animations, no transition: all — transitions use the --nb-dur-* tokens,
+   which main.css already zeroes under prefers-reduced-motion.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Header ── */
+.players-view .player-db-header {
+  position: relative;
+  margin-bottom: var(--nb-space-5);
+  padding-left: var(--nb-space-4);
+}
+.players-view .player-db-header::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0.3rem; bottom: 0.3rem;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--nb-brand-orange);
+}
+.players-view .player-db-title {
+  font-size: clamp(1.625rem, 1.2rem + 1.6vw, 2.25rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+.players-view .player-db-subtitle {
+  max-width: 62ch;
+  margin-top: var(--nb-space-2);
+  font-size: var(--nb-fs-sm);
+  line-height: 1.55;
+  color: var(--nb-text-muted);
+}
+
+/* ── Pool info cards ── */
+.players-view .pool-info-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--nb-space-3);
+  margin: var(--nb-space-4) 0 var(--nb-space-5);
+}
+.players-view .pool-info-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nb-space-1);
+  min-width: 0;
+  padding: var(--nb-space-3) var(--nb-space-4);
+  background: linear-gradient(180deg, var(--nb-surface-raised), var(--nb-surface-card));
+  border: 1px solid var(--nb-surface-border);
+  border-left-width: 3px;
+  border-radius: var(--nb-r);
+}
+.players-view .pool-info-card.pool-info-green { border-left-color: var(--nb-pool-green); }
+.players-view .pool-info-card.pool-info-blue  { border-left-color: var(--nb-pool-blue); }
+.players-view .pool-info-card.pool-info-white { border-left-color: var(--nb-pool-white); }
+.players-view .pool-info-card-title {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.players-view .pool-info-card.pool-info-green .pool-info-card-title { color: var(--nb-pool-green-ink); }
+.players-view .pool-info-card.pool-info-blue  .pool-info-card-title { color: var(--nb-pool-blue-ink); }
+.players-view .pool-info-card.pool-info-white .pool-info-card-title { color: var(--nb-pool-white-ink); }
+.players-view .pool-info-card-desc {
+  font-size: var(--nb-fs-sm);
+  line-height: 1.45;
+  color: var(--nb-text-muted);
+}
+
+/* ── Search ── */
+.players-view .table-controls { margin-bottom: var(--nb-space-3); }
+.players-view .table-controls .search-input {
+  display: block;
+  width: 100%;
+  max-width: none;
+  min-height: 48px;
+  padding: 0 var(--nb-space-4) 0 2.75rem;
+  font-size: var(--nb-fs-body);
+  color: var(--nb-text);
+  background-color: var(--nb-surface-sunken);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23a4abc0' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.95rem 50%;
+  border: 1px solid var(--nb-border-strong);
+  border-radius: var(--nb-r);
+  transition: border-color var(--nb-dur-fast) var(--nb-ease-standard), box-shadow var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.players-view .table-controls .search-input:hover { border-color: var(--nb-text-muted); }
+.players-view .table-controls .search-input:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 2px;
+  border-color: var(--nb-primary);
+  box-shadow: 0 0 0 3px var(--nb-primary-dim);
+}
+
+/* ── Pool tabs (segmented) ── */
+.players-view .pool-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nb-space-2);
+  margin-bottom: var(--nb-space-4);
+}
+.players-view .pool-tab {
+  min-height: 44px;
+  padding: 0 var(--nb-space-4);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.08em;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard), background-color var(--nb-dur-fast) var(--nb-ease-standard), border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.players-view .pool-tab:hover { color: var(--nb-text); background: var(--nb-surface-raised); border-color: var(--nb-border-strong); }
+.players-view .pool-tab:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.players-view .pool-tab .pool-tab-count { font-weight: var(--nb-fw-semibold); letter-spacing: 0.04em; opacity: 0.85; }
+.players-view .pool-tab-white .pool-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--nb-pool-white); }
+.players-view .pool-tab.active.pool-tab-green {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, var(--nb-pool-green-tint), transparent), var(--nb-surface-raised);
+  border-color: var(--nb-pool-green);
+  box-shadow: inset 0 -3px 0 var(--nb-pool-green);
+}
+.players-view .pool-tab.active.pool-tab-blue {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, var(--nb-pool-blue-tint), transparent), var(--nb-surface-raised);
+  border-color: var(--nb-pool-blue);
+  box-shadow: inset 0 -3px 0 var(--nb-pool-blue);
+}
+.players-view .pool-tab.active.pool-tab-white {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, var(--nb-pool-white-tint), transparent), var(--nb-surface-raised);
+  border-color: var(--nb-pool-white);
+  box-shadow: inset 0 -3px 0 var(--nb-pool-white);
+}
+
+/* ── Position columns ── */
+.players-view .pos-table-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15.5rem), 1fr));
+  gap: var(--nb-space-3);
+}
+.players-view .pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+}
+.players-view .pos-table-head {
+  padding: var(--nb-space-3) var(--nb-space-4);
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.14em;
+  text-align: left;
+  color: var(--nb-text);
+  border-top: 3px solid var(--nb-border-strong);
+}
+.players-view .pos-table-green .pos-table-head { background: linear-gradient(180deg, var(--nb-pool-green-tint), transparent), var(--nb-surface-raised); border-top-color: var(--nb-pool-green); border-bottom: 1px solid var(--nb-surface-border); }
+.players-view .pos-table-blue  .pos-table-head { background: linear-gradient(180deg, var(--nb-pool-blue-tint), transparent), var(--nb-surface-raised);  border-top-color: var(--nb-pool-blue);  border-bottom: 1px solid var(--nb-surface-border); }
+.players-view .pos-table-white .pos-table-head { background: linear-gradient(180deg, var(--nb-pool-white-tint), transparent), var(--nb-surface-raised); border-top-color: var(--nb-pool-white); border-bottom: 1px solid var(--nb-surface-border); }
+
+.players-view .pos-table-columns-head,
+.players-view .pos-table-row {
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+  column-gap: var(--nb-space-2);
+  padding-inline: var(--nb-space-4);
+}
+.players-view .pos-table-columns-head {
+  padding-block: var(--nb-space-2);
+  font-size: var(--nb-fs-xs);
+  letter-spacing: 0.1em;
+  color: var(--nb-text-dim);
+  background: var(--nb-surface-sunken);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.players-view .pos-table-columns-head span:last-child { min-width: 2.75rem; }
+
+/* ── Rows ── */
+.players-view .pos-table-row {
+  min-height: 44px;
+  padding-block: var(--nb-space-2);
+  font-size: var(--nb-fs-table);
+  border-bottom: 1px solid var(--nb-surface-border);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.players-view .pos-table-row:last-child { border-bottom: 0; }
+.players-view .pos-table-row:hover { background: var(--nb-surface-hover); box-shadow: inset 3px 0 0 var(--nb-primary); }
+.players-view .pos-table-row:focus-visible,
+.players-view .pos-table-row:focus-within { outline: 2px solid var(--nb-focus-ring); outline-offset: -2px; }
+/* The first row of each column is simply the existing top-OVR row (the
+   grid is already sorted OVR-descending) — emphasised by position only. */
+.players-view .pos-table-body > .pos-table-row:first-child { background: linear-gradient(90deg, var(--nb-brand-orange-dim), transparent 70%); }
+.players-view .pos-table-body > .pos-table-row:first-child:hover { background: linear-gradient(90deg, var(--nb-brand-orange-dim), var(--nb-surface-hover) 70%); }
+
+.players-view .pos-rank {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text-dim);
+}
+/* Names wrap instead of truncating; the status tag drops under the name
+   rather than squeezing it. */
+.players-view .pos-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem var(--nb-space-2);
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: break-word;
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-bold);
+  line-height: 1.25;
+  color: var(--nb-text);
+}
+
+/* ── OVR hierarchy (existing tier classes only) ── */
+.players-view .pos-ovr {
+  min-width: 2.75rem;
+  text-align: right;
+  font-size: 1.25rem;
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+.players-view .pos-ovr.pos-ovr-elite { color: var(--nb-brand-orange-ink); }
+.players-view .pos-ovr.pos-ovr-good  { color: var(--nb-text); }
+.players-view .pos-ovr.pos-ovr-role  { color: var(--nb-text-muted); font-weight: var(--nb-fw-bold); }
+
+/* ── Status tags / states ── */
+.players-view .pos-drafted-tag {
+  padding: 0.12rem 0.45rem;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-lift);
+  border-radius: var(--nb-r-sm);
+  white-space: nowrap;
+}
+.players-view .pos-locked-tag { color: var(--nb-gold-ink); background: var(--nb-gold-dim); }
+/* Drafted / locked: dimmed through colour (not opacity) so text stays legible. */
+.players-view .pos-table-row.drafted,
+.players-view .pos-table-row.locked { opacity: 1; }
+.players-view .pos-table-row.drafted .pos-name,
+.players-view .pos-table-row.drafted .pos-ovr,
+.players-view .pos-table-row.drafted .pos-rank { color: var(--nb-text-dim); text-decoration-thickness: 1px; }
+.players-view .pos-table-row.drafted .pos-drafted-tag { text-decoration: none; }
+.players-view .pos-table-row.locked .pos-name { color: var(--nb-text-muted); }
+.players-view .pos-table-row.locked .pos-ovr { color: var(--nb-text-muted); }
+
+/* ── Empty states ── */
+.players-view .pos-table-empty {
+  padding: var(--nb-space-5) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  color: var(--nb-text-dim);
+}
+.players-view #publicPlayersGrid > p.muted {
+  margin: 0;
+  padding: var(--nb-space-6) var(--nb-space-4);
+  text-align: center;
+  font-size: var(--nb-fs-body);
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px dashed var(--nb-border-strong);
+  border-radius: var(--nb-r-lg);
+}
+
+/* ── Drafted note + legend ── */
+.players-view .drafted-note {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-3);
+  margin-top: var(--nb-space-4);
+  padding: var(--nb-space-3) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  line-height: 1.45;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.players-view .pool-legend-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nb-space-2) var(--nb-space-5);
+  margin-top: var(--nb-space-4);
+  padding-top: var(--nb-space-4);
+  font-size: var(--nb-fs-xs);
+  line-height: 1.4;
+  color: var(--nb-text-muted);
+  border-top: 1px solid var(--nb-surface-border);
+}
+.players-view .pool-legend-footer .legend-item { align-items: flex-start; }
+.players-view .pool-legend-footer .legend-dot { margin-top: 0.25rem; flex: none; }
+.players-view .pool-legend-footer .legend-dot.green { background: var(--nb-pool-green); }
+.players-view .pool-legend-footer .legend-dot.blue { background: var(--nb-pool-blue); }
+.players-view .pool-legend-footer .legend-dot.white { background: transparent; box-shadow: inset 0 0 0 2px var(--nb-pool-white); }
+
+/* ── Responsive ── */
+@media (min-width: 1700px) {
+  /* Very wide screens: room for all five position columns side by side. */
+  .players-view .pos-table-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+}
+@media (min-width: 769px) and (max-width: 1100px) {
+  /* Three-column band: columns are narrowest here, so names step down one size to stay whole. */
+  .players-view .pos-name { font-size: var(--nb-fs-table); }
+}
+@media (max-width: 900px) {
+  .players-view .pool-info-row { grid-template-columns: 1fr; gap: var(--nb-space-2); }
+  .players-view .pool-info-card { padding: var(--nb-space-3); }
+  .players-view .pool-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .players-view .pool-tab {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: var(--nb-space-2);
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+}
+@media (max-width: 640px) {
+  .players-view .player-db-header { padding-left: var(--nb-space-3); }
+  .players-view .pos-table-grid { grid-template-columns: 1fr; }
+  .players-view .pos-table-row { min-height: 48px; }
+}
+@media (max-width: 400px) {
+  .players-view .pool-tab { font-size: 0.6875rem; }
+  .players-view .pool-tab .pool-tab-count { font-size: 0.6875rem; }
+  .players-view .pos-table-columns-head,
+  .players-view .pos-table-row { padding-inline: var(--nb-space-3); }
+  .players-view .pos-ovr { font-size: 1.125rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8F — Public NBA 2K27 Pool (player-pool database presentation)
+
+   CSS ONLY. js/views/nba2k27.js, js/shared-utils.js (positionPoolGrid), their
+   DOM, IDs, classes, data-* attributes, row click/keyboard handlers and the
+   detail-modal markup are untouched.
+
+   Scope: every selector below starts with .pub2k27-view (the wrapper the view
+   renders) or is a .pub2k27-modal-* / .pub2k27-modal-card descendant (the detail
+   modal, which the view mounts as a sibling of .pub2k27-view). Dashboard, Draft,
+   Rosters, Schedule, Standings, Playoffs, Players, Hall of Fame and every admin
+   page are unaffected; admin.html never loads this file.
+
+   Surfaces: canvas → --nb-surface-card (position tables) → --nb-surface-raised
+   (table head bands, modal header) → --nb-surface-sunken (inputs, tab track,
+   OVR plates). Colour roles: indigo = interaction/focus; brand orange = elite
+   OVR (existing .pos-ovr-elite) + page identity bar; pool colours (green /
+   blue / white-ring) = which pool is shown, exactly as the existing tabs do.
+   No gold is introduced except the existing Hall-of-Fame badge tier.
+   Component-local custom properties (--p2k-*) are declared on the pool-tab /
+   pool-table / modal elements only, never on :root.
+   Motion: colour/background transitions on --nb-dur-fast only (0ms under
+   prefers-reduced-motion). No animations, no transition: all.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pub2k27-view { min-width: 0; }
+
+/* ── Per-pool colour roles (set on the tab AND the table so both agree) ── */
+.pub2k27-view .pool-tab-green,
+.pub2k27-view .pos-table-green {
+  --p2k: var(--nb-pool-green);
+  --p2k-ink: var(--nb-pool-green-ink);
+  --p2k-tint: var(--nb-pool-green-tint);
+}
+.pub2k27-view .pool-tab-blue,
+.pub2k27-view .pos-table-blue {
+  --p2k: var(--nb-pool-blue);
+  --p2k-ink: var(--nb-pool-blue-ink);
+  --p2k-tint: var(--nb-pool-blue-tint);
+}
+.pub2k27-view .pool-tab-white,
+.pub2k27-view .pos-table-white {
+  --p2k: var(--nb-pool-white);
+  --p2k-ink: var(--nb-pool-white-ink);
+  --p2k-tint: var(--nb-pool-white-tint);
+}
+
+/* ── Page header ── */
+.pub2k27-view > .player-db-header { margin: 0 0 var(--nb-space-5); }
+.pub2k27-view .player-db-title {
+  margin: 0 0 var(--nb-space-1);
+  padding-left: var(--nb-space-3);
+  border-left: 4px solid var(--nb-brand-orange);
+  font-size: clamp(1.25rem, 4.6vw, var(--nb-fs-display));
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+.pub2k27-view .player-db-subtitle {
+  margin: 0;
+  padding-left: calc(4px + var(--nb-space-3));
+  max-width: 62ch;
+  font-size: var(--nb-fs-sm);
+  line-height: var(--nb-lh-body);
+  color: var(--nb-text-muted);
+}
+
+/* ── Loading / empty / unavailable states (existing markup only) ── */
+.pub2k27-view > .helper-text,
+.pub2k27-view .pub2k27-clickable-columns > .helper-text,
+.pub2k27-view .nba2k27pool-unassigned-band > .helper-text {
+  margin: 0;
+  padding: var(--nb-space-5) var(--nb-space-4);
+  background: var(--nb-surface-sunken);
+  border: 1px dashed var(--nb-border-strong);
+  border-radius: var(--nb-r-lg);
+  text-align: center;
+  font-size: var(--nb-fs-sm);
+  line-height: var(--nb-lh-body);
+  color: var(--nb-text-muted);
+}
+.pub2k27-view > .empty-state {
+  padding: var(--nb-space-7) var(--nb-space-5);
+  text-align: center;
+  box-shadow: inset 0 3px 0 var(--nb-border-strong), var(--nb-surface-shadow);
+}
+.pub2k27-view > .empty-state h2 {
+  margin: 0 0 var(--nb-space-2);
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+}
+.pub2k27-view > .empty-state p {
+  margin: 0 auto;
+  max-width: 46ch;
+  font-size: var(--nb-fs-sm);
+  line-height: var(--nb-lh-body);
+  color: var(--nb-text-muted);
+}
+
+/* ── Search / sort toolbar ── */
+.pub2k27-view .pub2k27-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nb-space-3);
+  margin: 0 0 var(--nb-space-4);
+  padding: var(--nb-space-3);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+}
+.pub2k27-view .pub2k27-controls .input {
+  box-sizing: border-box;
+  flex: 0 1 240px;
+  min-width: 0;
+  min-height: var(--nb-control-lg);
+  padding: 0 var(--nb-space-3);
+  border-radius: var(--nb-r);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+.pub2k27-view .pub2k27-controls .search-input {
+  flex: 1 1 260px;
+  padding-left: 2.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a4abc0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.875rem 50%;
+  background-size: 1.1rem;
+}
+.pub2k27-view .pub2k27-controls select.input {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 2rem;
+  font-size: 0.875rem;   /* template caps the select at max-width:220px inline; this keeps "Sort: OVR (High–Low)" unclipped */
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a4abc0' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1.1rem;
+}
+.pub2k27-view .pub2k27-controls .player-count {
+  margin-left: auto;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  line-height: var(--nb-lh-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+
+/* ── Pool selector: a segmented strip (Green / Blue / White) ── */
+.pub2k27-view .pool-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--nb-space-1);
+  margin: 0 0 var(--nb-space-5);
+  padding: var(--nb-space-1);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+}
+.pub2k27-view .pool-tabs .pool-tab {
+  box-sizing: border-box;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 var(--nb-space-4);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--nb-r);
+  box-shadow: none;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  white-space: nowrap;
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard),
+    border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.pub2k27-view .pool-tabs .pool-tab:hover {
+  background: var(--nb-surface-hover);
+  border-color: transparent;
+  color: var(--nb-text);
+}
+.pub2k27-view .pool-tabs .pool-tab.active {
+  background: var(--p2k-tint);
+  border-color: var(--p2k);
+  box-shadow: inset 0 -3px 0 var(--p2k);
+  color: var(--p2k-ink);
+}
+.pub2k27-view .pool-tabs .pool-tab:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 2px;
+}
+.pub2k27-view .pool-tab .pool-dot { width: 10px; height: 10px; background: var(--p2k); }
+.pub2k27-view .pool-tab-white .pool-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--p2k); }
+.pub2k27-view .pool-tab .pool-tab-count,
+.pub2k27-view .nba2k27pool-unassigned-label .pool-tab-count {
+  min-width: 1.75rem;
+  padding: 2px 8px;
+  border-radius: var(--nb-r-pill);
+  background: var(--nb-surface-sunken);
+  text-align: center;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1.3;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+  color: inherit;
+}
+
+/* ── Position columns (PG / SG / SF / PF / C) ── */
+.pub2k27-view .pos-table-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 176px), 1fr));
+  gap: var(--nb-space-3);
+}
+.pub2k27-view .pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+  overflow: clip;   /* clip (not hidden) keeps position:sticky heads working on phones */
+}
+.pub2k27-view .pos-table .pos-table-head {
+  padding: 10px 12px;
+  background: var(--nb-surface-raised);
+  border-bottom: 1px solid var(--nb-surface-border);
+  box-shadow: inset 0 3px 0 var(--p2k);
+  text-align: left;
+  font-size: 1.125rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  color: var(--p2k-ink);
+}
+.pub2k27-view .pos-table-columns-head,
+.pub2k27-view .pos-table-row {
+  grid-template-columns: 1.35rem minmax(0, 1fr) 2.75rem;
+  column-gap: 5px;
+}
+.pub2k27-view .pos-table-columns-head {
+  padding: 6px 10px;
+  background: var(--nb-surface-sunken);
+  border-bottom: 1px solid var(--nb-surface-border);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text-dim);
+}
+.pub2k27-view .pos-table-columns-head span:last-child { text-align: center; }
+.pub2k27-view .pos-table-empty {
+  padding: var(--nb-space-5) 12px;
+  font-size: var(--nb-fs-sm);
+  color: var(--nb-text-muted);
+}
+
+/* Rows (clickable: the view adds tabindex/role/aria-label + handlers) */
+.pub2k27-view .pos-table-row {
+  min-height: 44px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--nb-surface-border);
+  font-size: var(--nb-fs-table);
+  line-height: var(--nb-lh-table);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.pub2k27-view .pos-table-row:hover { background: var(--nb-surface-hover); }
+.pub2k27-view .pub2k27-clickable-columns .pos-table-row:hover { background: var(--nb-surface-hover); }
+.pub2k27-view .pub2k27-clickable-columns .pos-table-row:focus-visible {
+  background: var(--nb-surface-hover);
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: -2px;
+}
+/* Elite rows (existing .pos-ovr-elite tier class, no new threshold) get an orange edge */
+.pub2k27-view .pos-table-row:has(> .pos-ovr-elite) { box-shadow: inset 3px 0 0 var(--nb-brand-orange); }
+
+.pub2k27-view .pos-rank {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text-dim);
+}
+/* Names wrap to two lines instead of being cut off mid-word */
+.pub2k27-view .pos-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: break-word;   /* only breaks a single over-long word, never a normal name mid-word */
+  text-overflow: clip;
+  font-size: 0.875rem;
+  font-weight: var(--nb-fw-bold);
+  line-height: 1.25;
+  color: var(--nb-text);
+}
+
+/* OVR: a numeric plate, the strongest figure in each row */
+.pub2k27-view .pos-table-row .pos-ovr {
+  justify-self: stretch;
+  padding: 3px 0;
+  border-radius: var(--nb-r-sm);
+  background: rgba(255, 255, 255, 0.05);
+  text-align: center;
+  font-size: 1.0625rem;
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--nb-text);
+}
+.pub2k27-view .pos-table-row .pos-ovr.pos-ovr-role { background: transparent; color: var(--nb-text-muted); }
+.pub2k27-view .pos-table-row .pos-ovr.pos-ovr-elite {
+  background: var(--nb-brand-orange-dim);
+  box-shadow: inset 0 0 0 1px rgba(255, 138, 61, 0.4);
+  color: var(--nb-brand-orange-ink);
+}
+
+/* ── UNASSIGNED band: same rows, visibly "not yet sorted" (neutral, dashed) ── */
+.pub2k27-view .nba2k27pool-unassigned-band {
+  margin-top: var(--nb-space-6);
+  padding-top: var(--nb-space-5);
+  border-top: 1px solid var(--nb-surface-border);
+}
+.pub2k27-view .nba2k27pool-unassigned-label {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-2);
+  margin: 0 0 var(--nb-space-3);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-text);
+}
+.pub2k27-view .nba2k27pool-unassigned-grid { grid-template-columns: minmax(0, 1fr); }
+.pub2k27-view .nba2k27pool-unassigned-grid .pos-table {
+  --p2k: var(--nb-border-strong);
+  --p2k-ink: var(--nb-text-muted);
+  max-width: min(100%, 460px);
+  border-style: dashed;
+  border-color: var(--nb-border-strong);
+}
+
+/* ── Tablet: three even columns (PG SG SF / PF C) rather than four plus an orphan ── */
+@media (max-width: 1380px) {
+  .pub2k27-view .pos-table-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+}
+
+/* ── Touch / small screens ── */
+@media (max-width: 900px), (pointer: coarse) {
+  .pub2k27-view .pos-table-row { min-height: 48px; }
+}
+
+@media (max-width: 700px) {
+  .pub2k27-view .pub2k27-controls .input { flex: 1 1 100%; }
+  .pub2k27-view .pub2k27-controls .player-count { margin-left: 0; flex: 1 1 100%; }
+  .pub2k27-view .pub2k27-controls select.input { max-width: none !important; }   /* inline max-width:220px in the template */
+}
+
+@media (max-width: 560px) {
+  .pub2k27-view .pool-tabs .pool-tab {
+    flex-direction: column;
+    gap: 2px;
+    min-height: 72px;
+    padding: var(--nb-space-2) var(--nb-space-1);
+    font-size: var(--nb-fs-xs);
+    letter-spacing: 0.02em;
+  }
+  .pub2k27-view .pos-table-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Single column: keep the active position band pinned under the mobile top bar */
+  .pub2k27-view .pos-table .pos-table-head {
+    position: sticky;
+    top: var(--nb-topbar-height);
+    z-index: 2;
+  }
+  .pub2k27-view .nba2k27pool-unassigned-grid .pos-table { max-width: none; }
+}
+
+/* ── Player detail modal (existing .pub2k27-modal-* markup, same mount) ── */
+.pub2k27-modal-overlay { background: var(--nb-scrim); padding: var(--nb-space-4); }
+.pub2k27-modal-card {
+  --p2k: var(--nb-border-strong);
+  max-width: 720px;
+  max-height: min(90vh, 880px);
+  padding: 0;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-shadow-3);
+  overscroll-behavior: contain;
+}
+.pub2k27-modal-card .pub2k27-modal-close {
+  top: var(--nb-space-3);
+  right: var(--nb-space-3);
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--nb-control-lg);
+  height: var(--nb-control-lg);
+  padding: 0;
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--nb-text-muted);
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.pub2k27-modal-card .pub2k27-modal-close:hover { background: var(--nb-surface-lift); color: var(--nb-text); }
+.pub2k27-modal-card .pub2k27-modal-close:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+.pub2k27-modal-card .nba2k-detail-header {
+  display: flex;   /* the base .nba2k-detail-header rule above is swallowed by an early-closed comment ("pool-info-*/"), so it never applied */
+  align-items: flex-start;
+  margin: 0;
+  padding: var(--nb-space-5) calc(var(--nb-control-lg) + var(--nb-space-5)) var(--nb-space-4) var(--nb-space-5);
+  gap: var(--nb-space-4);
+  background: var(--nb-surface-raised);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.pub2k27-modal-card .nba2k-avatar {
+  width: 88px;
+  height: 88px;
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+}
+.pub2k27-modal-card .nba2k-avatar-fallback { font-size: 1.5rem; color: var(--nb-primary-ink); }
+.pub2k27-modal-card .nba2k-detail-header-info { min-width: 0; flex: 1; }
+.pub2k27-modal-card .nba2k-detail-name {
+  font-size: clamp(1.25rem, 4.4vw, 1.625rem);
+  font-weight: 900;
+  line-height: var(--nb-lh-title);
+  letter-spacing: var(--nb-tracking-title);
+  overflow-wrap: anywhere;
+  color: var(--nb-text);
+}
+.pub2k27-modal-card .nba2k-detail-meta {
+  gap: var(--nb-space-2);
+  margin: var(--nb-space-2) 0;
+  font-size: var(--nb-fs-sm);
+  color: var(--nb-text-muted);
+}
+.pub2k27-modal-card .pos-ovr.nba2k-detail-ovr {
+  padding: 2px 10px;
+  border-radius: var(--nb-r-sm);
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 1.25rem;
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1.2;
+  color: var(--nb-text);
+}
+.pub2k27-modal-card .pos-ovr.nba2k-detail-ovr.pos-ovr-role { color: var(--nb-text-muted); }
+.pub2k27-modal-card .pos-ovr.nba2k-detail-ovr.pos-ovr-elite {
+  background: var(--nb-brand-orange-dim);
+  box-shadow: inset 0 0 0 1px rgba(255, 138, 61, 0.4);
+  color: var(--nb-brand-orange-ink);
+}
+.pub2k27-modal-card .pub2k27-position-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: var(--nb-r-pill);
+  background: var(--nb-primary-dim);
+  font-size: var(--nb-fs-xs);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: var(--nb-primary-ink);
+}
+.pub2k27-modal-card .nba2k-category-chip { padding: 2px 10px; font-size: var(--nb-fs-xs); }
+.pub2k27-modal-card .nba2k-category-chip-curr  { background: var(--nb-pool-green-tint); color: var(--nb-pool-green-ink); }
+.pub2k27-modal-card .nba2k-category-chip-class { background: var(--nb-pool-blue-tint); color: var(--nb-pool-blue-ink); }
+.pub2k27-modal-card .nba2k-category-chip-allt  { background: rgba(155, 63, 214, 0.2); color: #d7b3f6; }
+.pub2k27-modal-card .nba2k-category-chip-other { background: var(--nb-surface-sunken); color: var(--nb-text-muted); }
+.pub2k27-modal-card .pub2k27-pool-tag { padding: 2px 10px; font-size: var(--nb-fs-xs); }
+.pub2k27-modal-card .pub2k27-pool-tag-green   { background: var(--nb-pool-green-tint); color: var(--nb-pool-green-ink); }
+.pub2k27-modal-card .pub2k27-pool-tag-blue    { background: var(--nb-pool-blue-tint); color: var(--nb-pool-blue-ink); }
+.pub2k27-modal-card .pub2k27-pool-tag-white   { background: var(--nb-pool-white-tint); color: var(--nb-pool-white-ink); }
+.pub2k27-modal-card .pub2k27-pool-tag-unknown { background: var(--nb-surface-sunken); color: var(--nb-text-muted); }
+.pub2k27-modal-card .nba2k-detail-eligibility { margin: 0 0 var(--nb-space-2); font-size: var(--nb-fs-xs); color: var(--nb-text-muted); }
+.pub2k27-modal-card .nba2k-detail-physicals { gap: var(--nb-space-1) var(--nb-space-3); font-size: var(--nb-fs-xs); color: var(--nb-text-muted); }
+
+.pub2k27-modal-card .nba2k-detail-body { padding: var(--nb-space-5); }
+.pub2k27-modal-card .nba2k-attr-groups { gap: var(--nb-space-5); margin-bottom: var(--nb-space-5); }
+.pub2k27-modal-card .nba2k-attr-section h4,
+.pub2k27-modal-card .nba2k-badges-section h4 {
+  margin: 0 0 var(--nb-space-2);
+  padding-bottom: var(--nb-space-1);
+  border-bottom: 1px solid var(--nb-surface-border);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  color: var(--nb-primary-ink);
+}
+.pub2k27-modal-card .nba2k-attr-row {
+  grid-template-columns: minmax(96px, 1fr) minmax(0, 1.1fr) 2rem;
+  gap: var(--nb-space-2);
+  padding: 3px 0;
+  font-size: var(--nb-fs-sm);
+}
+.pub2k27-modal-card .nba2k-attr-label { color: var(--nb-text-muted); }
+.pub2k27-modal-card .nba2k-attr-bar-track { height: 8px; border-radius: 4px; background: var(--nb-surface-sunken); box-shadow: inset 0 0 0 1px var(--nb-surface-border); }
+.pub2k27-modal-card .nba2k-attr-bar-fill { border-radius: 4px; }
+.pub2k27-modal-card .nba2k-attr-elite { background: var(--nb-brand-orange); }
+.pub2k27-modal-card .nba2k-attr-good  { background: var(--nb-primary); }
+.pub2k27-modal-card .nba2k-attr-mid   { background: var(--nb-text-dim); }
+.pub2k27-modal-card .nba2k-attr-low   { background: var(--nb-border-strong); }
+.pub2k27-modal-card .nba2k-attr-value { font-variant-numeric: tabular-nums; font-weight: var(--nb-fw-heavy); color: var(--nb-text); }
+
+.pub2k27-modal-card .nba2k-badge-tier { font-size: var(--nb-fs-xs); font-weight: var(--nb-fw-heavy); letter-spacing: var(--nb-tracking-caps); text-transform: uppercase; }
+.pub2k27-modal-card .nba2k-badge-tier-legendary    { color: #d7b3f6; }
+.pub2k27-modal-card .nba2k-badge-tier-hall-of-fame { color: var(--nb-gold-ink); }
+.pub2k27-modal-card .nba2k-badge-tier-gold         { color: #d9b24a; }
+.pub2k27-modal-card .nba2k-badge-tier-silver       { color: #b9bfcc; }
+.pub2k27-modal-card .nba2k-badge-tier-bronze       { color: #d9955c; }
+.pub2k27-modal-card .nba2k-badge-chip {
+  padding: 4px 10px;
+  background: var(--nb-surface-raised);
+  border: 1px solid var(--nb-surface-border);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text);
+}
+
+@media (max-width: 700px) {
+  .pub2k27-modal-overlay { align-items: flex-end; padding: 0; }
+  .pub2k27-modal-card { max-width: none; max-height: 92vh; border-radius: var(--nb-r-lg) var(--nb-r-lg) 0 0; padding: 0; }
+  .pub2k27-modal-card .nba2k-detail-header { flex-wrap: nowrap; padding: var(--nb-space-4) calc(var(--nb-control-lg) + var(--nb-space-4)) var(--nb-space-4) var(--nb-space-4); }
+  .pub2k27-modal-card .nba2k-avatar { width: 64px; height: 64px; }
+  .pub2k27-modal-card .nba2k-detail-body { padding: var(--nb-space-4); }
+  .pub2k27-modal-card .nba2k-attr-groups { grid-template-columns: 1fr; }
+  .pub2k27-modal-card .nba2k-attr-row { grid-template-columns: minmax(92px, 1fr) minmax(0, 1.2fr) 2rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8G — Public Hall of Fame (trophy-case presentation)
+
+   CSS ONLY. js/views/hall-of-fame.js, its DOM, classes, data-hof-index,
+   aria-expanded and the per-entry expand/collapse handler are untouched.
+   Everything below is scoped under .hof-view (the wrapper hall-of-fame.js
+   renders), so no other public page is affected, and admin.html never loads
+   this file. The older "Hall of Fame" block above is left in place; these
+   rules sit after it and win on specificity.
+
+   Existing markup that is styled (nothing is invented):
+     h2.section-title · .hof-list > .hof-card
+       .hof-card-head > .hof-season + .hof-champion + .hof-champion-badge
+       .hof-roster (slots 1-5) · .hof-roster-extra[hidden] (slots 6-10)
+       .hof-row > .hof-row-slot + .hof-row-player + .hof-row-pos + .hof-row-ovr
+       .hof-toggle-btn[aria-expanded] · .empty-state (empty / read-failed)
+   The data has no per-player award, stat line, MVP flag or rank, so none is
+   drawn: the card shows season, champion, the roster and the existing
+   CHAMPION label, and the OVR figure is emphasised only as a number.
+
+   Colour roles: gold = Hall of Fame / championship (title bar, card top rule,
+   CHAMPION label, empty-state rule); orange = player OVR; indigo = the one
+   interactive control (expand toggle); everything else is the Step 1/5 dark
+   surface ramp. Information (the card) and control (the toggle) are separated
+   by a full-bleed footer band, so the historical record never looks clickable.
+   Motion: colour transitions on --nb-dur-fast only (0ms under
+   prefers-reduced-motion). No animations, no transition: all.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Page header ── */
+.hof-view > h2.section-title {
+  font-size: clamp(1.125rem, 4.6vw, var(--nb-fs-display));
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  text-transform: uppercase;
+  color: var(--nb-text);
+  margin: 0 0 var(--nb-space-5);
+  padding: 0 0 var(--nb-space-3) var(--nb-space-3);
+  border-left: 4px solid var(--nb-gold);
+  border-bottom: 0;
+  position: relative;
+}
+.hof-view > h2.section-title::after {
+  content: "";
+  position: absolute;
+  left: var(--nb-space-3);
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--nb-gold) 70%, transparent), var(--nb-surface-border) 45%, transparent);
+}
+
+/* ── Trophy case: two-up when there is room, one column otherwise ── */
+.hof-view .hof-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: var(--nb-space-5);
+  align-items: start;
+}
+
+/* ── Championship card ── */
+.hof-view .hof-card {
+  gap: 0;
+  padding: 0;
+  min-width: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, var(--nb-gold-dim), transparent 9rem),
+    var(--nb-surface-card);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 26%, var(--nb-surface-border));
+  border-top: 3px solid var(--nb-gold);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-shadow-2);
+}
+
+/* Head: season eyebrow + CHAMPION label on one line, champion name beneath */
+.hof-view .hof-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "season badge" "champion champion";
+  align-items: center;
+  gap: var(--nb-space-2) var(--nb-space-3);
+  padding: var(--nb-space-4) var(--nb-space-5) var(--nb-space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--nb-gold) 22%, var(--nb-surface-border));
+}
+.hof-view .hof-season {
+  grid-area: season;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  overflow-wrap: anywhere;
+}
+.hof-view .hof-champion {
+  grid-area: champion;
+  font-size: clamp(1.25rem, 4.2vw, 1.625rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  line-height: var(--nb-lh-title);
+  color: var(--nb-text);
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.hof-view .hof-champion-badge {
+  grid-area: badge;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.25rem 0.65rem 0.25rem 0.5rem;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 55%, transparent);
+  border-radius: var(--nb-r-pill);
+}
+/* Decorative trophy mark (same glyph as the sidebar link); carries no text. */
+.hof-view .hof-champion-badge::before {
+  content: "";
+  width: 0.95rem;
+  height: 0.95rem;
+  flex: none;
+  background: currentColor;
+  -webkit-mask: var(--hof-trophy) center / contain no-repeat;
+  mask: var(--hof-trophy) center / contain no-repeat;
+  --hof-trophy: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/%3E%3Cpath d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/%3E%3Cpath d='M4 22h16'/%3E%3Cpath d='M10 14.66V17c0 .55-.47.98-1.04 1.21C7.85 18.75 7 20.24 7 22'/%3E%3Cpath d='M14 14.66V17c0 .55.47.98 1.04 1.21C16.15 18.75 17 20.24 17 22'/%3E%3Cpath d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/%3E%3C/svg%3E");
+}
+
+/* ── Roster ── */
+.hof-view .hof-roster { padding: var(--nb-space-2) var(--nb-space-5); }
+/* Defensive: an entry whose roster is missing/empty shows just its head. */
+.hof-view .hof-roster:not(:has(.hof-row)) { display: none; }
+.hof-view .hof-card:not(:has(.hof-row)) .hof-card-head { border-bottom: 0; }
+.hof-view .hof-roster-extra[hidden] { display: none; }
+/* Players 6-10: an inset tray, so the second group reads as a separate set. */
+.hof-view .hof-roster-extra {
+  background: var(--nb-surface-sunken);
+  border-top: 1px solid var(--nb-surface-border);
+  box-shadow: inset 0 6px 8px -8px rgba(0, 0, 0, 0.7);
+}
+
+.hof-view .hof-row {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr) 2.75rem 3rem;
+  align-items: center;
+  gap: var(--nb-space-3);
+  min-height: 2.75rem;
+  padding: 0.35rem 0;
+  font-size: var(--nb-fs-body);
+  line-height: var(--nb-lh-table);
+  color: var(--nb-text);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.hof-view .hof-roster .hof-row:last-child { border-bottom: 0; }
+
+.hof-view .hof-row-slot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-sm);
+}
+.hof-view .hof-roster-extra .hof-row-slot { background: var(--nb-surface-card); }
+
+.hof-view .hof-row-player {
+  min-width: 0;
+  font-weight: var(--nb-fw-semibold);
+  color: var(--nb-text);
+  white-space: normal;          /* names wrap instead of truncating with an ellipsis */
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+.hof-view .hof-roster-extra .hof-row-player { font-weight: var(--nb-fw-medium); }
+
+.hof-view .hof-row-pos {
+  justify-self: center;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
+  text-align: center;
+  color: var(--nb-text-muted);
+}
+
+.hof-view .hof-row-ovr {
+  justify-self: end;
+  min-width: 2.5rem;
+  padding: 0.15rem 0.45rem;
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-heavy);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--nb-brand-orange-ink);
+  background: var(--nb-brand-orange-dim);
+  border-radius: var(--nb-r-sm);
+}
+.hof-view .hof-row-ovr:empty { background: none; }   /* no figure supplied: draw nothing */
+
+/* ── Expand control: full-bleed footer band, visually apart from the record ── */
+.hof-view .hof-toggle-btn {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--nb-control-lg);
+  margin: 0;
+  padding: var(--nb-space-2) var(--nb-space-4);
+  font-family: var(--font-ui);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-raised);
+  border: 0;
+  border-top: 1px solid var(--nb-surface-border);
+  border-radius: 0;
+  cursor: pointer;
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard),
+              color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hof-view .hof-toggle-btn:hover {
+  color: var(--nb-primary-ink);
+  background: var(--nb-surface-lift);
+  border-color: var(--nb-surface-border);
+}
+.hof-view .hof-toggle-btn[aria-expanded="true"] {
+  color: var(--nb-primary-ink);
+  background: var(--nb-primary-dim);
+}
+.hof-view .hof-toggle-btn:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: -4px;          /* inside the band: the card clips an outset ring */
+}
+
+/* ── Empty / read-failed state ── */
+.hof-view .empty-state {
+  padding: var(--nb-space-7) var(--nb-space-5);
+  background:
+    linear-gradient(180deg, var(--nb-gold-dim), transparent 8rem),
+    var(--nb-surface-card);
+  border: 1px solid color-mix(in srgb, var(--nb-gold) 26%, var(--nb-surface-border));
+  border-top: 3px solid var(--nb-gold);
+  box-shadow: var(--nb-shadow-2);
+}
+.hof-view .empty-state h2 {
+  font-size: var(--nb-fs-display);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-title);
+  text-transform: uppercase;
+}
+.hof-view .empty-state p { max-width: 28rem; line-height: var(--nb-lh-body); }
+
+/* ── Tablets / phones ── */
+@media (max-width: 700px) {
+  .hof-view .hof-list { gap: var(--nb-space-4); }
+  .hof-view .hof-card-head { padding: var(--nb-space-3) var(--nb-space-4); }
+  .hof-view .hof-roster { padding: var(--nb-space-1) var(--nb-space-4); }
+  .hof-view .hof-row {
+    grid-template-columns: 1.75rem minmax(0, 1fr) 2.5rem 2.75rem;
+    gap: var(--nb-space-2);
+    font-size: var(--nb-fs-body);
+  }
+  .hof-view .hof-champion-badge { margin: 0; }
+}
+
+/* Phones: the name takes the full row; position sits beneath it. */
+@media (max-width: 480px) {
+  .hof-view .hof-row {
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    grid-template-areas: "slot player ovr" "slot pos ovr";
+    column-gap: var(--nb-space-3);
+    row-gap: 0;
+    padding-block: var(--nb-space-2);
+  }
+  .hof-view .hof-row-slot   { grid-area: slot; align-self: start; margin-top: 0.1rem; }
+  .hof-view .hof-row-player { grid-area: player; }
+  .hof-view .hof-row-pos    { grid-area: pos; justify-self: start; text-align: left; }
+  .hof-view .hof-row-ovr    { grid-area: ovr; align-self: center; font-size: 1.125rem; min-width: 2.75rem; }
+  .hof-view .hof-champion-badge { padding-inline: 0.45rem 0.55rem; letter-spacing: 0.06em; }
 }

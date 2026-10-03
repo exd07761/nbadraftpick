@@ -8,13 +8,22 @@
  * simply no longer present in the markup — see index.html/admin.html)
  * without touching a single rule in the existing files.
  *
- * Depends only on the --nb-* tokens added in main.css (Phase 1). No
- * JavaScript selectors here are new: the interactive nav elements keep
- * their original classes (.nav-link / .admin-nav-link) and data
- * attributes (data-route / data-view) so public-router.js and admin.js
- * keep working completely unmodified — this file only restyles and
- * repositions them. Toggle behavior (drawer open/close, sidebar
+ * Depends only on the --nb-* tokens added in main.css (Phase 1 and Phase 2
+ * Steps 1-3). No JavaScript selectors here are new: the interactive nav
+ * elements keep their original classes (.nav-link / .admin-nav-link) and
+ * data attributes (data-route / data-view) so public-router.js and
+ * admin.js keep working completely unmodified — this file only restyles
+ * and repositions them. Toggle behavior (drawer open/close, sidebar
  * collapse) lives in js/shell.js, also new and additive.
+ *
+ * Phase 2 Step 3 (shell styling) — CSS-only, no markup or JS changed.
+ * Dark cinematic direction, in three layers:
+ *   canvas (--nb-canvas, darkest)  <  sidebar / top bar (--nb-sidebar-bg)
+ *   <  legacy cards (--bg-card, painted by the page components themselves).
+ * Indigo = active/interactive, orange = the brand mark only, gold = live.
+ * No decorative animation: the only motion is the drawer slide, the rail
+ * width change and a one-shot scrim fade, all on --nb-dur-* tokens (which
+ * the Step 2 reduced-motion rules collapse to zero).
  */
 
 /* ─── Shell layout ──────────────────────────────────────────────────────────── */
@@ -29,15 +38,13 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* Resolves Open Question #2 from the approved spec (§11): light main
-     workspace behind the dark sidebar. This paints over the old global
-     body background-image/photo for the content area only — a canvas
-     change, not a component rewrite. Individual page components
-     (.stat-card, .roster-card, etc.) still render with their own
-     existing colors from main.css/admin.css until they're migrated in a
-     later phase; they simply now sit on a light backdrop instead of a
-     dark photo, which does not change their internal markup or logic. */
-  background: var(--nb-surface);
+  /* Step 3: the application canvas is dark (superseding the earlier "light
+     workspace" decision). Solid rather than translucent, so the page reads
+     the same regardless of the global body background photo behind it.
+     Page components are NOT restyled here: anything built for a light
+     backdrop (see the Step 3 report) keeps its own colors until its phase. */
+  background: var(--nb-canvas);
+  color: var(--text);
 }
 
 /* ─── Sidebar (desktop: sticky column · mobile: off-canvas drawer) ────────────── */
@@ -63,10 +70,8 @@
   height: 100vh;
   align-self: flex-start;
   overflow: hidden; /* only .nb-sidebar-nav scrolls internally, see below */
-  transition: width 0.18s ease;
+  transition: width var(--nb-dur-base) var(--nb-ease-standard);
 }
-
-.nb-shell.nb-collapsed .nb-sidebar { width: var(--nb-sidebar-width-collapsed); }
 
 .nb-sidebar-top {
   display: flex;
@@ -78,169 +83,343 @@
   flex-shrink: 0;
 }
 
+/* Brand: white wordmark with the one controlled orange moment ("2K"). On
+   admin, the "Admin" tag is a small indigo chip so the two sites read as
+   siblings. */
 .nb-sidebar-brand {
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: var(--nb-tracking-caps);
   text-transform: uppercase;
   color: var(--nb-sidebar-text-active);
   white-space: nowrap;
   overflow: hidden;
 }
-.nb-sidebar-brand span,
-.nb-sidebar-brand em { color: var(--nb-primary); font-style: normal; }
-.nb-collapsed .nb-sidebar-brand { font-size: 0.7rem; }
+.nb-sidebar-brand span { color: var(--nb-brand-orange-on-dark); font-style: normal; }
+.nb-sidebar-brand em {
+  color: var(--nb-focus-ring-on-dark);
+  background: var(--nb-primary-dim);
+  border-radius: var(--nb-r-sm);
+  padding: 2px 6px;
+  font-style: normal;
+}
 
 .nb-drawer-close { display: none; }
 
 .nb-sidebar-nav {
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--nb-sidebar-border) transparent;
   padding: var(--nb-space-3) var(--nb-space-2);
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+/* Group labels: same three groups, at the 12px floor (was 10.4px) with room
+   above so each group reads as its own block. */
 .nb-sidebar-group-label {
-  font-size: 0.65rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
   text-transform: uppercase;
   color: var(--nb-sidebar-text-dim);
   padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-1);
 }
-.nb-collapsed .nb-sidebar-group-label { opacity: 0; height: 0; padding: 4px 0 0; overflow: hidden; }
+.nb-sidebar-group-label:first-child { padding-top: var(--nb-space-2); }
 
 .nb-sidebar-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--nb-space-3);
-  padding: 0.6rem var(--nb-space-3);
+  padding: 0.6rem var(--nb-space-3); /* same row density as Step 2: the 16-link admin nav fits a 900px-tall viewport without scrolling */
   border-radius: var(--nb-r);
   color: var(--nb-sidebar-text);
-  font-size: 0.84rem;
-  font-weight: 500;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-medium);
   letter-spacing: normal;
   text-transform: none;
   white-space: nowrap;
   overflow: hidden;
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
 }
-.nb-sidebar-link:hover { color: var(--nb-sidebar-text-active); background: rgba(255,255,255,0.04); }
+.nb-sidebar-link:hover { color: var(--nb-sidebar-text-active); background: var(--nb-sidebar-bg-hover); }
+/* Active = filled row + white semibold label + indigo edge marker + lit icon.
+   Four cues, so it never relies on color alone. Declared after :hover so an
+   active row keeps its fill under the pointer. */
 .nb-sidebar-link.active {
   color: var(--nb-sidebar-text-active);
   background: var(--nb-sidebar-bg-active);
-  box-shadow: inset 3px 0 0 var(--nb-primary);
+  font-weight: var(--nb-fw-semibold);
 }
+.nb-sidebar-link.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--nb-primary);
+}
+.nb-sidebar-link.active .nb-link-icon { color: var(--nb-focus-ring-on-dark); }
 
+/* Step 4: nav icons are inline SVGs (see index.html / admin.html), drawn in
+   Lucide's outline style — 24px grid, 1.75 stroke, round caps/joins. Several
+   geometries are adapted from Lucide (https://lucide.dev, ISC License,
+   (c) Lucide Contributors); nothing is loaded from it at runtime. Color comes
+   from currentColor, so idle/hover/active/focus states set it once on the link
+   (and .active .nb-link-icon above). The icon box is 20px tall — never taller
+   than the label's line box — so row heights are unchanged from Step 3. */
 .nb-link-icon {
   flex-shrink: 0;
-  width: 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 20px;
   text-align: center;
-  font-size: 0.95rem;
-  opacity: 0.9;
+  font-size: 1rem;
+  line-height: 1;
 }
+.nb-link-icon svg { display: block; width: 20px; height: 20px; flex-shrink: 0; }
 .nb-link-label { overflow: hidden; text-overflow: ellipsis; }
-.nb-collapsed .nb-link-label { display: none; }
-.nb-collapsed .nb-sidebar-link { justify-content: center; padding: 0.6rem; }
 
-/* ─── Season selector (added pre-Phase-6, per approved spec §3.1/§9) ────────
+/* ─── Season widget (added pre-Phase-6, per approved spec §3.1/§9) ───────────
    Admin: a real, functional <select> wired to the existing
    AdminActions.setCurrentSeason — same write the admin Seasons page
    already performs, just reachable from anywhere now. Public: a
    read-only label only — see js/shell.js and the review notes for why
-   public doesn't get an interactive switcher. ─────────────────────────── */
+   public doesn't get an interactive switcher.
+   Step 3: an inset "scoreboard" panel (darker than the sidebar) so the
+   season reads as league identity rather than a form field: small caps
+   caption over a large numeric-friendly value. ─────────────────────────── */
 .nb-sidebar-season {
-  padding: var(--nb-space-3);
-  border-top: 1px solid var(--nb-sidebar-border);
+  margin: 0 var(--nb-space-3) var(--nb-space-2);
+  padding: var(--nb-space-2) var(--nb-space-3);
+  background: var(--nb-canvas);
+  border: 1px solid var(--nb-sidebar-border);
+  border-radius: var(--nb-r);
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--nb-space-1);
 }
-.nb-collapsed .nb-sidebar-season { display: none; } /* no room to show season info meaningfully when collapsed */
 .nb-season-caption {
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: var(--nb-tracking-caps);
   text-transform: uppercase;
   color: var(--nb-sidebar-text-dim);
 }
-.nb-collapsed .nb-season-caption { display: none; }
-.nb-season-select {
-  width: 100%;
-  background: var(--nb-sidebar-bg-active);
-  border: 1px solid var(--nb-sidebar-border);
-  color: var(--nb-sidebar-text-active);
-  border-radius: var(--nb-r);
-  font-size: 0.78rem;
-  font-family: var(--font-ui);
-  padding: 0.4rem 0.5rem;
-  cursor: pointer;
-}
-.nb-season-select:focus { outline: none; border-color: var(--nb-primary); }
 .nb-season-label {
-  font-size: 0.82rem;
-  font-weight: 700;
+  font-size: var(--nb-fs-h3);
+  font-weight: var(--nb-fw-heavy);
+  line-height: var(--nb-lh-title);
+  letter-spacing: var(--nb-tracking-title);
+  font-variant-numeric: tabular-nums;
   color: var(--nb-sidebar-text-active);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.nb-season-select {
+  width: 100%;
+  height: var(--nb-control-sm);
+  background: var(--nb-sidebar-bg);
+  border: 1px solid var(--nb-sidebar-border);
+  color: var(--nb-sidebar-text-active);
+  color-scheme: dark; /* dark native dropdown list on dark chrome */
+  border-radius: var(--nb-r-sm);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
+  font-family: var(--font-ui);
+  padding: 0 var(--nb-space-2);
+  cursor: pointer;
+  transition: border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.nb-season-select:hover { border-color: var(--nb-sidebar-text-dim); }
+.nb-season-select:focus-visible {
+  outline: 2px solid var(--nb-focus-ring-on-dark);
+  outline-offset: 1px;
+  border-color: var(--nb-focus-ring-on-dark);
+}
 
 .nb-sidebar-bottom {
   border-top: 1px solid var(--nb-sidebar-border);
-  padding: var(--nb-space-3);
+  padding: var(--nb-space-2) var(--nb-space-3);
   display: flex;
   align-items: center;
-  gap: var(--nb-space-2);
+  gap: var(--nb-space-1) var(--nb-space-2); /* row gap 4 / column gap 8: keeps the 3-row admin block close to Step 2's height */
   flex-wrap: wrap;
 }
-.nb-collapsed .nb-sidebar-bottom { flex-direction: column; }
 
 .nb-sidebar-identity {
-  font-size: 0.76rem;
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-semibold);
   color: var(--nb-sidebar-text);
-  flex: 1;
+  flex: 1 1 100%; /* own row above the buttons so the name is never squeezed */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.nb-collapsed .nb-sidebar-identity { display: none; }
 
+/* Legacy .admin-link / .btn-ghost colors were written for the old header;
+   restated against sidebar tokens so they read on the rail and don't fall
+   back to the global orange a:hover. */
 .nb-sidebar-admin-link,
 .nb-sidebar-bottom .btn {
-  font-size: 0.72rem;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-semibold);
 }
-.nb-collapsed .nb-sidebar-admin-link span.nb-link-label,
-.nb-collapsed #adminUsername { display: none; }
+.nb-sidebar-admin-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--nb-control-sm);
+  padding: 0 var(--nb-space-3);
+  color: var(--nb-sidebar-text);
+  border: 1px solid var(--nb-sidebar-border);
+  border-radius: var(--nb-r);
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.nb-sidebar-admin-link:hover {
+  color: var(--nb-sidebar-text-active);
+  background: var(--nb-sidebar-bg-hover);
+  border-color: var(--nb-sidebar-text-dim);
+}
+.nb-sidebar-bottom .btn-ghost {
+  min-height: var(--nb-control-sm);
+  padding: 0 var(--nb-space-2);
+  color: var(--nb-sidebar-text);
+  border-color: var(--nb-sidebar-border);
+}
+.nb-sidebar-bottom .btn-ghost:hover:not(:disabled) {
+  color: var(--nb-sidebar-text-active);
+  background: var(--nb-sidebar-bg-hover);
+  border-color: var(--nb-sidebar-text-dim);
+}
 
 .nb-sidebar-collapse-btn {
   background: transparent;
   border: 1px solid var(--nb-sidebar-border);
   color: var(--nb-sidebar-text);
   border-radius: var(--nb-r);
-  width: 1.9rem;
-  height: 1.9rem;
+  width: var(--nb-control-sm);
+  height: var(--nb-control-sm);
   flex-shrink: 0;
+  margin-left: auto; /* pinned to the row's right edge on both sites */
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: var(--nb-fs-sm);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
 }
-.nb-sidebar-collapse-btn:hover { color: var(--nb-sidebar-text-active); border-color: var(--nb-primary); }
-.nb-collapsed .nb-sidebar-collapse-btn { transform: rotate(180deg); }
+.nb-sidebar-collapse-btn:hover {
+  color: var(--nb-sidebar-text-active);
+  background: var(--nb-sidebar-bg-hover);
+  border-color: var(--nb-sidebar-text-dim);
+}
 
-/* ─── Top bar (mobile only) ─────────────────────────────────────────────────── */
+/* Keyboard focus — one ring for every shell control on dark chrome. Inset
+   on rows because .nb-sidebar-link clips its own overflow. */
+.nb-sidebar-link:focus-visible { outline: 2px solid var(--nb-focus-ring-on-dark); outline-offset: -2px; }
+.nb-sidebar-admin-link:focus-visible,
+.nb-sidebar-bottom .btn:focus-visible,
+.nb-sidebar-collapse-btn:focus-visible,
+.nb-drawer-close:focus-visible,
+.nb-hamburger:focus-visible,
+.nb-topbar-status a:focus-visible { outline: 2px solid var(--nb-focus-ring-on-dark); outline-offset: 2px; }
+
+/* ─── Collapsed rail (desktop only) ───────────────────────────────────────────
+   Scoped to >900px: at <=900px the sidebar is the off-canvas drawer and the
+   collapse button is hidden, so the collapsed state must never reach it (in
+   the Step 2 baseline a rail collapsed on desktop and then resized narrow
+   opened a drawer with every .nb-link-label hidden). `not all and
+   (max-width: 900px)` is the exact complement of the drawer breakpoint below,
+   so there is no gap or overlap at 900/901px.
+   Toggle behavior is unchanged: same .nb-collapsed class, .nb-link-label
+   still hidden in the rail exactly as before, season widget still hidden.
+   Presentation only: a "2K" monogram tile, hairline dividers where the group
+   labels were, and fixed icon tiles. */
+@media not all and (max-width: 900px) {
+  .nb-shell.nb-collapsed .nb-sidebar { width: var(--nb-sidebar-width-collapsed); }
+
+  .nb-collapsed .nb-sidebar-top { justify-content: center; padding: 0; }
+  /* Brand text collapses to the orange "2K" (its own <span>) drawn as a tile. */
+  .nb-collapsed .nb-sidebar-brand { font-size: 0; letter-spacing: 0; }
+  .nb-collapsed .nb-sidebar-brand span {
+    display: inline-block;
+    font-size: var(--nb-fs-sm);
+    letter-spacing: 0;
+    padding: 6px 7px;
+    background: var(--nb-canvas);
+    border: 1px solid var(--nb-sidebar-border);
+    border-radius: var(--nb-r);
+  }
+  .nb-collapsed .nb-sidebar-brand em { display: none; }
+
+  /* Group labels become hairline dividers (the first has nothing above it). */
+  .nb-collapsed .nb-sidebar-group-label {
+    height: 1px;
+    margin: var(--nb-space-2) var(--nb-space-3);
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+    background: var(--nb-sidebar-border);
+  }
+  .nb-collapsed .nb-sidebar-group-label:first-child { margin: 0; background: none; }
+
+  .nb-collapsed .nb-link-label { display: none; }
+  .nb-collapsed .nb-sidebar-link { justify-content: center; padding: 0.6rem; }
+  .nb-collapsed .nb-link-icon { width: auto; height: 1.125rem; font-size: 1.125rem; }
+  .nb-collapsed .nb-link-icon svg { width: 1.125rem; height: 1.125rem; } /* 18-19px in the rail; same box as the Step 3 glyph, so rail rows don't move */
+
+  .nb-collapsed .nb-sidebar-season { display: none; } /* no room to show season info meaningfully when collapsed */
+  .nb-collapsed .nb-season-caption { display: none; }
+
+  .nb-collapsed .nb-sidebar-bottom { flex-direction: column; padding: var(--nb-space-3) var(--nb-space-2); }
+  .nb-collapsed .nb-sidebar-identity,
+  .nb-collapsed #adminUsername { display: none; }
+  .nb-collapsed .nb-sidebar-collapse-btn { margin-left: 0; transform: rotate(180deg); }
+  /* Public "Admin ↗" link: its only child is the (hidden) .nb-link-label, which
+     used to leave an empty bordered sliver. A glyph keeps it a real 32px target. */
+  .nb-collapsed .nb-sidebar-admin-link { width: var(--nb-control-sm); padding: 0; }
+  .nb-collapsed .nb-sidebar-admin-link::before { content: "\2197"; }
+  /* Admin text buttons (Sign Out / Public Site) wrap inside the 64px rail
+     instead of clipping. */
+  .nb-collapsed .nb-sidebar-bottom .btn {
+    width: 100%;
+    padding: 0 2px;
+    min-height: var(--nb-control-md);
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+  }
+}
+
+/* ─── Top bar (mobile only) ───────────────────────────────────────────────────
+   Same dark surface as the drawer it opens, so the chrome reads as one system
+   above the near-black canvas. Structure unchanged: hamburger · title · status
+   slot. Still hidden on desktop (see the drawer breakpoint). ──────────────── */
 .nb-topbar {
   display: none;
   align-items: center;
-  gap: var(--nb-space-3);
+  gap: var(--nb-space-2);
   height: var(--nb-topbar-height);
-  padding: 0 var(--nb-space-3);
-  background: var(--nb-surface-card);
-  border-bottom: 1px solid var(--nb-surface-border);
+  padding: 0 var(--nb-space-3) 0 var(--nb-space-2);
+  background: var(--nb-sidebar-bg);
+  border-bottom: 1px solid var(--nb-sidebar-border);
   position: sticky;
   top: 0;
   z-index: 90;
@@ -250,30 +429,34 @@
   /* Fix (pre-Phase-6 review): comfortable ~44px tap target. The icon
      itself (the three bars) stays the same visual size — only the
      button's own box grows, via width/height, not by scaling the icon. */
-  width: 44px;
-  height: 44px;
+  width: var(--nb-control-lg);
+  height: var(--nb-control-lg);
   flex-shrink: 0;
   background: transparent;
   border: none;
+  border-radius: var(--nb-r);
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
 }
+.nb-hamburger:hover { background: var(--nb-sidebar-bg-hover); }
 .nb-hamburger span {
   display: block;
   width: 1.15rem;
   height: 2px;
-  background: var(--nb-text);
+  background: var(--nb-sidebar-text-active);
   border-radius: 1px;
 }
 
 .nb-topbar-title {
-  font-weight: 700;
-  font-size: 0.92rem;
-  color: var(--nb-text);
+  font-weight: var(--nb-fw-bold);
+  font-size: var(--nb-fs-h3);
+  letter-spacing: var(--nb-tracking-title);
+  color: var(--nb-sidebar-text-active);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -281,40 +464,54 @@
   white-space: nowrap;
 }
 
+/* Live / "On the Clock" pill — gold on dark chrome. Meaning is carried by the
+   dot and the words "On the Clock: <name>" as well as the gold. Deliberately
+   static: shell.js rewrites this node every 5s and on every remote change, so
+   any animation here would restart constantly (Step 2 retired the old pulse
+   for the same reason). The halo on the dot is a static ring, not motion. */
+.nb-topbar-status { flex-shrink: 1; min-width: 0; max-width: 62%; }
 .nb-topbar-status:empty { display: none; }
 .nb-topbar-status a {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.7rem;
-  font-weight: 700;
+  display: block; /* block (not flex) so the name can truncate with an ellipsis */
+  height: var(--nb-row-h-compact);
+  line-height: calc(var(--nb-row-h-compact) - 2px);
+  padding: 0 var(--nb-space-3);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
   letter-spacing: 0.02em;
-  color: #7a5a00;
+  color: var(--nb-gold-on-dark);
   background: var(--nb-gold-dim);
   border: 1px solid var(--nb-gold);
-  padding: 0.3rem 0.55rem;
-  border-radius: 999px;
+  border-radius: var(--nb-r-pill);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.nb-topbar-status a:hover { color: var(--nb-gold-on-dark); border-color: var(--nb-gold-on-dark); }
 .nb-topbar-status-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--nb-gold);
-  flex-shrink: 0;
-  animation: nb-pulse 1.4s ease-in-out infinite;
+  display: inline-block;
+  vertical-align: middle;
+  width: 8px; height: 8px; border-radius: 50%;
+  margin: -2px var(--nb-space-2) 0 0;
+  background: var(--nb-gold-on-dark);
+  box-shadow: 0 0 0 3px var(--nb-gold-dim);
 }
-@keyframes nb-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 
 /* ─── Drawer scrim (mobile) ─────────────────────────────────────────────────── */
 .nb-drawer-scrim {
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(10, 11, 16, 0.5);
+  background: var(--nb-scrim-shell);
   border: none;
   padding: 0;
-  z-index: 199;
+  z-index: var(--nb-z-scrim);
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
+/* One-shot fade as the class flips display none -> block. It does not restart
+   on view re-renders (the shell markup is never re-rendered). */
+@keyframes nb-scrim-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* ─── Responsive: sidebar becomes an off-canvas drawer ─────────────────────── */
 @media (max-width: 900px) {
@@ -322,14 +519,19 @@
     position: fixed;
     top: 0; bottom: 0; left: 0;
     width: min(84vw, 300px);
-    z-index: 200;
+    z-index: var(--nb-z-drawer);
     transform: translateX(-100%);
-    transition: transform 0.22s ease;
-    box-shadow: 4px 0 24px rgba(0,0,0,0.25);
+    transition: transform var(--nb-dur-slow) var(--nb-ease-standard);
+    overscroll-behavior: contain;
   }
-  .nb-shell.nb-drawer-open .nb-sidebar { transform: translateX(0); }
-  .nb-shell.nb-drawer-open .nb-drawer-scrim { display: block; }
-  .nb-shell.nb-collapsed .nb-sidebar { width: min(84vw, 300px); } /* collapse state is desktop-only */
+  .nb-shell.nb-drawer-open .nb-sidebar {
+    transform: translateX(0);
+    box-shadow: var(--nb-sidebar-shadow-drawer); /* only while open: closed, the shadow used to bleed onto the left screen edge */
+  }
+  .nb-shell.nb-drawer-open .nb-drawer-scrim {
+    display: block;
+    animation: nb-scrim-in var(--nb-dur-base) var(--nb-ease-standard);
+  }
 
   .nb-drawer-close {
     display: flex;
@@ -337,15 +539,37 @@
     justify-content: center;
     /* Fix (pre-Phase-6 review): 44px tap target — the × glyph itself
        (font-size) is unchanged, only the button box grew to fit it. */
-    width: 44px; height: 44px;
+    width: var(--nb-control-lg); height: var(--nb-control-lg);
+    margin-right: calc(var(--nb-space-2) * -1); /* optically aligns the × with the 16px gutter */
     background: transparent;
     border: none;
+    border-radius: var(--nb-r);
     color: var(--nb-sidebar-text);
-    font-size: 1.2rem;
+    font-size: 1.5rem;
+    line-height: 1;
     cursor: pointer;
+    transition:
+      color var(--nb-dur-fast) var(--nb-ease-standard),
+      background-color var(--nb-dur-fast) var(--nb-ease-standard);
   }
+  .nb-drawer-close:hover { color: var(--nb-sidebar-text-active); background: var(--nb-sidebar-bg-hover); }
   .nb-sidebar-collapse-btn { display: none; } /* collapse is a desktop-only affordance */
-  .nb-sidebar-link { padding: 0.75rem var(--nb-space-3); font-size: 0.9rem; } /* larger touch targets */
+
+  /* Touch sizing: 44px rows, body-size labels. */
+  .nb-sidebar-link { min-height: var(--nb-control-lg); font-size: var(--nb-fs-body); }
+  .nb-sidebar-link.active::before { top: 11px; bottom: 11px; }
+  .nb-sidebar-admin-link,
+  .nb-sidebar-bottom .btn-ghost { min-height: var(--nb-control-lg); }
+  .nb-sidebar-admin-link,
+  .nb-sidebar-bottom .btn { font-size: var(--nb-fs-sm); }
+  .nb-season-select { height: var(--nb-control-lg); font-size: 1rem; } /* >=16px so iOS doesn't zoom on focus */
 
   .nb-topbar { display: flex; }
+}
+
+/* Narrow phones: tighten the top bar so title + live pill both fit. */
+@media (max-width: 480px) {
+  .nb-topbar { gap: var(--nb-space-1); padding-right: var(--nb-space-2); }
+  .nb-topbar-status a { padding: 0 var(--nb-space-2); }
+  .nb-topbar-status-dot { margin-right: 6px; }
 }

@@ -1,0 +1,257 @@
+/**
+ * primitives.css — Phase 2 Step 5: shared visual primitives for the dark
+ * cinematic direction. Loaded LAST by index.html and admin.html, so this is the
+ * one place where the shared look is decided; page-specific stylesheets are
+ * untouched and keep winning wherever they are more specific (e.g. the
+ * Draft screen's `.draft-v2 …` rules).
+ *
+ * Presentation only. It sets colour, surface, border colour, shadow and type
+ * treatment — not layout. Existing paddings, radii, sizes and breakpoints stay
+ * exactly as each component already defines them, with two deliberate
+ * exceptions: `.btn` gets its (admin.css) geometry restated so the public site,
+ * which never loaded admin.css, gets real buttons too.
+ *
+ * Every colour is a token from css/main.css. Layers, darkest to lightest:
+ *   --nb-canvas < --nb-surface-card (panel) < --nb-surface-raised < --nb-surface-lift
+ * Indigo = primary/active, gold = live, orange = brand + elite OVR, and the
+ * pool hues appear only on the pool components that already carry that meaning.
+ *
+ * Motion: colour/background/border transitions on the --nb-dur-fast token only
+ * (Step 2 collapses it under prefers-reduced-motion). No `transition: all`, no
+ * animations.
+ */
+
+/* ── 5A · Badges / status ───────────────────────────────────────────────────
+   One recipe: tinted fill + readable ink of the same hue + a hairline ring drawn
+   with box-shadow (so no badge changes size). Meaning per status is unchanged. */
+.status-chip,
+.pool-badge,
+.badge-current,
+.valid-badge,
+.invalid-badge,
+.pick-color-badge {
+  font-weight: var(--nb-fw-bold);
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 28%, transparent);
+}
+
+.status-setup,
+.status-scheduled,
+.badge-current,
+.order-badge          { background: var(--nb-primary-dim);  color: var(--nb-primary-ink); }
+.status-draft,
+.status-unpaid,
+.pick-color-yellow    { background: var(--nb-gold-dim);     color: var(--nb-gold-ink); }
+.status-team_assignment { background: var(--nb-violet-dim); color: var(--nb-violet-ink); }
+.status-regular_season  { background: var(--nb-sky-dim);    color: var(--nb-sky-ink); }
+.status-playoffs,
+.invalid-badge,
+.pick-color-red       { background: var(--nb-negative-dim); color: var(--nb-negative-ink); }
+.status-complete,
+.status-paid,
+.valid-badge          { background: var(--nb-positive-dim); color: var(--nb-positive-ink); }
+.pick-color-pink      { background: var(--nb-pink-dim);     color: var(--nb-pink-ink); }
+.status-bye           { background: var(--nb-surface-raised); color: var(--nb-text-muted); }
+
+/* Pool badges keep their pool hue (the only place these hues carry meaning). */
+.pool-badge-green     { background: var(--nb-pool-green-tint); color: var(--nb-pool-green-ink); }
+.pool-badge-blue      { background: var(--nb-pool-blue-tint);  color: var(--nb-pool-blue-ink); }
+.pool-badge-white     { background: var(--nb-pool-white-tint); color: var(--nb-pool-white-ink); }
+
+/* ── 5B · Buttons ────────────────────────────────────────────────────────────
+   Hierarchy: primary (indigo) › secondary (raised surface) › ghost (transparent)
+   · danger (red outline) · success (green outline). Geometry is admin.css's,
+   restated so the public site's buttons match. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: var(--nb-fw-semibold);
+  padding: 0.5rem 1.1rem;
+  border-radius: var(--r);
+  border: 1px solid var(--nb-surface-border);
+  background: var(--nb-surface-raised);
+  color: var(--nb-text);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard),
+    border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.btn:hover:not(:disabled) { background: var(--nb-surface-lift); border-color: var(--nb-border-strong); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-sm { font-size: 0.75rem; padding: 0.3rem 0.7rem; }
+
+.btn-primary { background: var(--nb-primary); border-color: var(--nb-primary); color: var(--nb-on-primary); }
+.btn-primary:hover:not(:disabled) { background: var(--nb-primary-hover); border-color: var(--nb-primary-hover); }
+
+.btn-ghost { background: transparent; border-color: var(--nb-surface-border); color: var(--nb-text-muted); }
+.btn-ghost:hover:not(:disabled) { background: var(--nb-surface-hover); border-color: var(--nb-border-strong); color: var(--nb-text); }
+
+.btn-danger { background: transparent; border-color: color-mix(in srgb, var(--nb-negative) 45%, transparent); color: var(--nb-negative-ink); }
+.btn-danger:hover:not(:disabled) { background: var(--nb-negative-dim); border-color: var(--nb-negative); }
+
+.btn-success { background: transparent; border-color: color-mix(in srgb, var(--nb-positive) 45%, transparent); color: var(--nb-positive-ink); }
+.btn-success:hover:not(:disabled) { background: var(--nb-positive-dim); border-color: var(--nb-positive); }
+
+.btn:focus-visible,
+.btn-icon-sm:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+/* ── 5C · Inputs / forms ─────────────────────────────────────────────────────
+   Dark well, visible (3:1) border, white text, muted placeholder, indigo-tint
+   focus ring. Native selects/checkboxes render dark via color-scheme. */
+.input,
+.search-input,
+select.input,
+textarea.input,
+.input-sm {
+  background: var(--nb-surface-sunken);
+  color: var(--nb-text);
+  border: 1px solid var(--nb-border-strong);
+  color-scheme: dark;
+  font-family: var(--font-ui);
+  transition:
+    border-color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.input::placeholder,
+.search-input::placeholder { color: var(--nb-text-dim); opacity: 1; }
+.input:hover:not(:disabled),
+.search-input:hover:not(:disabled) { border-color: var(--nb-text-dim); }
+.input:focus,
+.search-input:focus,
+.input:focus-visible,
+.search-input:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 1px;
+  border-color: var(--nb-focus-ring);
+}
+.input:disabled,
+.search-input:disabled { background: var(--nb-surface); color: var(--nb-text-dim); border-color: var(--nb-surface-border); cursor: not-allowed; }
+.input[aria-invalid="true"] { border-color: var(--nb-negative); }
+.form-group label { color: var(--nb-text-muted); }
+input[type="checkbox"],
+input[type="radio"] { accent-color: var(--nb-primary); color-scheme: dark; }
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+/* ── 5D · Tabs ───────────────────────────────────────────────────────────────
+   Underline tabs: muted → white on hover/active, with an indigo indicator.
+   Pool tabs keep their box shape (existing pool semantics): the active one is a
+   pool-hued tint + ink + hue border instead of a solid fill with white text. */
+.round-tab,
+.dft-tab,
+.trades-tab,
+.nba2k-category-tab {
+  background: transparent;
+  color: var(--nb-text-muted);
+  border-color: transparent;
+  border-radius: var(--nb-r-sm) var(--nb-r-sm) 0 0; /* square bottom corners so the indicator is a straight underline */
+  box-shadow: none;
+  transition:
+    color var(--nb-dur-fast) var(--nb-ease-standard),
+    background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.round-tab:hover,
+.dft-tab:hover,
+.trades-tab:hover,
+.nba2k-category-tab:hover { color: var(--nb-text); background: var(--nb-surface-hover); }
+.round-tab.active,
+.dft-tab.active,
+.trades-tab.active,
+.nba2k-category-tab.active { color: var(--nb-text); background: transparent; border-color: transparent; box-shadow: inset 0 -2px 0 var(--nb-primary); }
+.round-tab:focus-visible,
+.dft-tab:focus-visible,
+.trades-tab:focus-visible,
+.nba2k-category-tab:focus-visible,
+.pool-tab:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+.pool-tab { background: var(--nb-surface-card); color: var(--nb-text-muted); border-color: var(--nb-surface-border); }
+.pool-tab:hover { color: var(--nb-text); background: var(--nb-surface-raised); border-color: var(--nb-border-strong); }
+.pool-tab .pool-tab-count { color: inherit; opacity: 0.8; }
+.pool-tab.active.pool-tab-green { background: var(--nb-pool-green-tint); color: var(--nb-pool-green-ink); border-color: var(--nb-pool-green); }
+.pool-tab.active.pool-tab-blue  { background: var(--nb-pool-blue-tint);  color: var(--nb-pool-blue-ink);  border-color: var(--nb-pool-blue); }
+.pool-tab.active.pool-tab-white { background: var(--nb-pool-white-tint); color: var(--nb-pool-white-ink); border-color: var(--nb-pool-white); }
+
+/* ── 5E · Cards / panels ─────────────────────────────────────────────────────
+   Primary panel = --nb-surface-card on the darker canvas, subtle border,
+   restrained shadow. Forms and modals sit one layer higher (raised). Only plain
+   surfaces are restyled; cards with their own semantic accents are left to
+   their page stylesheets. */
+.stat-card,
+.roster-card,
+.admin-section,
+.standings-card,
+.group-card,
+.matchup-card {
+  background: var(--nb-surface-card);
+  border-color: var(--nb-surface-border);
+  box-shadow: var(--nb-surface-shadow);
+  color: var(--nb-text);
+}
+.card-form {
+  background: var(--nb-surface-raised);
+  border-color: var(--nb-surface-border);
+  box-shadow: var(--nb-surface-shadow);
+  color: var(--nb-text);
+}
+.stat-num { color: var(--nb-text); font-variant-numeric: tabular-nums; }
+.stat-label { color: var(--nb-text-muted); }
+
+/* ── 5F · Tables ─────────────────────────────────────────────────────────────
+   Column count/order/structure untouched. Header = small caps, muted, on a
+   raised band; rows separated by hairlines; restrained hover; tabular numerals
+   everywhere so numbers line up. */
+.roster-table, .standings-table, .admin-table, .group-standings-table,
+.nba2k-table, .rsim-table, .pos-table-grid { font-variant-numeric: tabular-nums; }
+
+.roster-table th, .standings-table th, .admin-table th, .group-standings-table th,
+.nba2k-table th, .rsim-table th {
+  background: var(--nb-surface-raised);
+  color: var(--nb-text-muted);
+  font-weight: var(--nb-fw-bold);
+  border-bottom: 1px solid var(--nb-border-strong);
+}
+.roster-table td, .standings-table td, .admin-table td, .group-standings-table td,
+.nba2k-table td, .rsim-table td {
+  color: var(--nb-text);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.roster-table tbody tr:hover, .standings-table tbody tr:hover, .admin-table tbody tr:hover,
+.group-standings-table tbody tr:hover, .nba2k-table tbody tr:hover, .rsim-table tbody tr:hover {
+  background: var(--nb-surface-hover);
+}
+.table-scroll { color-scheme: dark; }
+
+/* ── 5G · Modals ─────────────────────────────────────────────────────────────
+   Strong backdrop, raised surface, subtle border, deep shadow. Sizes, IDs, open/
+   close mechanics and every button inside are unchanged. */
+.modal-overlay { background: var(--nb-scrim); }
+.modal-card {
+  background: var(--nb-surface-raised);
+  border: 1px solid var(--nb-surface-border);
+  box-shadow: var(--nb-shadow-3);
+  color: var(--nb-text);
+}
+.modal-eyebrow { color: var(--nb-brand-orange-ink); }
+.modal-player-name { color: var(--nb-text); }
+.modal-player-meta,
+.modal-prompt { color: var(--nb-text-muted); }
+
+/* ── 5H · OVR / rating ───────────────────────────────────────────────────────
+   Presentation only — tiers come from the existing classes (elite ≥90, good ≥80,
+   role); no threshold or value is touched. Strong weight + tabular numerals;
+   controlled orange only for the elite tier. */
+.ovr, .pos-ovr, .roster-card-ovr-total, .nba2k-detail-ovr { font-variant-numeric: tabular-nums; font-weight: var(--nb-fw-heavy); }
+.ovr,
+.roster-table .ovr,
+.rsim-table .ovr { color: var(--nb-text); } /* page themes coloured the table cell indigo (3.8:1 on the panel) */
+.roster-card-ovr-total { color: var(--nb-text); }
+.pos-ovr-elite { color: var(--nb-brand-orange-on-dark); }
+.pos-ovr-good  { color: var(--nb-text); }
+.pos-ovr-role  { color: var(--nb-text-muted); }
