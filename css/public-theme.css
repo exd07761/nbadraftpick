@@ -2304,3 +2304,352 @@
   .playoffs-view .bracket-card-row { padding-inline: 0.5rem; }
   .playoffs-view .bracket-champion-banner { padding: var(--nb-space-3) var(--nb-space-4); }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8E — Public Players visual redesign (UI/UX only, CSS only)
+   Every rule below is scoped under `.players-view`, the wrapper rendered
+   only by js/views/players.js (PublicPlayersView). The shared
+   positionPoolGrid() markup (.pos-table*, .pos-*) is also used by the Draft
+   and NBA 2K27 Pool pages, which never sit inside .players-view, so none of
+   them are affected. No JS, HTML, IDs, classes, data-* hooks or selectors
+   are changed. OVR emphasis uses only the tier classes the existing markup
+   already emits (.pos-ovr-elite / -good / -role); no tier logic is added.
+   No animations, no transition: all — transitions use the --nb-dur-* tokens,
+   which main.css already zeroes under prefers-reduced-motion.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Header ── */
+.players-view .player-db-header {
+  position: relative;
+  margin-bottom: var(--nb-space-5);
+  padding-left: var(--nb-space-4);
+}
+.players-view .player-db-header::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0.3rem; bottom: 0.3rem;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--nb-brand-orange);
+}
+.players-view .player-db-title {
+  font-size: clamp(1.625rem, 1.2rem + 1.6vw, 2.25rem);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+.players-view .player-db-subtitle {
+  max-width: 62ch;
+  margin-top: var(--nb-space-2);
+  font-size: var(--nb-fs-sm);
+  line-height: 1.55;
+  color: var(--nb-text-muted);
+}
+
+/* ── Pool info cards ── */
+.players-view .pool-info-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--nb-space-3);
+  margin: var(--nb-space-4) 0 var(--nb-space-5);
+}
+.players-view .pool-info-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nb-space-1);
+  min-width: 0;
+  padding: var(--nb-space-3) var(--nb-space-4);
+  background: linear-gradient(180deg, var(--nb-surface-raised), var(--nb-surface-card));
+  border: 1px solid var(--nb-surface-border);
+  border-left-width: 3px;
+  border-radius: var(--nb-r);
+}
+.players-view .pool-info-card.pool-info-green { border-left-color: var(--nb-pool-green); }
+.players-view .pool-info-card.pool-info-blue  { border-left-color: var(--nb-pool-blue); }
+.players-view .pool-info-card.pool-info-white { border-left-color: var(--nb-pool-white); }
+.players-view .pool-info-card-title {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.players-view .pool-info-card.pool-info-green .pool-info-card-title { color: var(--nb-pool-green-ink); }
+.players-view .pool-info-card.pool-info-blue  .pool-info-card-title { color: var(--nb-pool-blue-ink); }
+.players-view .pool-info-card.pool-info-white .pool-info-card-title { color: var(--nb-pool-white-ink); }
+.players-view .pool-info-card-desc {
+  font-size: var(--nb-fs-sm);
+  line-height: 1.45;
+  color: var(--nb-text-muted);
+}
+
+/* ── Search ── */
+.players-view .table-controls { margin-bottom: var(--nb-space-3); }
+.players-view .table-controls .search-input {
+  display: block;
+  width: 100%;
+  max-width: none;
+  min-height: 48px;
+  padding: 0 var(--nb-space-4) 0 2.75rem;
+  font-size: var(--nb-fs-body);
+  color: var(--nb-text);
+  background-color: var(--nb-surface-sunken);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23a4abc0' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 0.95rem 50%;
+  border: 1px solid var(--nb-border-strong);
+  border-radius: var(--nb-r);
+  transition: border-color var(--nb-dur-fast) var(--nb-ease-standard), box-shadow var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.players-view .table-controls .search-input:hover { border-color: var(--nb-text-muted); }
+.players-view .table-controls .search-input:focus-visible {
+  outline: 2px solid var(--nb-focus-ring);
+  outline-offset: 2px;
+  border-color: var(--nb-primary);
+  box-shadow: 0 0 0 3px var(--nb-primary-dim);
+}
+
+/* ── Pool tabs (segmented) ── */
+.players-view .pool-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nb-space-2);
+  margin-bottom: var(--nb-space-4);
+}
+.players-view .pool-tab {
+  min-height: 44px;
+  padding: 0 var(--nb-space-4);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.08em;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard), background-color var(--nb-dur-fast) var(--nb-ease-standard), border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.players-view .pool-tab:hover { color: var(--nb-text); background: var(--nb-surface-raised); border-color: var(--nb-border-strong); }
+.players-view .pool-tab:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+.players-view .pool-tab .pool-tab-count { font-weight: var(--nb-fw-semibold); letter-spacing: 0.04em; opacity: 0.85; }
+.players-view .pool-tab-white .pool-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--nb-pool-white); }
+.players-view .pool-tab.active.pool-tab-green {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, var(--nb-pool-green-tint), transparent), var(--nb-surface-raised);
+  border-color: var(--nb-pool-green);
+  box-shadow: inset 0 -3px 0 var(--nb-pool-green);
+}
+.players-view .pool-tab.active.pool-tab-blue {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, var(--nb-pool-blue-tint), transparent), var(--nb-surface-raised);
+  border-color: var(--nb-pool-blue);
+  box-shadow: inset 0 -3px 0 var(--nb-pool-blue);
+}
+.players-view .pool-tab.active.pool-tab-white {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, var(--nb-pool-white-tint), transparent), var(--nb-surface-raised);
+  border-color: var(--nb-pool-white);
+  box-shadow: inset 0 -3px 0 var(--nb-pool-white);
+}
+
+/* ── Position columns ── */
+.players-view .pos-table-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15.5rem), 1fr));
+  gap: var(--nb-space-3);
+}
+.players-view .pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  box-shadow: var(--nb-surface-shadow);
+  overflow: hidden;
+}
+.players-view .pos-table-head {
+  padding: var(--nb-space-3) var(--nb-space-4);
+  font-size: var(--nb-fs-h2);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.14em;
+  text-align: left;
+  color: var(--nb-text);
+  border-top: 3px solid var(--nb-border-strong);
+}
+.players-view .pos-table-green .pos-table-head { background: linear-gradient(180deg, var(--nb-pool-green-tint), transparent), var(--nb-surface-raised); border-top-color: var(--nb-pool-green); border-bottom: 1px solid var(--nb-surface-border); }
+.players-view .pos-table-blue  .pos-table-head { background: linear-gradient(180deg, var(--nb-pool-blue-tint), transparent), var(--nb-surface-raised);  border-top-color: var(--nb-pool-blue);  border-bottom: 1px solid var(--nb-surface-border); }
+.players-view .pos-table-white .pos-table-head { background: linear-gradient(180deg, var(--nb-pool-white-tint), transparent), var(--nb-surface-raised); border-top-color: var(--nb-pool-white); border-bottom: 1px solid var(--nb-surface-border); }
+
+.players-view .pos-table-columns-head,
+.players-view .pos-table-row {
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+  column-gap: var(--nb-space-2);
+  padding-inline: var(--nb-space-4);
+}
+.players-view .pos-table-columns-head {
+  padding-block: var(--nb-space-2);
+  font-size: var(--nb-fs-xs);
+  letter-spacing: 0.1em;
+  color: var(--nb-text-dim);
+  background: var(--nb-surface-sunken);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.players-view .pos-table-columns-head span:last-child { min-width: 2.75rem; }
+
+/* ── Rows ── */
+.players-view .pos-table-row {
+  min-height: 44px;
+  padding-block: var(--nb-space-2);
+  font-size: var(--nb-fs-table);
+  border-bottom: 1px solid var(--nb-surface-border);
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.players-view .pos-table-row:last-child { border-bottom: 0; }
+.players-view .pos-table-row:hover { background: var(--nb-surface-hover); box-shadow: inset 3px 0 0 var(--nb-primary); }
+.players-view .pos-table-row:focus-visible,
+.players-view .pos-table-row:focus-within { outline: 2px solid var(--nb-focus-ring); outline-offset: -2px; }
+/* The first row of each column is simply the existing top-OVR row (the
+   grid is already sorted OVR-descending) — emphasised by position only. */
+.players-view .pos-table-body > .pos-table-row:first-child { background: linear-gradient(90deg, var(--nb-brand-orange-dim), transparent 70%); }
+.players-view .pos-table-body > .pos-table-row:first-child:hover { background: linear-gradient(90deg, var(--nb-brand-orange-dim), var(--nb-surface-hover) 70%); }
+
+.players-view .pos-rank {
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  color: var(--nb-text-dim);
+}
+/* Names wrap instead of truncating; the status tag drops under the name
+   rather than squeezing it. */
+.players-view .pos-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem var(--nb-space-2);
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: break-word;
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-bold);
+  line-height: 1.25;
+  color: var(--nb-text);
+}
+
+/* ── OVR hierarchy (existing tier classes only) ── */
+.players-view .pos-ovr {
+  min-width: 2.75rem;
+  text-align: right;
+  font-size: 1.25rem;
+  font-weight: var(--nb-fw-heavy);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+}
+.players-view .pos-ovr.pos-ovr-elite { color: var(--nb-brand-orange-ink); }
+.players-view .pos-ovr.pos-ovr-good  { color: var(--nb-text); }
+.players-view .pos-ovr.pos-ovr-role  { color: var(--nb-text-muted); font-weight: var(--nb-fw-bold); }
+
+/* ── Status tags / states ── */
+.players-view .pos-drafted-tag {
+  padding: 0.12rem 0.45rem;
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-lift);
+  border-radius: var(--nb-r-sm);
+  white-space: nowrap;
+}
+.players-view .pos-locked-tag { color: var(--nb-gold-ink); background: var(--nb-gold-dim); }
+/* Drafted / locked: dimmed through colour (not opacity) so text stays legible. */
+.players-view .pos-table-row.drafted,
+.players-view .pos-table-row.locked { opacity: 1; }
+.players-view .pos-table-row.drafted .pos-name,
+.players-view .pos-table-row.drafted .pos-ovr,
+.players-view .pos-table-row.drafted .pos-rank { color: var(--nb-text-dim); text-decoration-thickness: 1px; }
+.players-view .pos-table-row.drafted .pos-drafted-tag { text-decoration: none; }
+.players-view .pos-table-row.locked .pos-name { color: var(--nb-text-muted); }
+.players-view .pos-table-row.locked .pos-ovr { color: var(--nb-text-muted); }
+
+/* ── Empty states ── */
+.players-view .pos-table-empty {
+  padding: var(--nb-space-5) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  color: var(--nb-text-dim);
+}
+.players-view #publicPlayersGrid > p.muted {
+  margin: 0;
+  padding: var(--nb-space-6) var(--nb-space-4);
+  text-align: center;
+  font-size: var(--nb-fs-body);
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px dashed var(--nb-border-strong);
+  border-radius: var(--nb-r-lg);
+}
+
+/* ── Drafted note + legend ── */
+.players-view .drafted-note {
+  display: flex;
+  align-items: center;
+  gap: var(--nb-space-3);
+  margin-top: var(--nb-space-4);
+  padding: var(--nb-space-3) var(--nb-space-4);
+  font-size: var(--nb-fs-sm);
+  line-height: 1.45;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.players-view .pool-legend-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nb-space-2) var(--nb-space-5);
+  margin-top: var(--nb-space-4);
+  padding-top: var(--nb-space-4);
+  font-size: var(--nb-fs-xs);
+  line-height: 1.4;
+  color: var(--nb-text-muted);
+  border-top: 1px solid var(--nb-surface-border);
+}
+.players-view .pool-legend-footer .legend-item { align-items: flex-start; }
+.players-view .pool-legend-footer .legend-dot { margin-top: 0.25rem; flex: none; }
+.players-view .pool-legend-footer .legend-dot.green { background: var(--nb-pool-green); }
+.players-view .pool-legend-footer .legend-dot.blue { background: var(--nb-pool-blue); }
+.players-view .pool-legend-footer .legend-dot.white { background: transparent; box-shadow: inset 0 0 0 2px var(--nb-pool-white); }
+
+/* ── Responsive ── */
+@media (min-width: 1700px) {
+  /* Very wide screens: room for all five position columns side by side. */
+  .players-view .pos-table-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); }
+}
+@media (min-width: 769px) and (max-width: 1100px) {
+  /* Three-column band: columns are narrowest here, so names step down one size to stay whole. */
+  .players-view .pos-name { font-size: var(--nb-fs-table); }
+}
+@media (max-width: 900px) {
+  .players-view .pool-info-row { grid-template-columns: 1fr; gap: var(--nb-space-2); }
+  .players-view .pool-info-card { padding: var(--nb-space-3); }
+  .players-view .pool-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .players-view .pool-tab {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: var(--nb-space-2);
+    text-align: center;
+    letter-spacing: 0.04em;
+  }
+}
+@media (max-width: 640px) {
+  .players-view .player-db-header { padding-left: var(--nb-space-3); }
+  .players-view .pos-table-grid { grid-template-columns: 1fr; }
+  .players-view .pos-table-row { min-height: 48px; }
+}
+@media (max-width: 400px) {
+  .players-view .pool-tab { font-size: 0.6875rem; }
+  .players-view .pool-tab .pool-tab-count { font-size: 0.6875rem; }
+  .players-view .pos-table-columns-head,
+  .players-view .pos-table-row { padding-inline: var(--nb-space-3); }
+  .players-view .pos-ovr { font-size: 1.125rem; }
+}
