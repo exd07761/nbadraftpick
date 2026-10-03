@@ -3491,3 +3491,108 @@
   .hof-view .hof-row-ovr    { grid-area: ovr; align-self: center; font-size: 1.125rem; min-width: 2.75rem; }
   .hof-view .hof-champion-badge { padding-inline: 0.45rem 0.55rem; letter-spacing: 0.06em; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Phase 8H — Global NBA2K background texture (public app)
+
+   CSS ONLY. No JS, HTML, id, class, data-attribute or route is touched.
+   The image is the existing assets/bg.jpg (identical to the supplied file).
+
+   Why this exists: main.css already paints bg.jpg on <body> (0.72 overlay,
+   background-attachment: fixed), but .nb-content-col and .nb-sidebar paint
+   solid surfaces over it, so it never showed. This block replaces that
+   hidden layer with two independent, fixed pseudo-elements and lets only the
+   page CANVAS (.nb-content-col) show through. Cards, panels, tables, the
+   sidebar, top bar, drawer, scrim and modals keep their own opaque surfaces,
+   so the dark hierarchy canvas < card < raised < lift is unchanged.
+
+   Layers, back to front (all behind the application, none interactive):
+     0  <body> background-color  = --nb-canvas   (also the pre-image fallback)
+     1  body::before             = canvas colour + bg.jpg, blend-mode: lighten
+                                   (black areas of the file resolve to the exact
+                                   canvas colour; only the logo shapes lift)
+     2  body::after              = veil (controls pattern strength) + vignette
+     -  .nb-content-col          = transparent  → canvas layers show through
+     -  every card / panel / sidebar / modal = unchanged, opaque
+
+   position: fixed on a pseudo-element (NOT background-attachment: fixed), so
+   mobile browsers do not repaint/jump the image on scroll; height uses lvh so
+   the browser-chrome collapse on phones does not rescale the artwork.
+   z-index: -1 keeps both layers under every positioned UI layer (topbar 90,
+   drawer/scrim, modals 1000+). pointer-events: none: they never take input.
+   Tuning knobs: --nb-bg-veil (higher = quieter pattern).
+   Known trade-off: a fixed full-viewport layer behind the app makes Chromium
+   composite the content above it, so on desktop LCD-subpixel setups (Windows /
+   some Linux) text renders with greyscale instead of subpixel anti-aliasing.
+   Colours, contrast and layout are unaffected; macOS, iOS and Android already
+   use greyscale. See the validation report for the alternative.
+   admin.html does not load this file, so Admin is unaffected.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+body {
+  background-color: var(--nb-canvas);
+  background-image: none;          /* retire the hidden, fixed-attachment wallpaper on <body> */
+  background-attachment: scroll;
+}
+
+/* The page canvas becomes the window onto the texture. Surfaces stay solid. */
+.nb-content-col { background: transparent; }
+
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100lvh;
+  z-index: -1;
+  pointer-events: none;
+}
+
+body::before {
+  background-color: var(--nb-canvas);
+  background-image: url('../assets/bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-blend-mode: lighten;
+}
+
+body::after {
+  --nb-bg-veil: 38%;               /* share of canvas colour laid back over the pattern */
+  background:
+    radial-gradient(ellipse 125% 95% at 50% 18%,
+      transparent 0%,
+      transparent 38%,
+      color-mix(in srgb, var(--nb-canvas) 82%, transparent) 100%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--nb-canvas) 55%, transparent) 0%,
+      transparent 22%,
+      transparent 70%,
+      color-mix(in srgb, var(--nb-canvas) 60%, transparent) 100%),
+    color-mix(in srgb, var(--nb-canvas) var(--nb-bg-veil), transparent);
+}
+
+/* Browsers without color-mix(): a flat veil keeps the texture quiet. */
+@supports not (color: color-mix(in srgb, red 50%, blue)) {
+  body::after { background: rgba(13, 15, 20, 0.5); }
+}
+
+/* The one non-background rule: the footer credit is small text that can land
+   on a logo shape, where its original tone dips just under 4.5:1 (4.20).
+   --nb-text-muted (the system's existing muted-text token) measures 7.16.
+   Safe to delete if you prefer the original tone. */
+.nb-content-col .site-footer { color: var(--nb-text-muted); }
+
+/* Phones: the artwork is cover-scaled to a portrait box, so each logo renders
+   much larger; a slightly stronger veil keeps the texture ambient. */
+@media (max-width: 700px) {
+  body::after { --nb-bg-veil: 46%; }
+}
+
+/* No texture in print or forced-colors modes. */
+@media print, (forced-colors: active) {
+  body::before, body::after { display: none; }
+}
