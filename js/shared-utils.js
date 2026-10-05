@@ -19,6 +19,47 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// Shared display-only formatter for NBA 2K27 player names. Uses the
+// canonical NBA catalog and deliberately leaves unmatched teams alone.
+function nba2k27FormatDisplayName(name, teamValue, pool) {
+  if (typeof name !== 'string' || !name || typeof teamValue !== 'string') return name;
+  if (/\s(?:\([A-Z]{3}\)|\d{2}-\d{2}\s+[A-Z]{3})$/i.test(name.trim())) return name;
+  const normalize = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const teamLabel = value => String(value || '').trim()
+    .replace(/^(?:all[- ]time|classic|current)\s+/i, '')
+    .replace(/^(?:\d{2}|\d{4})\s*-\s*(?:\d{2}|\d{4})\s+/i, '').trim();
+  const catalog = typeof LeagueData !== 'undefined' && LeagueData.getNBATeams ? LeagueData.getNBATeams() : [];
+  const lookup = value => {
+    const label = teamLabel(value);
+    const key = normalize(label);
+    const found = catalog.find(item => normalize(item.name) === key);
+    if (found) return found.abbr;
+    const aliases = { lalakers: 'LAL', losangelesclippers: 'LAC' };
+    const alias = aliases[key];
+    return alias && LeagueData.getNBATeam(alias) ? alias : null;
+  };
+  if (pool === 'white') {
+    const titleMatch = name.trim().match(/^(.+?)\s+((?:\d{4}|\d{2})\s*-\s*(?:\d{4}|\d{2}))\s+(.+)$/);
+    if (titleMatch) {
+      const abbr = lookup(titleMatch[3]);
+      if (abbr) {
+        const years = titleMatch[2].replace(/\s*-\s*/, '-').replace(/\b\d{4}\b/g, year => year.slice(-2));
+        return `${titleMatch[1]} ${years} ${abbr}`;
+      }
+    }
+    const match = teamValue.trim().match(/^(?:(?:classic)\s+)?((?:\d{4}|\d{2})\s*-\s*(?:\d{4}|\d{2}))\s+(.+)$/i);
+    if (match) {
+      const abbr = lookup(match[2]);
+      if (!abbr) return name;
+      const years = match[1].replace(/\s*-\s*/, '-').replace(/\b\d{4}\b/g, year => year.slice(-2));
+      return `${name} ${years} ${abbr}`;
+    }
+  }
+  const abbr = lookup(teamValue);
+  if (!abbr) return name;
+  return pool === 'white' ? `${name} ${abbr}` : `${name} (${abbr})`;
+}
+
 function formatStatus(status) {
   const map = {
     setup: 'Setup',
@@ -237,8 +278,8 @@ function _positionPoolRow(entry, rank, mode) {
          data-player-id="${player.id}"
          ${isDraftable ? `data-action="selectPlayer" role="button" tabindex="0"` : ''}>
       <span class="pos-rank">${rank}</span>
-      <span class="pos-name" title="${escapeHtml(player.name)}${player.variantGroup ? ' · ' + escapeHtml(player.variantGroup) : ''}">
-        ${escapeHtml(player.name)}
+      <span class="pos-name" title="${escapeHtml(player.displayName || player.name)}${player.variantGroup ? ' · ' + escapeHtml(player.variantGroup) : ''}">
+        ${escapeHtml(player.displayName || player.name)}
         ${statusTag}
       </span>
       <span class="pos-ovr ${isDrafted ? '' : tier}">${ovr}</span>

@@ -381,6 +381,151 @@ console.log('Phase 8.4 — Public NBA 2K27 player lookup Supabase migration — 
     );
   });
 
+  await test('C1b. Players page formats current, all-time, and classic names without changing source names or breaking team search', async () => {
+    const env = makeEnv({
+      pool27: {
+        lebron: poolRow('lebron', { pool: 'green', position: 'SF' }),
+        stephen: poolRow('stephen', { pool: 'green', position: 'PG', name_override: 'Stephen Curry (GSW)' }),
+        norm: poolRow('norm', { pool: 'blue', position: 'PG' }),
+        magic: poolRow('magic', { pool: 'blue', position: 'PG', name_override: 'Magic Johnson (LAL)' }),
+        kobe: poolRow('kobe', { pool: 'blue', position: 'SG', name_override: 'Kobe Bryant (LAL)' }),
+        larry: poolRow('larry', { pool: 'blue', position: 'SF', name_override: 'Larry Bird (BOS)' }),
+        michael: poolRow('michael', { pool: 'blue', position: 'SG', name_override: 'Michael Jordan (CHI)' }),
+        lebronMiami: poolRow('lebron-miami', { pool: 'blue', position: 'SF', name_override: 'LeBron James (MIA)' }),
+        jordan: poolRow('jordan', { pool: 'white', position: 'SG', name_override: 'Michael Jordan 92-93 CHI' }),
+        derek: poolRow('derek', { pool: 'white', position: 'PG', name_override: 'Derek Fisher 11-12 OKC' }),
+        longSeason: poolRow('long-season', { pool: 'white', position: 'C' }),
+        unknown: poolRow('unknown', { pool: 'green', position: 'N' }),
+      },
+      players: {
+        lebron: playerRow('lebron', { name: 'LeBron James', team: 'Los Angeles Lakers', team_type: 'curr' }),
+        stephen: playerRow('stephen', { name: 'Stephen Curry', team: 'Golden State Warriors', team_type: 'curr' }),
+        norm: playerRow('norm', { name: 'Norm Van Lier', team: 'All-Time Chicago Bulls', team_type: 'allt' }),
+        magic: playerRow('magic', { name: 'Magic Johnson', team: 'All-Time Los Angeles Lakers', team_type: 'allt' }),
+        kobe: playerRow('kobe', { name: 'Kobe Bryant', team: 'All-Time Los Angeles Lakers', team_type: 'allt' }),
+        larry: playerRow('larry', { name: 'Larry Bird', team: 'All-Time Boston Celtics', team_type: 'allt' }),
+        michael: playerRow('michael', { name: 'Michael Jordan', team: 'All-Time Chicago Bulls', team_type: 'allt' }),
+        'lebron-miami': playerRow('lebron-miami', { name: 'LeBron James', team: 'All-Time Miami Heat', team_type: 'allt' }),
+        jordan: playerRow('jordan', { name: 'Michael Jordan', team: '1992-93 Chicago Bulls', team_type: 'class' }),
+        derek: playerRow('derek', { name: 'Derek Fisher', team: '2011-12 Oklahoma City Thunder', team_type: 'class' }),
+        'long-season': playerRow('long-season', { name: 'Classic Example', team: '1992 - 1993 Chicago Bulls', team_type: 'class' }),
+        unknown: playerRow('unknown', { name: 'Unknown Team Player', team: 'Seattle SuperSonics', team_type: 'curr' }),
+      },
+    });
+    await env.window.PublicPlayersView.render(env.container);
+    const rowText = (id) => env.container.querySelector(`[data-player-id="${id}"] .pos-name`).textContent.trim();
+    const choose = (selector, value) => {
+      const control = env.container.querySelector(selector);
+      control.value = value;
+      control.dispatchEvent(new env.window.Event('change', { bubbles: true }));
+    };
+    assert.deepStrictEqual(
+      Array.from(env.container.querySelectorAll('.pool-tab')).map((tab) => tab.dataset.pool),
+      ['all', 'green', 'white', 'blue'],
+      'Pool control offers All, Current, Classic, and All-Time'
+    );
+    assert.deepStrictEqual(
+      Array.from(env.container.querySelectorAll('.pool-tab')).map((tab) => tab.textContent.trim().replace(/\s+/g, ' ')),
+      ['All', 'Current', 'Classic', 'All-Time'],
+      'Pool control uses the requested visible labels'
+    );
+    assert.deepStrictEqual(
+      Array.from(env.container.querySelectorAll('#publicPlayerPositionFilter option')).map((option) => option.textContent),
+      ['All', 'PG', 'SG', 'SF', 'PF', 'C', 'Other'],
+      'position choices use assigned pool positions plus Other'
+    );
+    assert.strictEqual(env.container.querySelector('#publicPlayerTeamFilter option').textContent, 'All Teams');
+    assert.strictEqual(env.container.querySelectorAll('[data-pool-group]').length, 3, 'All mode keeps each pool in a separate styled group');
+    assert.ok(env.container.querySelector('[data-pool-group="green"] .pos-table-green'));
+    assert.ok(env.container.querySelector('[data-pool-group="white"] .pos-table-white'));
+    assert.ok(env.container.querySelector('[data-pool-group="blue"] .pos-table-blue'));
+    const chicagoOptions = Array.from(env.container.querySelectorAll('#publicPlayerTeamFilter option')).filter((option) => option.value === 'nba:CHI');
+    assert.strictEqual(chicagoOptions.length, 1, 'Current/Classic/All-Time Chicago labels normalize to one team option');
+    assert.ok(env.container.querySelector('#publicPlayerTeamFilter option[value="name:seattlesupersonics"]'), 'unmatched historical teams remain available by their cleaned source label');
+    assert.ok(rowText('lebron').includes('LeBron James (LAL)'));
+    assert.ok(env.window.PublicPlayersView._buildEntries().find((entry) => entry.player.id === 'stephen').player.displayName.includes('Stephen Curry (GSW)'), 'live Current override is not suffixed twice');
+
+    choose('#publicPlayerTeamFilter', 'nba:CHI');
+    assert.ok(env.container.querySelector('[data-player-id="norm"]'), 'team filter finds an All-Time Chicago player');
+    assert.ok(env.container.querySelector('[data-player-id="michael"]'), 'team filter finds a Blue override using the same franchise key');
+    assert.ok(env.container.querySelector('[data-player-id="jordan"]'), 'season-prefixed Classic labels normalize to the same franchise key');
+    assert.strictEqual(env.container.querySelector('[data-player-id="kobe"]'), null, 'team filter excludes a different franchise');
+    choose('#publicPlayerPositionFilter', 'SG');
+    assert.ok(env.container.querySelector('[data-player-id="michael"]'));
+    assert.ok(env.container.querySelector('[data-player-id="jordan"]'));
+    assert.strictEqual(env.container.querySelector('[data-player-id="norm"]'), null, 'assigned position combines with the team filter');
+    const search = env.container.querySelector('#publicPlayerSearch');
+    search.value = 'Michael';
+    search.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    assert.ok(env.container.querySelector('[data-player-id="michael"]'), 'search combines with team and position filters');
+    assert.ok(env.container.querySelector('[data-player-id="jordan"]'), 'search and filters retain matching Classic player');
+    search.value = 'Norm';
+    search.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    assert.strictEqual(env.container.querySelectorAll('[data-player-id]').length, 0, 'search, team, and position filters use AND semantics');
+    search.value = '';
+    search.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    choose('#publicPlayerPositionFilter', '');
+    choose('#publicPlayerTeamFilter', '');
+
+    env.container.querySelector('[data-pool="green"]').click();
+    assert.ok(env.container.querySelector('[data-player-id="lebron"]'), 'Current selects the green pool');
+    assert.strictEqual(env.container.querySelector('[data-player-id="norm"]'), null);
+    env.container.querySelector('[data-pool="white"]').click();
+    assert.ok(env.container.querySelector('[data-player-id="jordan"]'), 'Classic selects the white pool');
+    assert.strictEqual(env.container.querySelector('[data-player-id="norm"]'), null);
+    env.container.querySelector('[data-pool="blue"]').click();
+    assert.ok(env.container.querySelector('[data-player-id="norm"]'), 'All-Time selects the blue pool');
+    assert.strictEqual(env.container.querySelector('[data-player-id="jordan"]'), null);
+    env.container.querySelector('[data-pool="all"]').click();
+    assert.strictEqual(env.container.querySelectorAll('[data-pool-group]').length, 3, 'All restores all separately styled pool groups');
+
+    choose('#publicPlayerTeamFilter', 'name:seattlesupersonics');
+    choose('#publicPlayerPositionFilter', 'Other');
+    const combinedSearch = env.container.querySelector('#publicPlayerSearch');
+    combinedSearch.value = 'Unknown Team Player';
+    combinedSearch.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    assert.ok(env.container.querySelector('[data-player-id="unknown"]'), 'unknown team + Other position + search can be combined');
+    assert.ok(!rowText('unknown').includes('SEA'), 'unknown team does not receive an invented abbreviation');
+    env.container.querySelector('[data-pool="green"]').click();
+    assert.ok(env.container.querySelector('[data-player-id="unknown"]'), 'pool state combines with team, position, and search');
+    combinedSearch.value = 'Stephen';
+    combinedSearch.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    assert.strictEqual(env.container.querySelectorAll('[data-player-id]').length, 0, 'mismatching search excludes a row despite matching other filters');
+    choose('#publicPlayerTeamFilter', '');
+    choose('#publicPlayerPositionFilter', '');
+    env.container.querySelector('#publicPlayerSearch').value = '';
+    env.container.querySelector('#publicPlayerSearch').dispatchEvent(new env.window.Event('input', { bubbles: true }));
+
+    env.container.querySelector('[data-pool="blue"]').click();
+    assert.ok(rowText('norm').includes('Norm Van Lier (CHI)'));
+    for (const [id, expected] of [['magic', 'Magic Johnson (LAL)'], ['kobe', 'Kobe Bryant (LAL)'], ['larry', 'Larry Bird (BOS)'], ['michael', 'Michael Jordan (CHI)'], ['lebron-miami', 'LeBron James (MIA)']]) {
+      assert.ok(rowText(id).includes(expected), `${expected} must not be suffixed twice`);
+    }
+    env.container.querySelector('[data-pool="white"]').click();
+    assert.ok(rowText('jordan').includes('Michael Jordan 92-93 CHI'));
+    assert.ok(!rowText('jordan').includes('CHI 92-93'), 'an existing Classic override suffix must not be appended a second time');
+    assert.ok(rowText('derek').includes('Derek Fisher 11-12 OKC'), 'another live YY-YY source/override pattern stays single-suffixed');
+    assert.ok(rowText('long-season').includes('Classic Example 92-93 CHI'), 'four-digit season ranges still normalize when no override exists');
+    env.container.querySelector('[data-pool="green"]').click();
+    assert.ok(rowText('unknown').includes('Unknown Team Player'));
+    assert.ok(!rowText('unknown').includes('SEA'), 'an unlisted historical team must not get a guessed abbreviation');
+    assert.strictEqual(env.window.PublicPlayersView._players27.jordan.name, 'Michael Jordan', 'the loaded source name remains unchanged');
+    assert.strictEqual(env.window.PublicPlayersView._pool27.jordan.nameOverride, 'Michael Jordan 92-93 CHI', 'the stored pool override remains unchanged');
+    assert.strictEqual(env.window.PublicPlayersView._buildEntries().find((entry) => entry.player.id === 'jordan').player.name, 'Michael Jordan 92-93 CHI', 'the entry retains the effective name separately from displayName');
+
+    env.container.querySelector('[data-pool="blue"]').click();
+    let activeSearch = env.container.querySelector('#publicPlayerSearch');
+    activeSearch.value = 'Chicago Bulls';
+    activeSearch.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    assert.ok(env.container.querySelector('[data-player-id="norm"]'), 'team search matches the underlying team value');
+    assert.strictEqual(env.container.querySelector('[data-player-id="lebron"]'), null, 'team search filters out players from other teams');
+    env.container.querySelector('[data-pool="white"]').click();
+    activeSearch = env.container.querySelector('#publicPlayerSearch');
+    activeSearch.value = 'Chicago Bulls';
+    activeSearch.dispatchEvent(new env.window.Event('input', { bubbles: true }));
+    assert.ok(env.container.querySelector('[data-player-id="jordan"]'), 'team search also matches a Classic team value');
+  });
+
   await test('C2. Players page never calls Firestore for nba2k27_pool or nba2k_players', async () => {
     const env = makeEnv({
       pool27: { sga: poolRow('sga') },

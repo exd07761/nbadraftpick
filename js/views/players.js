@@ -78,8 +78,10 @@
  * never removed from the master 2K27 pool, only annotated for display.
  */
 const PublicPlayersView = {
-  _activePool: 'green',
+  _activePool: 'all',
   _filter: '',
+  _filterTeam: '',
+  _filterPosition: '',
 
   // Module-level NBA 2K27 pool/source cache — loaded once per page load,
   // never re-fetched (mirrors views/nba2k27.js's own cache exactly).
@@ -91,6 +93,55 @@ const PublicPlayersView = {
   _pool27: null,
   _players27: null,
   _loadPromise: null,
+
+  /** Remove category/season prefixes so equivalent team labels share a key. */
+  _normalizeTeamLabel(teamValue) {
+    if (typeof teamValue !== 'string' || !teamValue.trim()) return '';
+    return teamValue.trim()
+      .replace(/^(?:all[- ]time|classic|current)\s+/i, '')
+      .replace(/^(?:\d{2}|\d{4})\s*-\s*(?:\d{2}|\d{4})\s+/i, '')
+      .trim();
+  },
+
+  /** Resolve a 2K source team label against the canonical current NBA catalog. */
+  _teamAbbreviation(teamValue) {
+    if (typeof teamValue !== 'string' || !teamValue.trim()) return null;
+    const catalog = LeagueData.getNBATeams();
+    const label = this._normalizeTeamLabel(teamValue);
+    const normalize = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const direct = catalog.find((team) => normalize(team.name) === normalize(label));
+    if (direct) return direct.abbr;
+
+    // Source labels may use alternate LA spellings for these two franchises.
+    const aliases = { lalakers: 'LAL', losangelesclippers: 'LAC' };
+    const alias = aliases[normalize(label)];
+    return alias && LeagueData.getNBATeam(alias) ? alias : null;
+  },
+
+  _teamFilterKey(teamValue) {
+    const label = this._normalizeTeamLabel(teamValue);
+    if (!label) return '';
+    const abbr = this._teamAbbreviation(teamValue);
+    return abbr ? `nba:${abbr}` : `name:${label.toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+  },
+
+  _teamFilterOptions(entries) {
+    const options = new Map();
+    entries.forEach(({ player }) => {
+      const label = this._normalizeTeamLabel(player.team);
+      const key = this._teamFilterKey(player.team);
+      if (!label || !key || options.has(key)) return;
+      const abbr = this._teamAbbreviation(player.team);
+      const team = abbr ? LeagueData.getNBATeam(abbr) : null;
+      options.set(key, { value: key, label: team ? `${team.name} (${team.abbr})` : label });
+    });
+    return [...options.values()].sort((a, b) => a.label.localeCompare(b.label));
+  },
+
+  /** Display-only pool-aware formatter; unknown teams are never guessed. */
+  _formatPlayerName(name, team, pool) {
+    return nba2k27FormatDisplayName(name, team, pool);
+  },
   _loadError: null,
 
   async render(container) {
@@ -172,6 +223,7 @@ const PublicPlayersView = {
 
       const nameOverride = typeof entry.nameOverride === 'string' ? entry.nameOverride.trim() : '';
       const name = nameOverride || (source && source.name) || '';
+      const team = source && typeof source.team === 'string' ? source.team : '';
 
       const overallOverride = entry.overallOverride;
       const overall = (typeof overallOverride === 'number' && Number.isFinite(overallOverride))
@@ -185,7 +237,7 @@ const PublicPlayersView = {
         : undefined;
 
       return {
-        player: { id: slug, name, position, overall, variantGroup },
+        player: { id: slug, name, displayName: this._formatPlayerName(name, team, entry.pool), team, position, overall, variantGroup },
         pool: entry.pool,
         status: statusByNba2kRef[slug] || 'available',
       };
@@ -194,10 +246,7 @@ const PublicPlayersView = {
 
   _renderShell(container) {
     const entries = this._buildEntries();
-    const green = entries.filter((e) => e.pool === 'green');
-    const blue = entries.filter((e) => e.pool === 'blue');
-    const white = entries.filter((e) => e.pool === 'white');
-    const byPool = { green, blue, white };
+    const teamOptions = this._teamFilterOptions(entries);
 
     container.innerHTML = `
       <div class="players-view" style="max-width:none;">
@@ -228,22 +277,41 @@ const PublicPlayersView = {
         <div class="table-controls">
           <input type="text" id="publicPlayerSearch" class="input search-input"
             placeholder="Search players by name or position…" value="${escapeHtml(this._filter)}">
+          <div class="players-filter-controls">
+            <label class="players-filter-control">
+              <span>Team</span>
+              <select id="publicPlayerTeamFilter" class="input">
+                <option value="">All Teams</option>
+                ${teamOptions.map((option) => `<option value="${escapeHtml(option.value)}" ${this._filterTeam === option.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="players-filter-control">
+              <span>Position</span>
+              <select id="publicPlayerPositionFilter" class="input">
+                <option value="">All</option>
+                ${[...CORE_POSITIONS, 'Other'].map((position) => `<option value="${escapeHtml(position)}" ${this._filterPosition === position ? 'selected' : ''}>${escapeHtml(position)}</option>`).join('')}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div class="pool-tabs">
-          <button type="button" class="pool-tab pool-tab-green ${this._activePool === 'green' ? 'active' : ''}" data-pool="green">
-            <span class="pool-dot"></span> Green Pool <span class="pool-tab-count">(Current)</span>
+          <button type="button" class="pool-tab pool-tab-all ${this._activePool === 'all' ? 'active' : ''}" data-pool="all" aria-pressed="${this._activePool === 'all'}">
+            All
           </button>
-          <button type="button" class="pool-tab pool-tab-blue ${this._activePool === 'blue' ? 'active' : ''}" data-pool="blue">
-            <span class="pool-dot"></span> Blue Pool <span class="pool-tab-count">(All-Time)</span>
+          <button type="button" class="pool-tab pool-tab-green ${this._activePool === 'green' ? 'active' : ''}" data-pool="green" aria-pressed="${this._activePool === 'green'}">
+            <span class="pool-dot"></span> Current
           </button>
-          <button type="button" class="pool-tab pool-tab-white ${this._activePool === 'white' ? 'active' : ''}" data-pool="white">
-            <span class="pool-dot"></span> White Pool <span class="pool-tab-count">(Classics)</span>
+          <button type="button" class="pool-tab pool-tab-white ${this._activePool === 'white' ? 'active' : ''}" data-pool="white" aria-pressed="${this._activePool === 'white'}">
+            <span class="pool-dot"></span> Classic
+          </button>
+          <button type="button" class="pool-tab pool-tab-blue ${this._activePool === 'blue' ? 'active' : ''}" data-pool="blue" aria-pressed="${this._activePool === 'blue'}">
+            <span class="pool-dot"></span> All-Time
           </button>
         </div>
 
         <div id="publicPlayersGrid">
-          ${this._renderGrid(byPool[this._activePool] || green)}
+          ${this._renderGrid(entries)}
         </div>
 
         <div class="drafted-note">
@@ -263,31 +331,68 @@ const PublicPlayersView = {
   },
 
   _applyFilter(entries) {
-    const q = this._filter.toLowerCase();
-    if (!q) return entries;
-    return entries.filter((e) =>
-      e.player.name.toLowerCase().includes(q) ||
-      (e.player.position || '').toLowerCase().includes(q)
-    );
+    const q = this._filter.trim().toLowerCase();
+    return entries.filter((entry) => {
+      if (this._activePool !== 'all' && entry.pool !== this._activePool) return false;
+      if (this._filterTeam && this._teamFilterKey(entry.player.team) !== this._filterTeam) return false;
+      if (this._filterPosition) {
+        const isCorePosition = CORE_POSITIONS.includes(entry.player.position);
+        if (this._filterPosition === 'Other' ? isCorePosition : entry.player.position !== this._filterPosition) return false;
+      }
+      if (q) {
+        const haystack = `${entry.player.name || ''} ${entry.player.team || ''} ${entry.player.position || ''}`.toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
   },
 
   _renderGrid(entries) {
     const filtered = this._applyFilter(entries);
-    return positionPoolGrid(filtered, this._activePool, { admin: false, sortMode: 'ovr-desc' });
+    if (this._activePool !== 'all') {
+      return positionPoolGrid(filtered, this._activePool, { admin: false, sortMode: 'ovr-desc' });
+    }
+    const groups = [
+      ['green', 'Current'],
+      ['white', 'Classic'],
+      ['blue', 'All-Time'],
+    ].map(([pool, label]) => {
+      const poolEntries = filtered.filter((entry) => entry.pool === pool);
+      if (!poolEntries.length) return '';
+      return `<section class="players-pool-group" data-pool-group="${pool}">
+        <h2 class="players-pool-group-title">${label}</h2>
+        ${positionPoolGrid(poolEntries, pool, { admin: false, sortMode: 'ovr-desc' })}
+      </section>`;
+    }).join('');
+    return groups || '<p class="muted players-no-matches">No players match these filters.</p>';
   },
 
   _bind(container, entries) {
+    const refreshGrid = () => {
+      container.querySelector('#publicPlayersGrid').innerHTML = this._renderGrid(entries);
+    };
     container.querySelector('#publicPlayerSearch').oninput = (e) => {
       this._filter = e.target.value;
-      const pool = this._activePool;
-      const filteredByPool = entries.filter((en) => en.pool === pool);
-      container.querySelector('#publicPlayersGrid').innerHTML = this._renderGrid(filteredByPool);
+      refreshGrid();
+    };
+    container.querySelector('#publicPlayerTeamFilter').onchange = (e) => {
+      this._filterTeam = e.target.value;
+      refreshGrid();
+    };
+    container.querySelector('#publicPlayerPositionFilter').onchange = (e) => {
+      this._filterPosition = e.target.value;
+      refreshGrid();
     };
 
     container.querySelectorAll('.pool-tab').forEach((tab) => {
       tab.onclick = () => {
         this._activePool = tab.dataset.pool;
-        this._renderShell(container);
+        container.querySelectorAll('.pool-tab').forEach((candidate) => {
+          const active = candidate === tab;
+          candidate.classList.toggle('active', active);
+          candidate.setAttribute('aria-pressed', String(active));
+        });
+        refreshGrid();
       };
     });
   },

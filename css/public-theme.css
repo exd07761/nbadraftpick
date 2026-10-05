@@ -2386,6 +2386,30 @@
 
 /* ── Search ── */
 .players-view .table-controls { margin-bottom: var(--nb-space-3); }
+.players-view .players-filter-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--nb-space-3);
+  margin-top: var(--nb-space-3);
+}
+.players-view .players-filter-control {
+  display: grid;
+  gap: var(--nb-space-1);
+  min-width: 0;
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.players-view .players-filter-control .input {
+  width: 100%;
+  min-height: 44px;
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-regular);
+  letter-spacing: normal;
+  text-transform: none;
+}
 .players-view .table-controls .search-input {
   display: block;
   width: 100%;
@@ -2433,6 +2457,12 @@
 .players-view .pool-tab:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
 .players-view .pool-tab .pool-tab-count { font-weight: var(--nb-fw-semibold); letter-spacing: 0.04em; opacity: 0.85; }
 .players-view .pool-tab-white .pool-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--nb-pool-white); }
+.players-view .pool-tab.active.pool-tab-all {
+  color: var(--nb-text);
+  background: var(--nb-surface-raised);
+  border-color: var(--nb-border-strong);
+  box-shadow: inset 0 -3px 0 var(--nb-text-muted);
+}
 .players-view .pool-tab.active.pool-tab-green {
   color: var(--nb-text);
   background: linear-gradient(180deg, var(--nb-pool-green-tint), transparent), var(--nb-surface-raised);
@@ -2450,6 +2480,15 @@
   background: linear-gradient(180deg, var(--nb-pool-white-tint), transparent), var(--nb-surface-raised);
   border-color: var(--nb-pool-white);
   box-shadow: inset 0 -3px 0 var(--nb-pool-white);
+}
+.players-view .players-pool-group + .players-pool-group { margin-top: var(--nb-space-5); }
+.players-view .players-pool-group-title {
+  margin: 0 0 var(--nb-space-2);
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  font-weight: var(--nb-fw-heavy);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* ── Position columns ── */
@@ -2631,7 +2670,7 @@
 @media (max-width: 900px) {
   .players-view .pool-info-row { grid-template-columns: 1fr; gap: var(--nb-space-2); }
   .players-view .pool-info-card { padding: var(--nb-space-3); }
-  .players-view .pool-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .players-view .pool-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .players-view .pool-tab {
     flex-direction: column;
     justify-content: center;
@@ -2643,6 +2682,7 @@
 }
 @media (max-width: 640px) {
   .players-view .player-db-header { padding-left: var(--nb-space-3); }
+  .players-view .players-filter-controls { grid-template-columns: 1fr; }
   .players-view .pos-table-grid { grid-template-columns: 1fr; }
   .players-view .pos-table-row { min-height: 48px; }
 }
