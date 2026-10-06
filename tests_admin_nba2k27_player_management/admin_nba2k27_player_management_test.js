@@ -5,9 +5,15 @@ const vm = require('vm');
 const assert = require('assert');
 
 const root = path.join(__dirname, '..');
+let livePlayers = [{ id: 'p27live_jordan', name: 'Michael Jordan', position: 'UNASSIGNED' }];
+let liveReadCount = 0;
+let manualEditFails = false;
 const sandbox = {
   console,
-  CORE_POSITIONS: ['PG', 'SG', 'SF', 'PF', 'C'],
+  window: { USE_SUPABASE_SYNC: false },
+  SupabaseReadsCore: {
+    getLiveNba2k27Players: async () => { liveReadCount++; return livePlayers; },
+  },
   NBA2K_OVERALL_FILTERS: [],
   LeagueData: {
     getNBATeams: () => [
@@ -19,15 +25,19 @@ const sandbox = {
   },
   escapeHtml: value => String(value || ''),
   document: { body: { contains: () => true } },
-  SupabaseQuery: { callWriteRpc: async (_rpc, params) => ({
-    nba2k_ref: params.p_slug, pool: params.p_position === 'UNASSIGNED' ? 'white' : 'green', position: params.p_position,
-    selected_at: 'now', updated_at: 'now', overall_override: null, name_override: null, variant_group_id: null, variant_label: null,
-  }) },
+  SupabaseQuery: { callWriteRpc: async (_rpc, params) => {
+    if (manualEditFails) throw new Error('write failed');
+    return {
+      nba2k_ref: params.p_slug, pool: params.p_position === 'UNASSIGNED' ? 'white' : 'green', position: params.p_position,
+      selected_at: 'now', updated_at: 'now', overall_override: null, name_override: null, variant_group_id: null, variant_label: null,
+    };
+  } },
 };
 vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(path.join(root, 'js/data.js'), 'utf8'), sandbox, { filename: 'data.js' });
 vm.runInContext(fs.readFileSync(path.join(root, 'js/shared-utils.js'), 'utf8'), sandbox, { filename: 'shared-utils.js' });
 vm.runInContext(fs.readFileSync(path.join(root, 'js/admin/nba2k-database.js'), 'utf8'), sandbox, { filename: 'nba2k-database.js' });
-vm.runInContext('this.view = Nba2k27PoolView; this.db = Nba2kDatabaseView; this.formatName = nba2k27FormatDisplayName;', sandbox);
+vm.runInContext('this.view = Nba2k27PoolView; this.db = Nba2kDatabaseView; this.formatName = nba2k27FormatDisplayName; this.livePoolCache = SupabaseLiveNba2k27PoolCache;', sandbox);
 // The real pool grid is irrelevant to these assertions; retain the exact
 // passed rows and pool so All mode's three pool-specific calls are visible.
 sandbox.positionPoolGrid = (entries, pool) => `<section data-pool="${pool}">${entries.map(e => e.player.name).join('|')}</section>`;
@@ -77,6 +87,31 @@ test('All mode renders each pool separately with its pool styling key', () => {
 test('Manual position save still uses the existing update RPC and selected position', async () => {
   const saved = await sandbox.view._saveManualEdit({ p_slug: 'jordan', p_position: 'SG' });
   assert.strictEqual(saved.position, 'SG');
+});
+test('successful Draft Pool Position edit makes the next live-pool read fetch fresh players', async () => {
+  await sandbox.livePoolCache.ensureLoaded();
+  assert.strictEqual(sandbox.livePoolCache.getEntries().p27live_jordan.position, 'UNASSIGNED');
+  assert.strictEqual(liveReadCount, 1);
+
+  livePlayers = [{ id: 'p27live_jordan', name: 'Michael Jordan', position: 'SG' }];
+  const saved = await sandbox.view._saveManualEdit({ p_slug: 'jordan', p_position: 'SG' });
+  assert.strictEqual(saved.position, 'SG');
+  assert.strictEqual(sandbox.livePoolCache.isLoaded(), false, 'successful manual edit invalidates the prior snapshot');
+
+  await sandbox.livePoolCache.ensureLoaded();
+  assert.strictEqual(liveReadCount, 2, 'next read reloads the effective-player view');
+  assert.strictEqual(sandbox.livePoolCache.getEntries().p27live_jordan.position, 'SG');
+});
+test('failed Draft Pool Position edit preserves the currently loaded live-pool cache', async () => {
+  await sandbox.livePoolCache.ensureLoaded();
+  const cached = sandbox.livePoolCache.getEntries();
+  const readsBefore = liveReadCount;
+  manualEditFails = true;
+  await assert.rejects(sandbox.view._saveManualEdit({ p_slug: 'jordan', p_position: 'PF' }), /Could not save/);
+  manualEditFails = false;
+  assert.strictEqual(sandbox.livePoolCache.getEntries(), cached, 'failed save leaves existing cache intact');
+  await sandbox.livePoolCache.ensureLoaded();
+  assert.strictEqual(liveReadCount, readsBefore, 'failed save does not trigger a reload');
 });
 
 (async () => {

@@ -1885,6 +1885,10 @@ const SupabaseLiveNba2k27PoolCache = (() => {
   return {
     isLoaded() { return _entries !== null; },
     getEntries() { return _entries || {}; },
+    invalidate() {
+      _entries = null;
+      _loadPromise = null;
+    },
     /**
      * Fetches the live effective-player list from Supabase once and
      * builds the in-memory cache, keyed by each player's `id` (the
@@ -1906,17 +1910,22 @@ const SupabaseLiveNba2k27PoolCache = (() => {
     ensureLoaded() {
       if (_entries !== null) return Promise.resolve(_entries);
       if (_loadPromise) return _loadPromise;
-      _loadPromise = SupabaseReadsCore.getLiveNba2k27Players()
+      const loadPromise = SupabaseReadsCore.getLiveNba2k27Players()
         .then((players) => {
           const entries = {};
           players.forEach((p) => { entries[p.id] = p; });
-          _entries = entries; // an empty successful result ({}) is still a valid loaded state
-          return _entries;
+          // An invalidated in-flight request may still resolve for its
+          // original callers, but it must not repopulate the current cache.
+          if (_loadPromise === loadPromise) {
+            _entries = entries; // an empty successful result ({}) is still a valid loaded state
+          }
+          return entries;
         })
         .catch((err) => {
-          _loadPromise = null; // allow a retry on the next call
+          if (_loadPromise === loadPromise) _loadPromise = null; // allow a retry on the next call
           throw err;
         });
+      _loadPromise = loadPromise;
       return _loadPromise;
     },
     // Test-only escape hatch — never called by app code.

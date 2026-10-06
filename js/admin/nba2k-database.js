@@ -2499,6 +2499,7 @@ const Nba2k27PoolView = {
         'update_nba2k27_pool_manual_edit',
         params
       );
+      SupabaseLiveNba2k27PoolCache.invalidate();
       return nba2k27NormalizePoolRow(row);
     } catch (err) {
       throw new Error(nba2k27MapPoolRpcError(
