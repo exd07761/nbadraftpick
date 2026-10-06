@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DraftP Auth Prototype</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">ISOLATED DEVELOPMENT PROTOTYPE</p>
+    <h1>DraftP Admin</h1>
+    <p class="subhead">Username and password sign-in test</p>
+    <div id="environment" class="environment">Checking development project…</div>
+
+    <section id="signedOut" aria-labelledby="loginTitle">
+      <h2 id="loginTitle">Sign in</h2>
+      <form id="loginForm">
+        <label for="username">Username</label>
+        <input id="username" name="username" autocomplete="username" required minlength="3" maxlength="30">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <button type="submit">Sign in</button>
+      </form>
+      <button id="recoveryButton" class="link-button" type="button">Forgot password?</button>
+    </section>
+
+    <section id="signedIn" class="hidden" aria-live="polite">
+      <h2>Authenticated</h2>
+      <dl>
+        <dt>User ID</dt><dd id="userId">—</dd>
+        <dt>Username</dt><dd id="accountUsername">—</dd>
+        <dt>DraftP role</dt><dd id="role">—</dd>
+        <dt>Active</dt><dd id="active">—</dd>
+        <dt>Session expires</dt><dd id="expiry">—</dd>
+      </dl>
+      <div class="actions">
+        <button id="refreshButton" type="button" class="secondary">Refresh session</button>
+        <button id="logoutButton" type="button" class="secondary">Sign out</button>
+      </div>
+    </section>
+
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="footnote">This prototype is pinned to the non-production project. It does not load or alter the DraftP production Admin app.</p>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
