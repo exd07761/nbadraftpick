@@ -84,11 +84,13 @@ Mac"></textarea>
       container.querySelector('#addParticipantForm').classList.remove('hidden');
       container.querySelector('#newParticipantName').focus();
     };
+
     container.querySelector('#btnCancelParticipant').onclick = () => {
       container.querySelector('#addParticipantForm').classList.add('hidden');
       container.querySelector('#newParticipantNames').value = '';
     };
-    container.querySelector('#btnCreateParticipants').onclick = () => {
+
+    container.querySelector('#btnCreateParticipants').onclick = async () => {
       AuthBoundary.requireAuth();
 
       const raw = container.querySelector('#newParticipantNames').value || '';
@@ -129,21 +131,41 @@ Mac"></textarea>
         return;
       }
 
-      names.forEach(name => AdminActions.addParticipant(season.id, name));
+      const createButton = container.querySelector('#btnCreateParticipants');
+      createButton.disabled = true;
 
-      showToast(
-        `${names.length} participant${names.length !== 1 ? 's' : ''} added.`,
-        'success'
-      );
-      AdminApp.renderView('participants');
+      try {
+        for (const name of names) {
+          AdminActions.addParticipant(season.id, name);
+          await ActiveSync.waitForPendingSave();
+        }
+
+        showToast(
+          `${names.length} participant${names.length !== 1 ? 's' : ''} added.`,
+          'success'
+        );
+        AdminApp.renderView('participants');
+      } catch (error) {
+        console.error('[Participants] Bulk add failed:', error);
+        showToast(
+          'Some participants could not be saved. Please check the participant list.',
+          'error'
+        );
+        AdminApp.renderView('participants');
+      }
     };
 
     container.querySelectorAll('[data-action]').forEach(btn => {
       btn.onclick = () => {
         AuthBoundary.requireAuth();
         const { action, id, name } = btn.dataset;
+
         if (action === 'editP') {
-          const newName = prompt('New name:', name || LeagueData.getParticipant(season.id, id)?.name);
+          const newName = prompt(
+            'New name:',
+            name || LeagueData.getParticipant(season.id, id)?.name
+          );
+
           if (newName && newName.trim()) {
             AdminActions.updateParticipant(season.id, id, newName.trim());
             showToast('Name updated.', 'success');
@@ -151,6 +173,7 @@ Mac"></textarea>
           }
         } else if (action === 'removeP') {
           if (!confirm(`Remove "${name}" from this season?`)) return;
+
           AdminActions.removeParticipant(season.id, id);
           showToast(`${name} removed.`, 'success');
           AdminApp.renderView('participants');
