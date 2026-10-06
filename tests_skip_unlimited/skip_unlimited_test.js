@@ -440,6 +440,110 @@ test("AFK scenario: 3 skips accumulate 3 opportunities; picks made on return cla
     'classification follows ACTUAL pick order (1st,2nd,3rd) — the 3 prior skips never advanced it');
 });
 
+// ─── Batched Skip regression coverage ───────────────────────────────────
+function advanceToP1ThreeOpportunitySitting(AdminActions, LeagueData) {
+  AdminActions.skipDraftPick('s1'); // p1 banks one opportunity
+  AdminActions.makeDraftPick('s1', 'pg1'); // p2, round 1
+  AdminActions.makeDraftPick('s1', 'sg1'); // p2, round 2
+  AdminActions.skipDraftPick('s1'); // p1's round-2 sitting: 1 of 2
+  AdminActions.skipDraftPick('s1'); // resolves it, banking two for p1's next turn
+  const state = LeagueData.getDraftState('s1');
+  assert.strictEqual(state.currentParticipantId, 'p1');
+  assert.strictEqual(state.picksNeededThisTurn, 3);
+  assert.strictEqual(state.picksTakenThisTurn, 0);
+}
+
+test('Batch skipping 3 opportunities matches three individual skips and preserves history and next-turn bank', () => {
+  const batchFixture = freshSeasonFixture();
+  const batch = makeSandbox(batchFixture.seasons, batchFixture.players);
+  advanceToP1ThreeOpportunitySitting(batch.AdminActions, batch.LeagueData);
+  const batchResult = batch.AdminActions.skipDraftPick('s1', 3);
+
+  const individualFixture = freshSeasonFixture();
+  const individual = makeSandbox(individualFixture.seasons, individualFixture.players);
+  advanceToP1ThreeOpportunitySitting(individual.AdminActions, individual.LeagueData);
+  for (let i = 0; i < 3; i++) individual.AdminActions.skipDraftPick('s1');
+
+  assert.strictEqual(batchResult.skippedCount, 3);
+  const batchSeason = batch.LeagueData.getSeason('s1');
+  const individualSeason = individual.LeagueData.getSeason('s1');
+  const normalizeHistory = (season) => Array.from(season.draftSkips, ({ participantId, round, afterPickCount }) => ({ participantId, round, afterPickCount }));
+  assert.deepStrictEqual(normalizeHistory(batchSeason), normalizeHistory(individualSeason), 'batch preserves the same individual skip events');
+
+  const batchState = batch.LeagueData.getDraftState('s1');
+  const individualState = individual.LeagueData.getDraftState('s1');
+  for (const key of ['currentParticipantId', 'currentRound', 'currentPickInRound', 'currentPickOverall', 'isBonusTurn', 'picksTakenThisTurn', 'picksNeededThisTurn']) {
+    assert.strictEqual(batchState[key], individualState[key], `${key} matches individual skips`);
+  }
+  assert.deepStrictEqual(Object.assign({}, batchState.bonusPicks), Object.assign({}, individualState.bonusPicks), 'the next-turn opportunity bank matches');
+  assert.strictEqual(batchState.currentParticipantId, 'p2', 'the same next participant is on the clock');
+  assert.strictEqual(batchState.bonusPicks.p1, 3, 'all three skipped opportunities remain banked for p1');
+
+  // Advance p2 through the next two snake slots; p1's next scheduled turn
+  // still exposes the three banked opportunities in both histories.
+  for (const [actions, league] of [[batch.AdminActions, batch.LeagueData], [individual.AdminActions, individual.LeagueData]]) {
+    actions.makeDraftPick('s1', 'sf1');
+    actions.makeDraftPick('s1', 'pf1');
+    const returned = league.getDraftState('s1');
+    assert.strictEqual(returned.currentParticipantId, 'p1');
+    assert.strictEqual(returned.picksNeededThisTurn, 4, 'the three skipped opportunities plus the normal opportunity are available next turn');
+  }
+});
+
+test('Batch skip count cannot exceed the opportunities remaining in the current sitting', () => {
+  const { seasons, players } = soloSeasonFixture();
+  const { AdminActions, LeagueData } = makeSandbox(seasons, players);
+  AdminActions.skipDraftPick('s1');
+  AdminActions.skipDraftPick('s1'); // one of two opportunities resolved; one remains
+  const before = LeagueData.getDraftState('s1');
+  assert.strictEqual(before.picksNeededThisTurn - before.picksTakenThisTurn, 1);
+  const historyBefore = LeagueData.getSeason('s1').draftSkips.length;
+  assert.throws(() => AdminActions.skipDraftPick('s1', 2), /only 1 remain/i);
+  assert.strictEqual(LeagueData.getSeason('s1').draftSkips.length, historyBefore, 'an oversized batch appends no events');
+  const after = LeagueData.getDraftState('s1');
+  assert.strictEqual(after.currentParticipantId, before.currentParticipantId);
+  assert.strictEqual(after.picksTakenThisTurn, before.picksTakenThisTurn);
+});
+
+test('Skip count defaults to one and rejects non-positive or non-integer counts', () => {
+  const { seasons, players } = soloSeasonFixture();
+  const { AdminActions, LeagueData } = makeSandbox(seasons, players);
+  const result = AdminActions.skipDraftPick('s1');
+  assert.strictEqual(result.skippedCount, 1);
+  assert.strictEqual(LeagueData.getSeason('s1').draftSkips.length, 1);
+  assert.throws(() => AdminActions.skipDraftPick('s1', 0), /positive whole number/i);
+  assert.throws(() => AdminActions.skipDraftPick('s1', 1.5), /positive whole number/i);
+});
+
+test('Reaching 10 normal picks does not complete the draft or discard an outstanding skipped opportunity', () => {
+  const { seasons, players } = soloSeasonFixture();
+  const { AdminActions, LeagueData } = makeSandbox(seasons, players);
+  const firstNinePicks = ['pg1', 'sg1', 'sf1', 'pf1', 'c1', 'pg2', 'sg2', 'sf2', 'pf2'];
+  for (const playerId of firstNinePicks) AdminActions.makeDraftPick('s1', playerId);
+
+  // Skip the next normal turn, then make pick 10 on the following sitting.
+  // The skip banks an additional opportunity, so one remains unresolved.
+  AdminActions.skipDraftPick('s1');
+  AdminActions.makeDraftPick('s1', 'c2');
+
+  const atNormalPickLimit = LeagueData.getDraftState('s1');
+  assert.strictEqual(atNormalPickLimit.totalPicksMade, 10, 'the normal 10-pick sequence is complete');
+  assert.strictEqual(atNormalPickLimit.draftComplete, false, 'the draft is not auto-completed');
+  assert.strictEqual(atNormalPickLimit.currentParticipantId, 'p1', 'the derived schedule retains the active participant');
+  assert.strictEqual(atNormalPickLimit.picksTakenThisTurn, 1);
+  assert.strictEqual(atNormalPickLimit.picksNeededThisTurn, 2);
+  assert.strictEqual(atNormalPickLimit.picksNeededThisTurn - atNormalPickLimit.picksTakenThisTurn, 1,
+    'the skipped/banked opportunity remains available in the current sitting');
+  assert.strictEqual(LeagueData.getSeason('s1').draftSkips.length, 1, 'the skip audit history remains intact');
+
+  AdminActions.markDraftComplete('s1');
+  const explicitlyCompleted = LeagueData.getDraftState('s1');
+  assert.strictEqual(explicitlyCompleted.draftComplete, true, 'only the explicit completion action marks the draft complete');
+  assert.strictEqual(explicitlyCompleted.picksNeededThisTurn - explicitlyCompleted.picksTakenThisTurn, 1,
+    'explicit completion does not erase the outstanding schedule opportunity');
+  assert.strictEqual(LeagueData.getSeason('s1').draftSkips.length, 1, 'explicit completion preserves skip history');
+});
+
 // ─── 25-31. Unrelated systems remain unaffected ─────────────────────────
 test('Existing roster cap (10 max) is unaffected by skip/opportunity history', () => {
   const { seasons, players } = freshSeasonFixture();

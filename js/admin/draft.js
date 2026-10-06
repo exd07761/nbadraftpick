@@ -478,7 +478,11 @@ const AdminDraftView = {
   // admin/backup.js's this._running. ──────────────────────────────────────
   _openSkipConfirm(season, triggerBtn) {
     document.getElementById('skipConfirmOverlay')?.remove();
-    const currentName = escapeHtml(LeagueData.getDraftState(season.id).currentParticipant?.name || 'This participant');
+    const state = LeagueData.getDraftState(season.id);
+    const remainingOpportunities = Math.max(1, state.picksNeededThisTurn - state.picksTakenThisTurn);
+    const currentName = escapeHtml(state.currentParticipant?.name || 'This participant');
+    const opportunityLabel = remainingOpportunities === 1 ? 'opportunity' : 'opportunities';
+    const skipCount = remainingOpportunities;
 
     const overlay = document.createElement('div');
     overlay.id = 'skipConfirmOverlay';
@@ -488,12 +492,14 @@ const AdminDraftView = {
         <div class="modal-eyebrow">Skip Pick</div>
         <div class="modal-player-name" id="skipConfirmTitle">Skip ${currentName}'s turn?</div>
         <p class="modal-prompt">
-          ${currentName} will not pick this turn and the draft moves on immediately.
-          They'll receive two picks in a row on their next scheduled turn to make up for it.
+          ${currentName} has ${remainingOpportunities} pick ${opportunityLabel} remaining in this sitting.
+          ${remainingOpportunities > 1
+            ? `Skip all ${remainingOpportunities} remaining opportunities now? Each skipped opportunity will be banked for their next scheduled turn.`
+            : 'Skip this opportunity now? It will be banked for their next scheduled turn.'}
         </p>
         <div class="modal-actions">
           <button class="btn btn-ghost" id="skipModalCancelBtn">Cancel</button>
-          <button class="btn btn-primary" id="skipModalConfirmBtn">Skip Turn</button>
+          <button class="btn btn-primary" id="skipModalConfirmBtn">${remainingOpportunities > 1 ? `Skip All ${remainingOpportunities}` : 'Skip Opportunity'}</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -510,8 +516,8 @@ const AdminDraftView = {
       if (triggerBtn) triggerBtn.disabled = true;
       AuthBoundary.requireAuth();
       try {
-        AdminActions.skipDraftPick(season.id);
-        showToast(`${currentName}'s turn skipped.`, 'success');
+        AdminActions.skipDraftPick(season.id, skipCount);
+        showToast(`${currentName}'s ${skipCount === 1 ? 'opportunity' : `${skipCount} opportunities`} skipped.`, 'success');
         close();
         AdminApp.renderView('draft');
       } catch (e) {

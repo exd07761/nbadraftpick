@@ -4398,8 +4398,11 @@ const AdminActions = {
    * participant may skip, consecutively or otherwise, and Skip is always
    * available — including while resolving a multi-opportunity draft turn
    * banked from earlier Skips; it is never blocked or forced into a Pick.
+   * `skipCount` batches that many individual skip events within the
+   * current sitting. It defaults to one and cannot exceed the sitting's
+   * unresolved opportunities, so it never consumes a later base turn.
    */
-  skipDraftPick(seasonId) {
+  skipDraftPick(seasonId, skipCount = 1) {
     const data = loadData();
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
@@ -4417,12 +4420,22 @@ const AdminActions = {
       throw new Error("No active turn — there is nothing to skip.");
     }
 
-    season.draftSkips.push({
-      participantId: schedule.currentParticipantId,
-      round: schedule.currentRound,
-      afterPickCount: season.playerDraftPicks.length,
-      timestamp: new Date().toISOString(),
-    });
+    if (!Number.isInteger(skipCount) || skipCount < 1) {
+      throw new Error("Skip count must be a positive whole number.");
+    }
+    const remainingOpportunities = schedule.picksNeededThisTurn - schedule.picksTakenThisTurn;
+    if (skipCount > remainingOpportunities) {
+      throw new Error(`Cannot skip ${skipCount} opportunities — only ${remainingOpportunities} remain in this sitting.`);
+    }
+
+    for (let i = 0; i < skipCount; i++) {
+      season.draftSkips.push({
+        participantId: schedule.currentParticipantId,
+        round: schedule.currentRound,
+        afterPickCount: season.playerDraftPicks.length,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Refresh the bonusPicks mirror the same way makeDraftPick does —
     // computeDraftSchedule replays the now-updated history to produce the
@@ -4433,6 +4446,7 @@ const AdminActions = {
     return {
       skippedParticipantId: schedule.currentParticipantId,
       round: schedule.currentRound,
+      skippedCount: skipCount,
     };
   },
 
