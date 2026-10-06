@@ -395,7 +395,7 @@ console.log('Phase 8.4 — Public NBA 2K27 player lookup Supabase migration — 
         jordan: poolRow('jordan', { pool: 'white', position: 'SG', name_override: 'Michael Jordan 92-93 CHI' }),
         derek: poolRow('derek', { pool: 'white', position: 'PG', name_override: 'Derek Fisher 11-12 OKC' }),
         longSeason: poolRow('long-season', { pool: 'white', position: 'C' }),
-        unknown: poolRow('unknown', { pool: 'green', position: 'N' }),
+        unknown: poolRow('unknown', { pool: 'green', position: 'PG' }),
       },
       players: {
         lebron: playerRow('lebron', { name: 'LeBron James', team: 'Los Angeles Lakers', team_type: 'curr' }),
@@ -480,11 +480,11 @@ console.log('Phase 8.4 — Public NBA 2K27 player lookup Supabase migration — 
     assert.strictEqual(env.container.querySelectorAll('[data-pool-group]').length, 3, 'All restores all separately styled pool groups');
 
     choose('#publicPlayerTeamFilter', 'name:seattlesupersonics');
-    choose('#publicPlayerPositionFilter', 'Other');
+    choose('#publicPlayerPositionFilter', 'PG');
     const combinedSearch = env.container.querySelector('#publicPlayerSearch');
     combinedSearch.value = 'Unknown Team Player';
     combinedSearch.dispatchEvent(new env.window.Event('input', { bubbles: true }));
-    assert.ok(env.container.querySelector('[data-player-id="unknown"]'), 'unknown team + Other position + search can be combined');
+    assert.ok(env.container.querySelector('[data-player-id="unknown"]'), 'unknown team + PG position + search can be combined');
     assert.ok(!rowText('unknown').includes('SEA'), 'unknown team does not receive an invented abbreviation');
     env.container.querySelector('[data-pool="green"]').click();
     assert.ok(env.container.querySelector('[data-player-id="unknown"]'), 'pool state combines with team, position, and search');
