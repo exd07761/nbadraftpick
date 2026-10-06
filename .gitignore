@@ -28,6 +28,9 @@ pubsub-debug.log
 database-debug.log
 *.emulator-data/
 
+# ── Supabase local tooling ────────────────────────────────────────────────
+supabase/.temp/
+
 # ── OS / editor cruft ────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
