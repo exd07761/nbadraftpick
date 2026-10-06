@@ -241,7 +241,7 @@ const PublicPlayersView = {
         pool: entry.pool,
         status: statusByNba2kRef[slug] || 'available',
       };
-    }).filter((e) => e.player.name); // an orphan slug (no resolvable source doc or name override) has nothing to display
+    }).filter((e) => e.player.name && e.player.position !== 'UNASSIGNED'); // public list only shows players with a resolved position
   },
 
   _renderShell(container) {
