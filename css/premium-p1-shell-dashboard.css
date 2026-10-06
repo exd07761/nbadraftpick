@@ -1,0 +1,674 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DraftP — Premium P1: Shell + Dashboard ("Primetime")
+   DEDICATED, APPEND-ONLY STYLESHEET. CSS only. Loaded last in index.html,
+   after premium-foundation.css (which is not modified). Not loaded by admin.html.
+   No JS, ID, class, data-attribute, route, handler or displayed-text change.
+   Every Dashboard rule is scoped under #viewContainer .dashboard (the wrapper
+   home.js renders), so no other page is affected. Layout rules need :has() and
+   container queries; without them the Phase 2 look is kept (nothing breaks).
+   To revert: remove this file's <link>.
+
+   Parts
+     A. Shell    brand lockup + rail seed, broadcast nav, season plate, desktop
+                 on-the-clock badge, duplicate-signal rule, labeled Admin
+     B. Dashboard stage (hero + live band + schedule strip), standings board,
+                 inventory (vitals, rosters, seasons), tablet/phone tiers
+   Colour roles are the Phase 2 ones: orange = brand + elite, gold = on the
+   clock / top-4 / champion, indigo = interaction / selection / upcoming,
+   green/red = outcomes, neutral for everything else.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --p1-ink-on-orange: #1a0d03;
+  --p1-ink-on-gold:   #1a1300;
+  --p1-hairline:      rgba(255, 255, 255, 0.08);
+  --p1-sidebar-bottom-h: 60px;     /* fixed so the desktop status badge can sit above the season plate */
+  --p1-season-plate-h:   84px;
+}
+
+/* ═════════════════════════ A. SHELL ═════════════════════════ */
+
+.nb-sidebar {
+  background: linear-gradient(180deg, #191e2b 0%, #151925 48%, #10131b 100%);
+}
+
+/* A1. Brand lockup: condensed wordmark with "2K" as an orange seed tile.
+   (Same text and the same <span>; the rail already shows only that span.) */
+.nb-sidebar-top {
+  background-image: linear-gradient(90deg, var(--nb-brand-orange-on-dark) 0 52px, transparent 52px);
+  background-size: 100% 2px;
+  background-position: left bottom;
+  background-repeat: no-repeat;
+}
+.nb-sidebar-brand {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.375rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+}
+.nb-sidebar-brand span {
+  display: inline-block;
+  margin: 0 0.12em;
+  padding: 0.1em 0.32em 0.04em;
+  color: var(--p1-ink-on-orange);
+  background: var(--nb-brand-orange-on-dark);
+  border-radius: 3px;
+  transform: skewX(-8deg);
+  letter-spacing: 0.04em;
+}
+
+/* A2. Nav: condensed caps labels; the active row is a lit "tab" that opens
+   toward the content (indigo = selection). Row height is unchanged. */
+.nb-sidebar-nav { padding-right: 0; }
+.nb-sidebar-group-label {
+  font-family: var(--nb-font-display);
+  font-size: 0.8125rem;
+  letter-spacing: 0.18em;
+}
+.nb-sidebar-link {
+  font-family: var(--nb-font-display);
+  font-weight: 600;
+  font-size: 1.0625rem;
+  line-height: 20px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  border-radius: var(--nb-r) 0 0 var(--nb-r);
+}
+.nb-sidebar-link.active {
+  font-weight: 700;
+  background: linear-gradient(90deg, rgba(91, 91, 240, 0.34) 0%, rgba(91, 91, 240, 0.12) 62%, rgba(91, 91, 240, 0) 100%);
+}
+.nb-sidebar-link.active::before {
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 0;
+  box-shadow: 0 0 16px rgba(91, 91, 240, 0.7);
+}
+.nb-sidebar-link.active::after {            /* notch: the tab points into the page */
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 7px solid transparent;
+  border-left-width: 0;
+  border-right-color: var(--nb-canvas);
+}
+
+/* A3. Season plate: a stage surface with a neutral identity bar. */
+.nb-sidebar-season {
+  box-sizing: border-box;
+  height: var(--p1-season-plate-h);
+  margin: 0 var(--nb-space-3) 10px;
+  padding: 0 var(--nb-space-4) 0 calc(var(--nb-space-4) + 4px);
+  justify-content: center;
+  gap: 2px;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 140% at 100% 0%, rgba(91, 91, 240, 0.16), transparent 60%),
+    var(--nb-surface-stage);
+  border: 1px solid var(--p1-hairline);
+  border-radius: 10px;
+  box-shadow: var(--nb-edge-light), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+.nb-sidebar-season::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--nb-masthead-bar);
+}
+.nb-season-caption { font-family: var(--nb-font-display); font-size: 0.8125rem; letter-spacing: 0.18em; color: var(--nb-text-muted); }   /* dim failed 4.5:1 over the plate glow */
+.nb-season-label {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.875rem;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* A4. Bottom row: fixed height; Admin stays a labeled control. */
+.nb-sidebar-bottom { box-sizing: border-box; height: var(--p1-sidebar-bottom-h); flex-wrap: nowrap; }
+
+/* A5. Top bar title (mobile) shares the condensed voice. */
+.nb-topbar-title {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* A6. The "On the Clock" badge is one node that shell.js already fills and
+   clears. It never shows next to the Draft hero or the Dashboard live band,
+   which already say the same thing (this is what removes the mobile duplicate). */
+.nb-shell:has(#viewContainer .dft-tier-a, #viewContainer .dash-draft-live) .nb-topbar-status { display: none; }
+
+/* Desktop: the top bar stays hidden, but its status node is lifted into the
+   sidebar, just above the season plate, as a gold lower-third. */
+@media (min-width: 901px) {
+  .nb-topbar { display: contents; }
+  .nb-hamburger, .nb-topbar-title { display: none; }
+  .nb-topbar-status {
+    position: fixed;
+    z-index: 120;
+    left: var(--nb-space-3);
+    width: calc(var(--nb-sidebar-width) - 2 * var(--nb-space-3));
+    max-width: none;
+    bottom: calc(var(--p1-sidebar-bottom-h) + var(--p1-season-plate-h) + 20px);
+  }
+  .nb-topbar-status a {
+    height: auto;
+    line-height: 1.1;
+    padding: 10px 12px 10px 16px;
+    white-space: normal;
+    font-family: var(--nb-font-display);
+    font-weight: 700;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border-radius: 10px;
+    border-color: rgba(240, 180, 41, 0.55);
+    background: linear-gradient(180deg, rgba(240, 180, 41, 0.24), rgba(240, 180, 41, 0.08));
+    box-shadow: inset 4px 0 0 var(--nb-gold), 0 10px 26px rgba(0, 0, 0, 0.45);
+  }
+  /* room so the badge never covers the last nav row on short screens (the nav scrolls) */
+  .nb-shell:has(.nb-topbar-status:not(:empty)) .nb-sidebar-nav { padding-bottom: 64px; }
+
+  /* Rail (collapsed): a compact gold beacon; the words stay in the DOM. */
+  .nb-shell.nb-collapsed .nb-topbar-status { left: 10px; width: 44px; bottom: 132px; }
+  .nb-shell.nb-collapsed .nb-topbar-status a {
+    font-size: 0;
+    padding: 0;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    box-shadow: 0 0 0 4px rgba(240, 180, 41, 0.14), 0 10px 26px rgba(0, 0, 0, 0.45);
+  }
+  .nb-shell.nb-collapsed .nb-topbar-status-dot { margin: 0; width: 14px; height: 14px; }
+}
+
+/* A7. Rail: the "2K" seed grows into the primary brand mark; Admin gets its
+   label back (it was an unlabeled arrow glyph). Expanded behaviour untouched. */
+@media not all and (max-width: 900px) {
+  .nb-collapsed .nb-sidebar-brand span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    height: 42px;
+    margin: 0;
+    padding: 0;
+    font-size: 1.625rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--p1-ink-on-orange);
+    background: linear-gradient(160deg, #ff9a52 0%, var(--nb-brand-orange-on-dark) 55%, #e8630a 100%);
+    border: 0;
+    border-radius: 10px;
+    transform: none;
+    box-shadow: 0 0 0 1px rgba(255, 138, 61, 0.55), 0 6px 18px rgba(255, 122, 31, 0.28);
+  }
+  .nb-collapsed .nb-sidebar-nav { padding-right: var(--nb-space-2); }
+  .nb-collapsed .nb-sidebar-link { border-radius: var(--nb-r); }
+  .nb-collapsed .nb-sidebar-link.active::after { display: none; }
+  .nb-collapsed .nb-sidebar-admin-link {
+    width: 100%;
+    padding: 0 2px;
+    min-height: var(--nb-control-sm);
+    justify-content: center;
+  }
+  .nb-collapsed .nb-sidebar-admin-link::before { content: none; }
+  .nb-collapsed .nb-sidebar-admin-link .nb-link-label { display: block; font-size: 12px; letter-spacing: 0; white-space: nowrap; overflow: visible; text-overflow: clip; }
+  .nb-collapsed .nb-sidebar-bottom { height: auto; padding-inline: 4px; }
+}
+
+/* ═════════════════════════ B. DASHBOARD ═════════════════════════ */
+
+#viewContainer .dashboard { --p1-stage-r: 16px; }
+
+/* B0. Layout machinery (needs :has). One 12-column grid; the two column
+   wrappers are flattened so every section is placed by `order`. The reading
+   order is the requested hierarchy: stage (hero, live band, schedule) →
+   standings (+ playoffs) → vitals → rosters (+ seasons). */
+@supports selector(:has(*)) {
+  #viewContainer .dashboard {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-areas: none;
+    column-gap: var(--nb-space-5);
+    row-gap: 0;
+    align-content: start;
+  }
+  #viewContainer .dashboard .dashboard-grid,
+  #viewContainer .dashboard .dashboard-col { display: contents; }
+  #viewContainer .dashboard > *,
+  #viewContainer .dashboard .section { grid-area: auto; grid-column: 1 / -1; min-width: 0; margin-bottom: 0; }
+
+  #viewContainer .dashboard .league-hero { order: 0; }
+  #viewContainer .dashboard .dash-draft-live { order: 1; }
+  #viewContainer .dashboard .section:has(> .mini-schedule) { order: 2; }
+  #viewContainer .dashboard .section:has(> .mini-standings) { order: 3; margin-top: 36px; }
+  #viewContainer .dashboard .section:has(> .bracket-champion-banner),
+  #viewContainer .dashboard .section:has(> p.muted) { order: 4; margin-top: 36px; }
+  #viewContainer .dashboard .stats-row { order: 5; margin-top: 40px; }
+  #viewContainer .dashboard .section:has(> .team-grid) { order: 6; margin-top: 28px; }
+  #viewContainer .dashboard .section:has(> .seasons-list) { order: 7; margin-top: 28px; }
+
+  /* standings | playoffs, rosters | seasons share a row when both exist */
+  @media (min-width: 1180px) {
+    #viewContainer .dashboard:has(.bracket-champion-banner, .section > p.muted) .section:has(> .mini-standings) { grid-column: 1 / span 8; }
+    #viewContainer .dashboard:has(.bracket-champion-banner, .section > p.muted) .section:has(> .bracket-champion-banner),
+    #viewContainer .dashboard:has(.bracket-champion-banner, .section > p.muted) .section:has(> p.muted) { grid-column: 9 / span 4; }
+    #viewContainer .dashboard:has(.seasons-list) .section:has(> .team-grid) { grid-column: 1 / span 8; }
+    #viewContainer .dashboard:has(.seasons-list) .section:has(> .seasons-list) { grid-column: 9 / span 4; }
+  }
+}
+
+/* B1. Section headings: one masthead language (condensed caps + neutral bar)
+   for the two "live" blocks, a quiet muted heading for inventory. */
+#viewContainer .dashboard .section-title {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+}
+#viewContainer .dashboard .section-header-row {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: var(--nb-space-3);
+}
+#viewContainer .dashboard .section:has(> .mini-schedule) .section-title,
+#viewContainer .dashboard .section:has(> .mini-standings) .section-title,
+#viewContainer .dashboard .section:has(> .mini-standings) > .section-title {
+  text-transform: uppercase;
+  border-left: 4px solid var(--nb-masthead-bar);
+  padding-left: 12px;
+}
+#viewContainer .dashboard .section:has(> .team-grid) .section-title,
+#viewContainer .dashboard .section > .section-title {
+  font-size: 1.1875rem;
+  color: var(--nb-text-muted);
+  text-transform: uppercase;
+  border-bottom: 0;
+}
+
+/* B2. Hero: the broadcast centerpiece. */
+#viewContainer .dashboard .league-hero {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 13.5rem;
+  margin: 0;
+  padding: 34px 44px 28px;
+  background:
+    radial-gradient(45% 120% at 80% -10%, rgba(255, 255, 255, 0.09) 0%, transparent 70%),   /* arena light */
+    radial-gradient(70% 130% at 0% 0%, rgba(91, 91, 240, 0.30) 0%, transparent 62%),
+    radial-gradient(55% 100% at 100% 100%, rgba(240, 180, 41, 0.13) 0%, transparent 66%),
+    linear-gradient(180deg, #1c2338 0%, #0f131d 100%);
+  border: 1px solid var(--p1-hairline);
+  border-bottom: 0;
+  border-radius: var(--p1-stage-r) var(--p1-stage-r) 0 0;
+  box-shadow: var(--nb-edge-light), 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+#viewContainer .dashboard .league-hero::before {      /* diagonal slashes, fading in from the right */
+  content: "";
+  display: block;
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(115deg, rgba(255, 255, 255, 0.06) 0 2px, transparent 2px 26px);
+  -webkit-mask-image: linear-gradient(90deg, transparent 38%, #000 100%);
+          mask-image: linear-gradient(90deg, transparent 38%, #000 100%);
+  pointer-events: none;
+}
+#viewContainer .dashboard .league-hero::after {       /* light bar along the base */
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 70%);
+  pointer-events: none;
+}
+#viewContainer .dashboard .league-hero > * { position: relative; }
+#viewContainer .dashboard .league-hero-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  letter-spacing: 0.2em;
+  margin-bottom: 10px;
+}
+#viewContainer .dashboard .league-hero-eyebrow::before {
+  content: "";
+  width: 28px;
+  height: 3px;
+  background: var(--nb-brand-orange-on-dark);
+}
+#viewContainer .dashboard .league-hero-title {
+  font-size: clamp(2.75rem, 1.2rem + 4.4vw, 5.5rem);
+  line-height: 0.92;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+}
+#viewContainer .dashboard .league-hero-meta {
+  gap: 10px 22px;
+  font-family: var(--nb-font-display);
+  font-weight: 600;
+  font-size: 1.25rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+#viewContainer .dashboard .league-hero-meta > span:nth-child(3) { color: var(--nb-gold-ink); font-weight: 700; }   /* champion = prestige */
+
+/* B3. Live draft band: gold = on the clock; sits between hero and strip. */
+#viewContainer .dashboard .dash-draft-live {
+  margin: 0;
+  padding: 14px 28px 14px 44px;
+  border-radius: 0;
+  border: 1px solid rgba(240, 180, 41, 0.35);
+  border-bottom: 0;
+  background: linear-gradient(90deg, rgba(240, 180, 41, 0.24), rgba(240, 180, 41, 0.08) 65%, rgba(240, 180, 41, 0.03));
+  box-shadow: inset 4px 0 0 var(--nb-gold);
+}
+#viewContainer .dashboard .dash-draft-live-dot {
+  width: 12px; height: 12px;
+  box-shadow: 0 0 0 4px rgba(240, 180, 41, 0.18), 0 0 18px rgba(240, 180, 41, 0.55);
+}
+#viewContainer .dashboard .dash-draft-live-eyebrow { letter-spacing: 0.14em; }
+#viewContainer .dashboard .dash-draft-live-name {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 2.25rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+#viewContainer .dashboard .dash-draft-live-cta {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--p1-ink-on-gold);
+  background: var(--nb-gold-on-dark);
+  border: 0;
+  border-radius: 8px;
+  padding: 0.55rem 1.1rem;
+}
+#viewContainer .dashboard:not(:has(.mini-schedule)) .dash-draft-live { border-bottom: 1px solid rgba(240, 180, 41, 0.35); border-radius: 0 0 var(--p1-stage-r) var(--p1-stage-r); }
+#viewContainer .dashboard:not(:has(.mini-schedule)):not(:has(.dash-draft-live)) .league-hero { border-bottom: 1px solid var(--p1-hairline); border-radius: var(--p1-stage-r); }
+
+/* B4. Schedule strip: the scoreboard tray under the hero. Same data, same
+   (at most five) tiles; upcoming tiles carry the indigo edge, played tiles a
+   neutral one. No date, live or "next" state is implied. */
+#viewContainer .dashboard .section:has(> .mini-schedule) {
+  container: p1sched / inline-size;
+  padding: 20px 28px 24px;
+  background: linear-gradient(180deg, #0e121b 0%, #0a0d14 100%);
+  border: 1px solid var(--p1-hairline);
+  border-top-color: rgba(255, 255, 255, 0.1);
+  border-radius: 0 0 var(--p1-stage-r) var(--p1-stage-r);
+  box-shadow: var(--nb-edge-light), 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+#viewContainer .dashboard .mini-schedule {
+  flex-wrap: wrap;
+  justify-content: center;
+  overflow: visible;
+  scroll-snap-type: none;
+  gap: 12px;
+  padding-bottom: 0;
+}
+#viewContainer .dashboard .mini-schedule-row {
+  flex: 0 0 calc((100% - 24px) / 3);
+  gap: 12px;
+  padding: 14px 16px 16px;
+  background: linear-gradient(180deg, #181e2c 0%, #121722 100%);
+  border: 1px solid var(--p1-hairline);
+  border-radius: 12px;
+  box-shadow: inset 0 2px 0 var(--nb-primary);              /* upcoming = indigo */
+}
+#viewContainer .dashboard .mini-schedule-row:has(> .matchup-score) {
+  background: linear-gradient(180deg, #151b28 0%, #10141e 100%);
+  border-color: var(--p1-hairline);
+  box-shadow: inset 0 2px 0 var(--nb-border-strong);          /* played = neutral */
+}
+#viewContainer .dashboard .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) { font-size: 0.9375rem; }
+#viewContainer .dashboard .mini-schedule-row:has(> .matchup-score) .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) {
+  color: var(--nb-text);
+  font-weight: var(--nb-fw-bold);
+}
+#viewContainer .dashboard .mini-schedule-teams > .matchup-vs-divider { color: var(--nb-text-dim); }
+#viewContainer .dashboard .mini-schedule-row > .matchup-score {
+  flex-direction: column;            /* "Final" over the score so a 3-digit score never wraps */
+  align-items: flex-start;
+  gap: 4px;
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 2.25rem;
+  line-height: 0.95;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--nb-text);
+}
+#viewContainer .dashboard .mini-schedule-row:has(> .matchup-score) > .matchup-score { color: var(--nb-text); }
+#viewContainer .dashboard .mini-schedule-row > .matchup-score::before {
+  font-family: var(--nb-font-display);
+  font-size: 0.9375rem;
+  letter-spacing: 0.14em;
+  color: var(--nb-text-muted);                               /* "Final" is the default state: quiet */
+}
+@container p1sched (min-width: 840px) {
+  #viewContainer .dashboard .mini-schedule { flex-wrap: nowrap; }
+  #viewContainer .dashboard .mini-schedule-row { flex: 1 1 0; }
+}
+@container p1sched (min-width: 840px) and (max-width: 1010px) {   /* ~1280px desktops: five tiles, a notch tighter */
+  #viewContainer .dashboard .mini-schedule { gap: 10px; }
+  #viewContainer .dashboard .mini-schedule-row { padding: 14px 11px 16px; }
+  #viewContainer .dashboard .mini-schedule-teams { column-gap: 6px; }
+  #viewContainer .dashboard .mini-schedule-teams > span:not(.team-identity):not(.matchup-vs-divider) { font-size: 0.875rem; }
+  #viewContainer .dashboard .mini-schedule-row > .matchup-score { font-size: 2rem; }
+}
+@container p1sched (max-width: 560px) {                       /* phone: the existing peek-and-scroll strip */
+  #viewContainer .dashboard .mini-schedule {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding-bottom: 8px;
+  }
+  #viewContainer .dashboard .mini-schedule-row { flex: 0 0 min(78vw, 280px); scroll-snap-align: start; }
+}
+
+/* B5. Standings: an open leaderboard, not a boxed list. */
+#viewContainer .dashboard .section:has(> .mini-standings) { container: p1stand / inline-size; }
+#viewContainer .dashboard .mini-standings {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 40px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+#viewContainer .dashboard .mini-standings-row {
+  gap: 14px;
+  padding: 12px 6px 12px 12px;
+  border-bottom: 1px solid var(--p1-hairline);
+}
+#viewContainer .dashboard .mini-standings-row:nth-child(even) { background: transparent; }
+#viewContainer .dashboard .mini-standings-row:last-child { border-bottom: 1px solid var(--p1-hairline); }
+#viewContainer .dashboard .mini-standings-rank {
+  width: 2rem;
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 2rem;
+  line-height: 1;
+}
+#viewContainer .dashboard .mini-standings-name { flex: 1; min-width: 0; font-size: 1.0625rem; }
+#viewContainer .dashboard .mini-standings-record {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.875rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+@container p1stand (min-width: 900px) {
+  #viewContainer .dashboard .mini-standings { grid-template-rows: repeat(2, auto); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container p1stand (max-width: 660px) {
+  #viewContainer .dashboard .mini-standings { grid-auto-flow: row; grid-template-rows: none; grid-template-columns: 1fr; }
+}
+
+/* B6. Playoffs plate (shares the row with standings on wide screens). */
+#viewContainer .dashboard .section > p.muted {
+  background: linear-gradient(180deg, #151b28 0%, #10141e 100%);
+  border-color: var(--p1-hairline);
+  border-radius: 12px;
+}
+#viewContainer .dashboard .bracket-champion-banner {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.875rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* B7. Inventory: vitals are a quiet ruled band; rosters are flat tiles. */
+#viewContainer .dashboard .stats-row {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--p1-hairline);
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  padding-top: 22px;
+  gap: 22px 0;
+}
+#viewContainer .dashboard .stat-card { background: none; padding: 0 18px; border-left: 1px solid var(--p1-hairline); }
+#viewContainer .dashboard .stat-card:first-child { border-left: 0; padding-left: 0; }
+#viewContainer .dashboard .stat-num { font-size: 2.125rem; }
+#viewContainer .dashboard .stat-label { font-size: 0.75rem; letter-spacing: 0.1em; }
+#viewContainer .dashboard .team-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+#viewContainer .dashboard .team-card {
+  background: rgba(255, 255, 255, 0.035);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: none;
+  padding: 10px 14px;
+}
+#viewContainer .dashboard .team-card:hover { border: 0; }
+#viewContainer .dashboard .seasons-list .season-row {
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--p1-hairline);
+  border-radius: 0;
+  padding: 10px 4px;
+}
+#viewContainer .dashboard .seasons-list .season-row.active { border-bottom-color: var(--nb-primary); box-shadow: inset 3px 0 0 var(--nb-primary); padding-left: 12px; }
+
+/* B8. Tablet (641–1179px): same composition, tighter stage; the strip wraps
+   3 + 2 (centred) instead of scrolling, so no tile is ever cut off. */
+@media (max-width: 1179px) {
+  #viewContainer .dashboard .league-hero { min-height: 12.5rem; padding: 30px 32px 26px; }
+  #viewContainer .dashboard .dash-draft-live { padding-left: 32px; }
+  #viewContainer .dashboard .section:has(> .mini-schedule) { padding: 18px 20px 22px; }
+  #viewContainer .dashboard .stat-card { padding: 0 14px; }
+  #viewContainer .dashboard .stat-card:nth-child(3n+1) { border-left: 0; padding-left: 0; }
+}
+
+/* B9. Phone (≤640px): the existing 390px patterns, in the new skin. */
+@media (max-width: 640px) {
+  #viewContainer .dashboard .league-hero { min-height: 0; padding: 24px 20px 20px; }
+  #viewContainer .dashboard .league-hero-meta { font-size: 1.0625rem; }
+  #viewContainer .dashboard .dash-draft-live { padding: 12px 16px 12px 20px; }
+  #viewContainer .dashboard .dash-draft-live-name { font-size: 1.75rem; }
+  #viewContainer .dashboard .section:has(> .mini-schedule) { padding: 16px 14px 18px; }
+  #viewContainer .dashboard .section:has(> .mini-standings) { margin-top: 28px; }
+  #viewContainer .dashboard .stats-row { margin-top: 32px; }
+  #viewContainer .dashboard .stat-num { font-size: 1.875rem; }
+  #viewContainer .dashboard .stat-card { padding: 0 10px; }
+  #viewContainer .dashboard .team-grid { grid-template-columns: 1fr; }
+}
+
+/* ═════════════════════════ C. SHORT DESKTOP VIEWPORTS ═════════════════════════
+   Corrective pass. Below ~640px of height the sidebar nav has no spare room, so
+   the gold lower-third above the season plate could sit over the last rows.
+   There the badge moves out of the sidebar into the empty top gutter of the
+   page (top-right, one line, same node, same link, same text). The sidebar
+   itself (width, nav rows, season plate, collapse) is not touched: with the
+   badge gone from it, the nav simply loses the 64px reserve it carried and its
+   rows are the same height as when no draft is live. Above 640px (expanded) or
+   699px (rail) nothing here applies. */
+@media (min-width: 901px) and (max-height: 640px) {
+  .nb-shell:has(.nb-topbar-status:not(:empty)) .nb-sidebar-nav { padding-bottom: var(--nb-space-3); }
+  .nb-shell .nb-topbar-status,
+  .nb-shell.nb-collapsed .nb-topbar-status {
+    top: 4px;
+    right: 16px;
+    left: auto;
+    bottom: auto;
+    width: auto;
+    max-width: min(380px, calc(100vw - var(--nb-sidebar-width) - 32px));
+  }
+  .nb-shell .nb-topbar-status a,
+  .nb-shell.nb-collapsed .nb-topbar-status a {
+    display: block;
+    height: 26px;
+    line-height: 24px;
+    padding: 0 14px 0 12px;
+    font-size: 0.9375rem;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 999px;
+    background: #241e0e;                 /* opaque: it floats over scrolled content */
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+  .nb-shell .nb-topbar-status-dot,
+  .nb-shell.nb-collapsed .nb-topbar-status-dot { width: 8px; height: 8px; margin: -2px 8px 0 0; }
+}
+
+/* Rail only: the 44px beacon sits lower in the rail than the lower-third does in
+   the expanded sidebar and reaches the last rail icon up to ~699px of height,
+   so the rail uses the same top-right pill from 641 to 699px as well. */
+@media (min-width: 901px) and (min-height: 641px) and (max-height: 699px) {
+  .nb-shell.nb-collapsed:has(.nb-topbar-status:not(:empty)) .nb-sidebar-nav { padding-bottom: var(--nb-space-3); }
+  .nb-shell.nb-collapsed .nb-topbar-status {
+    top: 4px;
+    right: 16px;
+    left: auto;
+    bottom: auto;
+    width: auto;
+    max-width: min(380px, calc(100vw - var(--nb-sidebar-width) - 32px));
+  }
+  .nb-shell.nb-collapsed .nb-topbar-status a {
+    display: block;
+    height: 26px;
+    line-height: 24px;
+    padding: 0 14px 0 12px;
+    font-size: 0.9375rem;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-radius: 999px;
+    background: #241e0e;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+  .nb-shell.nb-collapsed .nb-topbar-status-dot { width: 8px; height: 8px; margin: -2px 8px 0 0; }
+}
