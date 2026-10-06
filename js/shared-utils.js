@@ -181,8 +181,8 @@ function badgeTextColor(hex) {
  *     'manage' — adds an edit "✎" and a delete "×" per row (admin
  *                Players page; caller wires both clicks)
  *     'draft'  — 'available' rows are clickable (data-action="selectPlayer"),
- *                and all four non-available statuses get a visible tag
- *                (Drafted / Variant Taken / Locked / No Position) — used by
+ *                and all non-available statuses get a visible tag
+ *                (Drafted / Variant Taken / Locked / No Position / Below Min OVR) — used by
  *                the admin Draft page. Caller wires the click.
  *   admin: boolean (legacy alias for mode:'manage', kept for existing callers)
  *   sortMode: 'ovr-desc' | 'ovr-asc' | 'name-asc' | 'name-desc'  (default 'ovr-desc')
@@ -239,6 +239,7 @@ const _DRAFT_STATUS_LABELS = {
   'variant-locked': 'Variant Taken',
   'position-locked': 'Locked',
   'no-position': 'No Position',
+  'minimum-rating': 'Below Min OVR',
 };
 
 function _positionPoolRow(entry, rank, mode) {
@@ -247,7 +248,7 @@ function _positionPoolRow(entry, rank, mode) {
   const isDrafted = status === 'drafted';
   // 'locked' visual (dimmed, tag, not struck through) covers every
   // non-available, non-drafted status — variant-locked, position-locked,
-  // and no-position — so a new status added later still degrades safely
+  // no-position, or minimum-rating — so a new status added later still degrades safely
   // to "clearly unavailable" instead of silently looking available.
   const isLocked = status && status !== 'available' && status !== 'drafted';
   // Bug fix — Joker Pick natural-position lockout: 'position-locked' and
@@ -264,7 +265,7 @@ function _positionPoolRow(entry, rank, mode) {
   // checks). The "Locked"/"No Position" tag below is untouched — the
   // commissioner still sees why a NORMAL pick of this player wouldn't
   // work; only the click-to-open behavior changes.
-  const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'variant-locked';
+  const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'variant-locked' && status !== 'minimum-rating';
   const ovr = player.overall ?? 0;
   const tier = ovr >= 90 ? 'pos-ovr-elite' : ovr >= 80 ? 'pos-ovr-good' : 'pos-ovr-role';
   const statusTag = mode === 'draft' && _DRAFT_STATUS_LABELS[status]

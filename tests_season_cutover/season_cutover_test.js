@@ -446,35 +446,41 @@ console.log('NBA2K27 season-cutover tests');
   });
 
   // ── 26-29. White pool policy ─────────────────────────────────────────
-  // Phase D3: White's rating FLOOR was changed from Blue's 84 to its own
+  // Phase D3: White's rating FLOOR was changed from Blue's 80 to its own
   // 75 (matching Green) — minRatingFor()/js/data.js. White stays
   // Blue-like for EVERYTHING else (composition/phase/fee — tests 27-29
   // below, unchanged). This replaces the old test 26, which asserted the
-  // pre-D3 behavior (White floored at 84) that is no longer correct.
-  await test('26a. White minimum-rating behavior now matches Green (75), NOT Blue (84)', () => {
+  // pre-D3 behavior (White floored at 80) that is no longer correct.
+  await test('26a. White minimum-rating behavior now matches Green (75), NOT Blue (80)', () => {
     const seasons = { s1: baseSeason({
       currentRosters: { p1: [{ playerId: 'whiteMid', source: 'draft' }] },
     }) };
-    // 80 OVR: below Blue's 84, but above White/Green's 75 — should PASS.
+    // 80 OVR: at Blue's 80 floor, and above White/Green's 75 — should PASS.
     const players = { whiteMid: { id: 'whiteMid', name: 'White Mid', overall: 80, pool: 'white', position: 'PG' } };
     const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
     const result = LeagueData.validateAllRosters('s1');
     assert.ok(!result.errors.some(e => e.type === 'MINIMUM_RATING'), 'an 80 OVR White player should NOT trip minimum-rating (White floors at 75)');
   });
 
-  await test('26b. Blue minimum-rating behavior is unaffected — still floors at 84, not White\'s 75', () => {
+  await test('26b. Blue minimum-rating floor is inclusive at 80; Blue 79 fails, not White\'s 75', () => {
     const seasons = { s1: baseSeason({
-      currentRosters: { p1: [{ playerId: 'blueMid', source: 'draft' }] },
+      currentRosters: { p1: [{ playerId: 'blue79', source: 'draft' }] },
     }) };
-    // Same 80 OVR as 26a, but pool: 'blue' — must still FAIL, proving the
-    // fix is pool-specific and didn't accidentally loosen Blue's own 84.
-    const players = { blueMid: { id: 'blueMid', name: 'Blue Mid', overall: 80, pool: 'blue', position: 'PG' } };
+    const players = { blue79: { id: 'blue79', name: 'Blue 79', overall: 79, pool: 'blue', position: 'PG' } };
     const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
     const result = LeagueData.validateAllRosters('s1');
-    assert.ok(result.errors.some(e => e.type === 'MINIMUM_RATING'), 'an 80 OVR Blue player should still trip the Blue minimum-rating rule (84)');
+    assert.ok(result.errors.some(e => e.type === 'MINIMUM_RATING'), 'a 79 OVR Blue player should trip the Blue minimum-rating rule (80)');
   });
 
-  await test('26c. White at exactly 75 passes; White at 74 fails — the floor is 75, not merely "below 84"', () => {
+  await test('26b2. Blue at exactly 80 passes the inclusive minimum-rating floor', () => {
+    const seasons = { s1: baseSeason({ currentRosters: { p1: [{ playerId: 'blue80', source: 'draft' }] } }) };
+    const players = { blue80: { id: 'blue80', name: 'Blue 80', overall: 80, pool: 'blue', position: 'PG' } };
+    const { LeagueData } = makeSandbox({ leagueSeasons: seasons, leaguePlayers: players });
+    const result = LeagueData.validateAllRosters('s1');
+    assert.ok(!result.errors.some(e => e.type === 'MINIMUM_RATING'), 'an 80 OVR Blue player should pass the Blue minimum-rating rule (80)');
+  });
+
+  await test('26c. White at exactly 75 passes; White at 74 fails — the floor remains 75', () => {
     const seasonsPass = { s1: baseSeason({ currentRosters: { p1: [{ playerId: 'w75', source: 'draft' }] } }) };
     const playersPass = { w75: { id: 'w75', name: 'White 75', overall: 75, pool: 'white', position: 'PG' } };
     const { LeagueData: passLD } = makeSandbox({ leagueSeasons: seasonsPass, leaguePlayers: playersPass });

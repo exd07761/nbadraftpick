@@ -297,11 +297,8 @@ console.log('Phase D1 — White Pool UI tests');
   });
 
   // ── 20. Explicitly-untouched surfaces — confirm the DO-NOT-MODIFY list ──
-  await test('20. isBlueLike/validateMinimumRating/BLUE_MIN_RATING/GREEN_MIN_RATING text is byte-identical to pre-D1', () => {
-    // Not a hash of the whole file (whitespace-insensitive edits elsewhere
-    // in data.js are fine) — just confirms the specific rule bodies this
-    // task was told never to touch are still present verbatim.
-    assert.ok(dataSrc.includes("BLUE_MIN_RATING"), 'BLUE_MIN_RATING constant should still exist');
+  await test('20. pool rule symbols remain present and Blue minimum is 80', () => {
+    assert.ok(/const BLUE_MIN_RATING = 80/.test(dataSrc), 'Blue minimum should be 80');
     assert.ok(dataSrc.includes("GREEN_MIN_RATING"), 'GREEN_MIN_RATING constant should still exist');
     assert.ok(/function isBlueLike|isBlueLike\s*\(/.test(dataSrc), 'isBlueLike should still exist');
   });

@@ -372,7 +372,7 @@ function computePositionState(season, playersById, participantId) {
 //
 // All amounts are in ₱ (pesos), matching the league's Discord rules.
 
-const BLUE_MIN_RATING = 84;
+const BLUE_MIN_RATING = 80;
 const GREEN_MIN_RATING = 75;
 const WHITE_MIN_RATING = 75; // Phase D3: White's rating FLOOR is 75, same numeric value as
                               // Green but tracked as its own constant (not an alias) so the
@@ -410,7 +410,7 @@ function isBlueLike(player) {
  * (see validateBlueComposition's count/total/fourth-player checks,
  * makeDraftPick's phased cap, and getPoolTradeFee, none of which call
  * this). Only a player's RATING FLOOR depends on pool specifically:
- * Green and White both floor at 75, Blue floors at 84. Returns null for
+ * Green and White both floor at 75, Blue floors at 80. Returns null for
  * any other/missing pool (nothing to enforce).
  */
 function minRatingFor(player) {
@@ -747,7 +747,7 @@ function validateResultingPositions(beforeEntries, afterEntries, playersById) {
   return { valid: true, reason: null };
 }
 
-/** Rule 4: max 5 Blue-like (Blue+White), first 3 combined <= 380, 4th <= 99 OVR. White ("Classics") counts as Blue-like for ALL of that — see isBlueLike(). The per-player rating floor below is the one exception: it's pool-specific (minRatingFor), not a flat Blue-like 84 — see Phase D3. */
+/** Rule 4: max 5 Blue-like (Blue+White), first 3 combined <= 380, 4th <= 99 OVR. White ("Classics") counts as Blue-like for ALL of that — see isBlueLike(). The per-player rating floor below is the one exception: it's pool-specific (minRatingFor), not a flat Blue-like 80 — see Phase D3. */
 function validateBlueComposition(afterEntries, playersById) {
   const blues = afterEntries
     .map((e) => playersById[e.playerId])
@@ -786,7 +786,7 @@ function validateBlueComposition(afterEntries, playersById) {
   return { valid: true, reason: null };
 }
 
-/** Rule 2: minimum rating for a player entering a roster, by pool — Green 75, Blue 84, White 75 (Phase D3: White floors at 75, NOT the Blue 84 isBlueLike() would otherwise imply; see minRatingFor()). */
+/** Rule 2: minimum rating for a player entering a roster, by pool — Green 75, Blue 80, White 75 (Phase D3: White floors at 75, NOT the Blue 80 isBlueLike() would otherwise imply; see minRatingFor()). */
 function validateMinimumRating(player) {
   if (!player) return { valid: false, reason: "Unknown player." };
   const minRating = minRatingFor(player);
@@ -2576,6 +2576,7 @@ const LeagueData = {
    *   'no-position'     — player has no recognized position (PG/SG/SF/PF/C)
    *                        and the mandatory-first-five phase is still active,
    *                        so it's unclear which slot it would fill
+   *   'minimum-rating'  — Blue player is below the Blue Pool minimum OVR
    *
    * Pass participantId = null/undefined to get drafted/variant-locked
    * status only (position rules skipped) — used once the draft is complete
@@ -2612,6 +2613,8 @@ const LeagueData = {
         status = "drafted";
       } else if (player.variantGroup && draftedVariantGroups.has(player.variantGroup)) {
         status = "variant-locked";
+      } else if (player.pool === "blue" && player.overall < BLUE_MIN_RATING) {
+        status = "minimum-rating";
       } else if (posState && !posState.allFilled) {
         if (!CORE_POSITIONS.includes(player.position)) {
           status = "no-position";
@@ -4077,6 +4080,10 @@ const AdminActions = {
       throw new Error("Set the player draft order before drafting.");
     const player = data.players[playerId];
     if (!player) throw new Error("Player not found");
+
+    if (player.pool === "blue" && player.overall < BLUE_MIN_RATING) {
+      throw new Error(validateMinimumRating(player).reason);
+    }
 
     const alreadyDrafted = season.playerDraftPicks.some(
       (p) => p.playerId === playerId

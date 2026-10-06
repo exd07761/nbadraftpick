@@ -32,6 +32,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'data.js'), 'utf8');
+const sharedUtilsSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'shared-utils.js'), 'utf8');
 
 let failures = 0;
 function test(name, fn) {
@@ -49,6 +50,7 @@ function makeSandbox(seasonData, playersData) {
   const dataDoc = { exists: true, data: () => ({ seasons: seasonData, players: playersData || {}, settings: {} }), metadata: { hasPendingWrites: false } };
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({
@@ -449,6 +451,44 @@ test('33/34. Normal draft picks still work; an old-style season with no Blue-pha
   const { AdminActions } = makeSandbox(seasons, players);
   const r = AdminActions.makeDraftPick('s1', 'g0');
   assert.strictEqual(r.playerId, 'g0');
+});
+
+test('Blue minimum OVR boundaries apply to draft-pool status and makeDraftPick', () => {
+  const { seasons, players } = freshSeasonFixture();
+  players.blue79 = player('blue79', { position: 'PG', overall: 79, pool: 'blue' });
+  players.blue80 = player('blue80', { position: 'PG', overall: 80, pool: 'blue' });
+  const { LeagueData, AdminActions } = makeSandbox(seasons, players);
+
+  const status = LeagueData.getDraftPoolStatus('s1', 'p1');
+  assert.strictEqual(status.find(e => e.player.id === 'blue79').status, 'minimum-rating', 'Blue 79 should be visibly unavailable');
+  assert.strictEqual(status.find(e => e.player.id === 'blue80').status, 'available', 'Blue 80 should be available');
+  assert.throws(() => AdminActions.makeDraftPick('s1', 'blue79'), /Blue minimum rating \(80\)/, 'write path should reject Blue 79');
+  const pick = AdminActions.makeDraftPick('s1', 'blue80');
+  assert.strictEqual(pick.playerId, 'blue80', 'write path should accept Blue 80 when otherwise eligible');
+});
+
+test('Draft minimum change leaves below-floor Green and White eligibility unchanged', () => {
+  const { seasons, players } = freshSeasonFixture();
+  players.green50 = player('green50', { position: 'PG', overall: 50, pool: 'green' });
+  players.white50 = player('white50', { position: 'SG', overall: 50, pool: 'white' });
+  const { LeagueData, AdminActions } = makeSandbox(seasons, players);
+  const status = LeagueData.getDraftPoolStatus('s1', 'p1');
+  assert.strictEqual(status.find(e => e.player.id === 'green50').status, 'available');
+  assert.strictEqual(status.find(e => e.player.id === 'white50').status, 'available');
+  assert.strictEqual(AdminActions.makeDraftPick('s1', 'green50').playerId, 'green50');
+  assert.strictEqual(AdminActions.makeDraftPick('s1', 'white50').playerId, 'white50');
+});
+
+test('Draft grid labels Blue below-minimum status and makes that row non-clickable', () => {
+  const uiSandbox = { CORE_POSITIONS: ['PG', 'SG', 'SF', 'PF', 'C'], escapeHtml: s => String(s) };
+  vm.createContext(uiSandbox);
+  vm.runInContext(sharedUtilsSrc, uiSandbox, { filename: 'shared-utils.js' });
+  const html = uiSandbox.positionPoolGrid([
+    { player: player('blue79', { position: 'PG', overall: 79, pool: 'blue' }), status: 'minimum-rating' },
+  ], 'blue', { mode: 'draft' });
+  assert.ok(html.includes('Below Min OVR'), 'the player should have a clear below-minimum label');
+  assert.ok(html.includes('locked'), 'the player should use the unavailable visual state');
+  assert.ok(!html.includes('data-action="selectPlayer"'), 'the below-minimum player should not open the draft modal');
 });
 
 test('35/36. Existing trades/swaps and post-draft Joker designation still work', () => {
