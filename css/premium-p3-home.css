@@ -1,0 +1,874 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Premium P3 — League homepage (public Home view only)
+
+   Append-only, loaded last. Everything is scoped under .hp-home (the wrapper
+   js/views/home.js renders) or .hp-nav (the homepage-only top nav in
+   index.html), so no other view is affected. The old `.dashboard` rules in
+   public-theme.css / premium-p1-shell-dashboard.css no longer match the home
+   view; they are intentionally left in place for now.
+
+   Hero image slot (set on :root or .hp-home — no JS needed):
+     --hp-hero-image:        url('../assets/hero/hero.jpg');   default: none
+     --hp-hero-image-mobile: url('../assets/hero/hero-m.jpg'); default: same as above
+     --hp-hero-pos:          70% 30%;                          focal point
+   With no image set, the fallback arena atmosphere below is shown. When you
+   add a real image it simply paints over the fallback.
+
+   Type scale is deliberately modest: season title 26 / 32 / 40px, hero mark
+   26–40px, section titles 22px, everything else 11–18px. Barlow Condensed is
+   used only for the hero mark, season title, section titles, numerals and
+   small caps labels; Inter (UI font) for the rest.
+   No !important, no transition: all, no infinite animation.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. Homepage-only top navigation + shell switch (desktop) ─────────────── */
+.hp-nav { display: none; }
+
+@supports selector(:has(*)) {
+  /* Full-bleed hero/sections: the home view brings its own gutters (.hp-wrap),
+     at every width. */
+  .nb-content-col:has(.hp-home) .main-content {
+    max-width: none;
+    padding: 0;
+  }
+  @media (min-width: 901px) {
+    /* Home view rendered → slim top nav replaces the sidebar. Every other view
+       (and the ≤900px drawer shell) is untouched. */
+    .nb-shell:has(.hp-home) .nb-sidebar { display: none; }
+    .nb-shell:has(.hp-home) .hp-nav { display: block; }
+  }
+}
+
+.hp-nav {
+  position: sticky;
+  top: 0;
+  z-index: var(--nb-z-topbar);
+  background: rgba(10, 12, 17, 0.94);
+  border-bottom: 1px solid var(--nb-surface-border);
+}
+.hp-nav-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 clamp(16px, 4vw, 40px);
+  height: 56px;
+  display: flex;
+  align-items: stretch;
+  gap: clamp(16px, 3vw, 40px);
+}
+.hp-nav .hp-nav-brand.nav-link {
+  display: flex;
+  align-items: center;
+  padding: 0;
+  background: none;
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.25rem;
+  letter-spacing: 0.03em;
+  color: var(--nb-text);
+  text-transform: uppercase;
+  gap: 0.28em;
+  transform: skewX(-6deg);
+  white-space: nowrap;
+}
+.hp-nav .hp-nav-brand.nav-link span { color: var(--nb-brand-orange-on-dark, var(--nb-brand-orange)); }
+.hp-nav .hp-nav-brand.nav-link:hover,
+.hp-nav .hp-nav-brand.nav-link.active { background: none; color: var(--nb-text); }
+
+.hp-nav-links { display: flex; align-items: stretch; gap: 2px; flex: 1; min-width: 0; }
+.hp-nav .nav-link.hp-nav-link {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-radius: 0;
+  background: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard), box-shadow var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hp-nav .nav-link.hp-nav-link:hover { color: var(--nb-text); background: none; }
+.hp-nav .nav-link.hp-nav-link.active {
+  color: var(--nb-text);
+  background: none;
+  box-shadow: inset 0 -2px 0 var(--nb-brand-orange);
+}
+.hp-nav a:focus-visible,
+.hp-nav button:focus-visible { outline: 2px solid var(--nb-focus-ring-on-dark, var(--nb-focus-ring)); outline-offset: -2px; }
+
+/* "More": CSS-only disclosure (hover or keyboard focus). */
+.hp-more { position: relative; display: flex; align-items: stretch; }
+.hp-more-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+}
+.hp-more:hover .hp-more-btn,
+.hp-more:focus-within .hp-more-btn { color: var(--nb-text); }
+.hp-more-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+  box-shadow: var(--nb-shadow-3, 0 18px 40px rgba(0, 0, 0, 0.5));
+}
+.hp-more:hover .hp-more-menu,
+.hp-more:focus-within .hp-more-menu { display: block; }
+.hp-nav .hp-more-link {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--nb-text-muted);
+  background: none;
+  text-decoration: none;
+}
+.hp-nav .hp-more-link:hover,
+.hp-nav .hp-more-link:focus-visible { color: var(--nb-text); background: var(--nb-surface-raised); }
+.hp-nav .hp-more-link.active { color: var(--nb-text); box-shadow: inset 2px 0 0 var(--nb-brand-orange); background: none; }
+.hp-nav .hp-more-admin { margin-top: 4px; border-top: 1px solid var(--nb-surface-border); border-radius: 0 0 8px 8px; }
+
+/* ── 2. Wrapper + shared pieces ───────────────────────────────────────────── */
+.hp-home {
+  --hp-gutter: clamp(16px, 4vw, 40px);
+  --hp-wrap: 1200px;
+  --hp-hairline: rgba(255, 255, 255, 0.07);
+  --hp-gap: 16px;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  color: var(--nb-text);
+  font-family: var(--nb-font-ui);
+}
+.hp-home .hp-wrap {
+  width: 100%;
+  max-width: var(--hp-wrap);
+  margin: 0 auto;
+  padding-inline: var(--hp-gutter);
+  min-width: 0;
+}
+.hp-home .hp-section:last-child { padding-bottom: clamp(36px, 5vw, 64px); }
+
+.hp-home .hp-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 20px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.hp-home .hp-section-title {
+  position: relative;
+  padding-left: 14px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+.hp-home .hp-section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  bottom: 0.05em;
+  width: 4px;
+  background: var(--nb-brand-orange);
+  transform: skewX(-14deg);
+}
+.hp-home .hp-section-sub {
+  margin-left: 10px;
+  font-family: var(--nb-font-ui);
+  font-weight: 500;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: var(--nb-text-dim);
+}
+.hp-home .hp-head-actions { display: flex; align-items: center; gap: 14px; }
+
+.hp-home .hp-link.nav-link {
+  padding: 0;
+  background: none;
+  border-radius: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  white-space: nowrap;
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hp-home .hp-link.nav-link:hover { color: var(--nb-text); background: none; }
+.hp-home .hp-link.nav-link:focus-visible,
+.hp-home a:focus-visible,
+.hp-home .hp-strip:focus-visible,
+.hp-home .hp-arrow:focus-visible { outline: 2px solid var(--nb-focus-ring-on-dark, var(--nb-focus-ring)); outline-offset: 3px; border-radius: 4px; }
+
+.hp-home .hp-panel {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r-lg);
+  min-width: 0;
+}
+.hp-home .hp-muted { color: var(--nb-text-muted); font-size: 0.875rem; }
+
+/* Arrow buttons: small, quiet, ring-only. */
+.hp-home .hp-arrows { display: flex; gap: 6px; }
+.hp-home .hp-arrows.is-hidden { display: none; }
+.hp-home .hp-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 50%;
+  color: var(--nb-text-muted);
+  cursor: pointer;
+  transition: color var(--nb-dur-fast) var(--nb-ease-standard), border-color var(--nb-dur-fast) var(--nb-ease-standard), background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hp-home .hp-arrow:hover:not(:disabled) { color: var(--nb-text); border-color: var(--nb-border-strong); background: var(--nb-surface-raised); }
+.hp-home .hp-arrow:disabled { opacity: 0.35; cursor: default; }
+
+/* Horizontal strips (schedule, participants): native scroll + snap. */
+.hp-home .hp-strip {
+  display: flex;
+  gap: var(--hp-gap);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  padding: 2px 2px 10px;
+  margin-inline: -2px;
+}
+.hp-home .hp-strip::-webkit-scrollbar { display: none; }
+.hp-home .hp-strip > * { scroll-snap-align: start; flex: 0 0 auto; }
+
+/* ── 3. Hero (image first) ────────────────────────────────────────────────
+   Layer stack, back → front (all inside .hp-hero's stacking context):
+     1. .hp-hero               dark arena base gradient
+     2. .hp-hero::before       FALLBACK hardwood floor receding in perspective,
+                               with a lit pool where the beams land
+     3. .hp-hero-fx::before    FALLBACK distant crowd / arena bokeh band
+        .hp-hero-fx::after     FALLBACK stage lights, converging beams, rim glow
+     4. .hp-hero-art::after    the REAL hero image (var(--hp-hero-image)) with the
+                               readability gradients, vignette and fades painted
+                               over it
+   Because (4) sits above (2)–(3), an opaque real image automatically covers the
+   fallback — no extra switch needed. Typography does not grow; the lighting
+   carries the hero. */
+.hp-home .hp-hero {
+  --_img: var(--hp-hero-image, none);
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-end;
+  min-height: clamp(360px, 58vh, 580px);
+  overflow: hidden;
+  background: radial-gradient(120% 95% at 70% 30%, #1e2230 0%, #11141c 44%, #090b10 100%);
+}
+.hp-home .hp-hero::after {         /* thin brand rule where the hero meets the season block */
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--nb-brand-orange), rgba(232, 99, 10, 0.35) 28%, rgba(255, 255, 255, 0.06) 62%, transparent);
+}
+.hp-home .hp-hero::before {        /* hardwood floor receding into the arena */
+  content: "";
+  position: absolute;
+  z-index: -2;
+  left: -30%;
+  right: -30%;
+  bottom: -4%;
+  height: 80%;
+  transform-origin: 50% 100%;
+  transform: perspective(520px) rotateX(63deg);
+  background:
+    radial-gradient(ellipse 30% 46% at 68% 62%, rgba(255, 190, 120, 0.55), rgba(255, 160, 80, 0.18) 55%, transparent 80%),   /* pool of light */
+    radial-gradient(circle at 68% 40%, transparent 0 21%, rgba(255, 220, 176, 0.34) 21.4% 22.4%, transparent 22.8%),         /* centre circle */
+    repeating-linear-gradient(90deg, rgba(255, 200, 140, 0.15) 0 1px, transparent 1px 60px),                                 /* planks */
+    repeating-linear-gradient(0deg, rgba(255, 200, 140, 0.07) 0 1px, transparent 1px 46px),
+    linear-gradient(180deg, rgba(150, 82, 32, 0) 0%, rgba(180, 102, 44, 0.42) 100%);
+  -webkit-mask-image: linear-gradient(0deg, #000 14%, rgba(0, 0, 0, 0.55) 55%, transparent 96%);
+          mask-image: linear-gradient(0deg, #000 14%, rgba(0, 0, 0, 0.55) 55%, transparent 96%);
+}
+.hp-home .hp-hero-art { position: absolute; inset: 0; z-index: -1; }
+.hp-home .hp-hero-fx { position: absolute; inset: 0; pointer-events: none; }
+
+/* distant crowd / arena bokeh: two offset lattices of tiny lights in a band */
+.hp-home .hp-hero-fx::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 26%;
+  height: 34%;
+  background:
+    radial-gradient(circle 1.6px at 50% 50%, rgba(255, 224, 176, 0.75) 0 90%, transparent 100%) 0 0 / 27px 17px,
+    radial-gradient(circle 1.3px at 50% 50%, rgba(255, 200, 140, 0.55) 0 90%, transparent 100%) 13px 8px / 27px 17px;
+  opacity: 0.3;
+  filter: blur(0.7px);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 40%, #000 60%, transparent 100%), linear-gradient(90deg, transparent 20%, #000 60%);
+          mask-image: linear-gradient(180deg, transparent 0%, #000 40%, #000 60%, transparent 100%), linear-gradient(90deg, transparent 20%, #000 60%);
+  -webkit-mask-composite: source-in;
+          mask-composite: intersect;
+}
+
+/* stage lights, converging beams, rim glow */
+.hp-home .hp-hero-fx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    /* beams converge on the lit pool (decorative; angles tuned for wide screens) */
+    conic-gradient(from 142deg at 57% 10%, transparent 0deg, rgba(255, 232, 190, 0.13) 11deg, transparent 22deg, transparent 360deg),
+    conic-gradient(from 169deg at 70% 6%, transparent 0deg, rgba(255, 232, 190, 0.16) 11deg, transparent 22deg, transparent 360deg),
+    conic-gradient(from 199deg at 84% 15%, transparent 0deg, rgba(255, 232, 190, 0.12) 11deg, transparent 22deg, transparent 360deg),
+    /* stage lights: hot core + soft bloom */
+    radial-gradient(circle 6px at 57% 10%, rgba(255, 247, 230, 0.98), rgba(255, 210, 152, 0.5) 55%, transparent 100%),
+    radial-gradient(circle 120px at 57% 10%, rgba(255, 192, 112, 0.32), transparent 70%),
+    radial-gradient(circle 5px at 70% 6%, rgba(255, 247, 230, 0.98), rgba(255, 210, 152, 0.5) 55%, transparent 100%),
+    radial-gradient(circle 100px at 70% 6%, rgba(255, 192, 112, 0.30), transparent 70%),
+    radial-gradient(circle 6px at 84% 15%, rgba(255, 247, 230, 0.95), rgba(255, 210, 152, 0.45) 55%, transparent 100%),
+    radial-gradient(circle 110px at 84% 15%, rgba(255, 176, 96, 0.28), transparent 70%),
+    radial-gradient(circle 4px at 46% 5%, rgba(255, 247, 230, 0.85), transparent 100%),
+    radial-gradient(circle 64px at 46% 5%, rgba(255, 200, 130, 0.18), transparent 70%),
+    /* warm rim light behind the focal area */
+    radial-gradient(30% 70% at 69% 52%, rgba(255, 168, 88, 0.20), transparent 72%),
+    /* cool counter-light in the shadows for depth */
+    radial-gradient(40% 62% at 97% 80%, rgba(72, 106, 192, 0.16), transparent 70%),
+    radial-gradient(30% 50% at 0% 100%, rgba(232, 99, 10, 0.10), transparent 70%);
+}
+
+/* real image (when configured) + readability + vignette + fades */
+.hp-home .hp-hero-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(8, 10, 14, 0.90) 0%, rgba(8, 10, 14, 0.60) 30%, rgba(8, 10, 14, 0) 62%),
+    radial-gradient(130% 100% at 64% 42%, transparent 50%, rgba(4, 5, 8, 0.62) 100%),
+    linear-gradient(0deg, var(--nb-canvas) 0%, rgba(13, 15, 20, 0) 34%),
+    linear-gradient(180deg, rgba(8, 10, 14, 0.55) 0%, transparent 24%),
+    var(--_img) var(--hp-hero-pos, 70% 30%) / cover no-repeat;
+}
+
+.hp-home .hp-hero-inner { padding-block: clamp(56px, 12vh, 120px) clamp(44px, 8vh, 84px); }
+.hp-home .hp-hero-copy { position: relative; display: flex; flex-direction: column; gap: 8px; padding-left: 18px; }
+.hp-home .hp-hero-copy::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 4px;
+  background: linear-gradient(180deg, var(--nb-brand-orange), rgba(232, 99, 10, 0.25));
+  transform: skewX(-14deg);
+}
+.hp-home .hp-hero-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+}
+.hp-home .hp-hero-mark {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: clamp(1.625rem, 1.1rem + 1.8vw, 2.5rem);
+  line-height: 1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  transform: skewX(-6deg);
+  transform-origin: left center;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.55);
+}
+.hp-home .hp-hero-mark span { color: var(--nb-brand-orange-on-dark, var(--nb-brand-orange)); }
+
+/* ── 4. Draft-live strip (existing markup, restyled) ───────────────────────── */
+.hp-home .hp-live {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-block: 12px;
+  padding-inline: max(var(--hp-gutter), calc((100% - var(--hp-wrap)) / 2 + var(--hp-gutter)));
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.20), rgba(212, 160, 23, 0.06) 70%, rgba(212, 160, 23, 0.02));
+  border-block: 1px solid rgba(212, 160, 23, 0.32);
+  color: var(--nb-text);
+  text-decoration: none;
+}
+.hp-home .hp-live:hover { background: linear-gradient(90deg, rgba(212, 160, 23, 0.28), rgba(212, 160, 23, 0.10) 70%, rgba(212, 160, 23, 0.04)); }
+.hp-home .hp-live .dash-draft-live-dot { width: 9px; height: 9px; flex-shrink: 0; border-radius: 50%; background: var(--nb-gold-on-dark, var(--nb-gold)); box-shadow: 0 0 0 3px rgba(212, 160, 23, 0.2); }
+.hp-home .hp-live .dash-draft-live-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.hp-home .hp-live .dash-draft-live-eyebrow { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--nb-gold-on-dark, var(--nb-gold)); font-variant-numeric: tabular-nums; }
+.hp-home .hp-live .dash-draft-live-name { font-family: var(--nb-font-display); font-weight: 700; font-size: 1.375rem; line-height: 1.1; letter-spacing: 0.03em; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-home .hp-live .dash-draft-live-cta { flex-shrink: 0; font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nb-gold-on-dark, var(--nb-gold)); }
+
+/* ── 5. Current season ────────────────────────────────────────────────────── */
+.hp-home .hp-season {
+  position: relative;
+  padding-block: clamp(40px, 5.5vw, 72px) clamp(36px, 5vw, 64px);
+  background:
+    radial-gradient(50% 120% at 0% 0%, rgba(232, 99, 10, 0.11), transparent 62%),
+    radial-gradient(40% 90% at 100% 100%, rgba(212, 160, 23, 0.05), transparent 70%),
+    linear-gradient(180deg, rgba(10, 12, 17, 0.80), rgba(10, 12, 17, 0.92));
+}
+.hp-home .hp-season-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 32px clamp(32px, 5vw, 64px);
+  align-items: start;
+}
+.hp-home .hp-season-head { position: relative; padding-left: 18px; }
+.hp-home .hp-season-head::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 4px;
+  background: linear-gradient(180deg, var(--nb-brand-orange), rgba(232, 99, 10, 0.2));
+  transform: skewX(-14deg);
+}
+.hp-home .hp-kicker {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+}
+.hp-home .hp-season-name {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: clamp(1.625rem, 1.2rem + 1.6vw, 2.5rem);
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  overflow-wrap: anywhere;
+}
+.hp-home .hp-season-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 16px;
+  font-size: 0.875rem;
+  color: var(--nb-text-muted);
+}
+
+.hp-home .hp-tiles {
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  margin-top: clamp(28px, 3.6vw, 44px);
+  max-width: 860px;
+  border-block: 1px solid var(--hp-hairline);
+}
+.hp-home .hp-tile {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-areas: "icon value" "label label";
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 8px;
+  min-width: 0;
+  padding: 18px 18px 16px;
+}
+.hp-home .hp-tile + .hp-tile { border-left: 1px solid var(--hp-hairline); }
+.hp-home .hp-tile-icon { grid-area: icon; display: inline-flex; color: var(--nb-brand-orange-on-dark, var(--nb-brand-orange)); opacity: 0.8; }
+.hp-home .hp-tile-value {
+  grid-area: value;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text);
+  white-space: nowrap;
+}
+.hp-home .hp-tile-label {
+  grid-area: label;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Champion / defending-champion plate: gold = prestige. Only rendered when data exists. */
+.hp-home .hp-plate {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 280px;
+  min-height: 188px;
+  padding: 16px 18px 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 70% at 85% 0%, rgba(212, 160, 23, 0.22), transparent 70%),
+    linear-gradient(180deg, #1a1d24, #12151c);
+  border: 1px solid rgba(212, 160, 23, 0.55);
+  border-radius: var(--nb-r-lg);
+  box-shadow: inset 0 0 0 1px rgba(212, 160, 23, 0.08), 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+.hp-home .hp-plate-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--nb-gold-on-dark, var(--nb-gold)); }
+.hp-home .hp-plate-trophy { position: absolute; right: 14px; top: 12px; color: rgba(212, 160, 23, 0.55); }
+.hp-home .hp-plate-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: auto; min-width: 0; }
+.hp-home .hp-plate-name { max-width: 100%; font-family: var(--nb-font-display); font-weight: 700; font-size: 1.5rem; line-height: 1.05; letter-spacing: 0.03em; text-transform: uppercase; color: var(--nb-text); overflow-wrap: anywhere; }
+.hp-home .hp-plate-sub { font-size: 0.6875rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--nb-text-dim); }
+.hp-home .hp-plate .team-identity-abbr { display: none; }
+
+/* ── 6. Schedule ──────────────────────────────────────────────────────────── */
+.hp-home .hp-schedule-strip > .hp-game { width: clamp(270px, 30%, 372px); }
+.hp-home .hp-game {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 14px 18px 22px;
+  background:
+    radial-gradient(90% 60% at 50% 0%, rgba(255, 255, 255, 0.045), transparent 70%),
+    linear-gradient(180deg, #1a1f2b, #11151d);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 12px;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.10);
+}
+.hp-home .hp-game-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hp-hairline);
+}
+.hp-home .hp-game-status {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.hp-home .hp-game-status.is-final { color: var(--nb-text-muted); }
+.hp-home .hp-game-status.is-scheduled { color: color-mix(in srgb, var(--nb-primary) 55%, #fff); }
+.hp-home .hp-game-status.is-bye { color: var(--nb-text-dim); }
+.hp-home .hp-game.is-scheduled { box-shadow: inset 0 2px 0 color-mix(in srgb, var(--nb-primary) 60%, transparent); }
+.hp-home .hp-game-chip {
+  max-width: 60%;
+  padding: 3px 8px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--nb-text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hp-home .hp-game-body { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 6px; }
+.hp-home .hp-side { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 0; text-align: center; }
+.hp-home .hp-side .team-identity-abbr,
+.hp-home .hp-game-bye .team-identity-abbr { display: none; }
+/* logos carry the matchup: slightly larger marks, same type scale */
+.hp-home .hp-game .team-logo-img-lg,
+.hp-home .hp-game .team-badge-lg { width: 64px; height: 64px; }
+.hp-home .hp-side-name {
+  max-width: 100%;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--nb-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-home .hp-side.is-winner .hp-side-name { color: var(--nb-text); }
+.hp-home .hp-game.is-final .hp-side:not(.is-winner) .team-logo-img,
+.hp-home .hp-game.is-final .hp-side:not(.is-winner) .team-badge { opacity: 0.6; }
+.hp-home .hp-home-tag { font-size: 0.5625rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--nb-text-dim); }
+.hp-home .hp-mid { display: flex; align-items: center; justify-content: center; min-width: 76px; }
+.hp-home .hp-vs {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+  color: var(--nb-text-muted);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+}
+.hp-home .hp-score { display: inline-flex; align-items: baseline; gap: 7px; font-family: var(--nb-font-display); font-variant-numeric: tabular-nums; }
+.hp-home .hp-score b { font-weight: 800; font-size: 1.875rem; line-height: 1; color: var(--nb-text-dim); }
+.hp-home .hp-score b.is-winner { color: var(--nb-text); text-shadow: 0 0 22px rgba(255, 255, 255, 0.16); }
+.hp-home .hp-score i { font-style: normal; font-size: 1.125rem; color: var(--nb-text-dim); opacity: 0.7; }
+.hp-home .hp-game.is-final .hp-side.is-winner .team-logo-img,
+.hp-home .hp-game.is-final .hp-side.is-winner .team-badge { box-shadow: 0 0 0 2px color-mix(in srgb, var(--nb-positive) 55%, transparent); border-radius: 14px; }
+.hp-home .hp-game.is-bye { opacity: 0.85; }
+.hp-home .hp-game-bye { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 2px; }
+.hp-home .hp-game-note { font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--nb-text-dim); }
+
+/* ── 7. Standings ─────────────────────────────────────────────────────────── */
+.hp-home .hp-standings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--hp-gap); }
+.hp-home .hp-standings-panel { overflow: hidden; }
+.hp-home .hp-st-row {
+  display: grid;
+  grid-template-columns: 28px 26px minmax(0, 1fr) 34px 34px 48px 58px;
+  align-items: center;
+  column-gap: 10px;
+  min-height: 52px;
+  padding: 0 16px;
+  border-top: 1px solid var(--hp-hairline);
+  font-size: 0.875rem;
+}
+.hp-home .hp-st-row:first-child { border-top: 0; }
+.hp-home .hp-st-head {
+  min-height: 34px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+  background: rgba(255, 255, 255, 0.02);
+}
+.hp-home .hp-st-head > span:nth-child(n+4) { text-align: right; }
+.hp-home .hp-st-row.is-leader { background: linear-gradient(90deg, rgba(212, 160, 23, 0.16), rgba(212, 160, 23, 0.03) 75%); }
+.hp-home .hp-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--nb-text-muted);
+  border: 1px solid var(--nb-surface-border);
+}
+.hp-home .hp-rank.is-top4 { color: var(--nb-gold-on-dark, var(--nb-gold)); border-color: rgba(212, 160, 23, 0.5); background: rgba(212, 160, 23, 0.08); }
+.hp-home .hp-rank.is-first { color: #1a1405; background: var(--nb-gold-on-dark, var(--nb-gold)); border-color: transparent; }
+.hp-home .hp-st-name { font-weight: 600; color: var(--nb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-home .hp-st-num,
+.hp-home .hp-st-pct { text-align: right; font-family: var(--nb-font-display); font-weight: 700; font-size: 1.0625rem; font-variant-numeric: tabular-nums; color: var(--nb-text); }
+.hp-home .hp-st-pct { font-weight: 600; color: var(--nb-text-muted); }
+.hp-home .hp-st-num.is-pos { color: var(--nb-positive); }
+.hp-home .hp-st-num.is-neg { color: var(--nb-negative); }
+.hp-home .hp-st-row .team-identity-abbr { display: none; }
+
+/* ── 8. Participants ──────────────────────────────────────────────────────── */
+.hp-home .hp-pcard {
+  --_t: var(--hp-team, #4a5163);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 140px;
+  padding: 18px 10px 14px;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--_t) 12%, #171c27) 0%, #11151d 72%);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 12px;
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--_t) 70%, transparent);
+  text-align: center;
+  transition: transform var(--nb-dur-fast) var(--nb-ease-standard), border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hp-home .hp-pcard:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--_t) 45%, var(--nb-surface-border)); }
+.hp-home .hp-pcard-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  margin-bottom: 4px;
+  background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--_t) 20%, transparent), transparent 66%);
+}
+.hp-home .hp-pcard-logo .team-identity-abbr { display: none; }
+.hp-home .hp-pcard-name { max-width: 100%; font-size: 0.875rem; font-weight: 600; color: var(--nb-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-home .hp-pcard-record { font-family: var(--nb-font-display); font-weight: 700; font-size: 1.125rem; line-height: 1; letter-spacing: 0.04em; font-variant-numeric: tabular-nums; color: var(--nb-text-muted); }
+.hp-home .hp-pcard-team { max-width: 100%; font-size: 0.6875rem; color: var(--nb-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 9. League info (secondary content) ───────────────────────────────────── */
+.hp-home .hp-intel {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.hp-home .hp-intel-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--nb-surface-card);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: var(--nb-r);
+}
+.hp-home .hp-intel-num { font-family: var(--nb-font-display); font-weight: 700; font-size: 1.625rem; line-height: 1; font-variant-numeric: tabular-nums; color: var(--nb-text); }
+.hp-home .hp-intel-num.is-green { color: var(--nb-pool-green); }
+.hp-home .hp-intel-num.is-blue { color: var(--nb-pool-blue); }
+.hp-home .hp-intel-num.is-white { color: var(--nb-pool-white); }
+.hp-home .hp-intel-label { font-size: 0.625rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--nb-text-dim); }
+
+.hp-home .hp-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--hp-gap); margin-top: 16px; }
+.hp-home .hp-info-grid > .hp-panel { padding: 16px 18px 18px; }
+.hp-home .hp-info-grid > .hp-panel:only-child { grid-column: 1 / -1; }
+.hp-home .hp-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.hp-home .hp-panel-title { font-family: var(--nb-font-display); font-weight: 700; font-size: 1.0625rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--nb-text); }
+.hp-home .hp-champion-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nb-gold-on-dark, var(--nb-gold));
+  background: rgba(212, 160, 23, 0.1);
+  border: 1px solid rgba(212, 160, 23, 0.4);
+  border-radius: var(--nb-r);
+}
+.hp-home .hp-seasons { display: flex; flex-direction: column; gap: 8px; }
+.hp-home .hp-season-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 0.875rem;
+  color: var(--nb-text-muted);
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--nb-surface-border);
+  border-radius: 8px;
+}
+.hp-home .hp-season-row.is-active { color: var(--nb-text); box-shadow: inset 3px 0 0 var(--nb-brand-orange); }
+.hp-home .hp-season-row > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 9b. Section rhythm: one continuous page, not stacked cards ─────────────── */
+.hp-home {
+  background:
+    radial-gradient(70% 28% at 100% 38%, rgba(232, 99, 10, 0.05), transparent 70%),
+    radial-gradient(60% 24% at 0% 68%, rgba(91, 91, 240, 0.04), transparent 70%),
+    linear-gradient(180deg, rgba(13, 15, 20, 0.82), rgba(13, 15, 20, 0.90));
+}
+.hp-home .hp-section { position: relative; padding-block: clamp(34px, 4.6vw, 56px) 0; }
+.hp-home .hp-section::before {        /* thin brand rule opening each section */
+  content: "";
+  position: absolute;
+  top: 0;
+  left: max(var(--hp-gutter), calc((100% - var(--hp-wrap)) / 2 + var(--hp-gutter)));
+  right: max(var(--hp-gutter), calc((100% - var(--hp-wrap)) / 2 + var(--hp-gutter)));
+  height: 1px;
+  background: linear-gradient(90deg, rgba(232, 99, 10, 0.55), rgba(255, 255, 255, 0.08) 26%, rgba(255, 255, 255, 0.03) 70%, transparent);
+}
+.hp-home .hp-schedule { background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 70%); padding-bottom: clamp(6px, 1vw, 12px); }
+.hp-home .hp-info { background: linear-gradient(180deg, transparent, rgba(7, 8, 12, 0.55)); }
+
+/* ── 10. Responsive ───────────────────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .hp-home .hp-schedule-strip > .hp-game { width: clamp(260px, 36%, 340px); }
+}
+
+@media (max-width: 1023px) {
+  .hp-home .hp-standings-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .hp-home .hp-standings-grid > .hp-panel + .hp-panel { border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
+  .hp-home .hp-standings-grid > .hp-panel:has(+ .hp-panel) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .hp-home .hp-standings-grid > .hp-panel + .hp-panel .hp-st-head { display: none; }
+  .hp-home .hp-standings-grid > .hp-panel + .hp-panel .hp-st-row:first-child { border-top: 1px solid var(--hp-hairline); }
+}
+
+@media (max-width: 900px) {
+  .hp-home .hp-strip { margin-inline: calc(-1 * var(--hp-gutter)); padding-inline: var(--hp-gutter); scroll-padding-inline: var(--hp-gutter); }
+  .hp-home .hp-season-grid { grid-template-columns: minmax(0, 1fr); }
+  .hp-home .hp-plate { width: 100%; min-height: 0; flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+  .hp-home .hp-plate-label { flex: 0 0 100%; }
+  .hp-home .hp-plate-body { flex-direction: row; align-items: center; margin-top: 0; gap: 14px; flex-wrap: wrap; }
+  .hp-home .hp-plate-trophy { top: 14px; }
+  .hp-home .hp-hero { min-height: clamp(340px, 48vh, 480px); }
+  .hp-home .hp-info-grid { grid-template-columns: minmax(0, 1fr); }
+  .hp-home .hp-arrow { width: 40px; height: 40px; }
+}
+
+@media (max-width: 640px) {
+  .hp-home .hp-hero { --_img: var(--hp-hero-image-mobile, var(--hp-hero-image, none)); min-height: 380px; }
+  .hp-home .hp-hero-art::after { background-position: center, center, center, center, var(--hp-hero-pos-mobile, 62% 30%); }
+  .hp-home .hp-hero::before { left: -80%; right: -80%; }
+  .hp-home .hp-hero-inner { padding-block: 72px 44px; }
+  .hp-home .hp-arrows { display: none; }                       /* native swipe on phones */
+  .hp-home .hp-schedule-strip > .hp-game { width: 82%; }
+  .hp-home .hp-pcard { width: 124px; padding-inline: 8px; }
+  .hp-home .hp-tiles { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hp-home .hp-tile + .hp-tile { border-left: 0; }
+  .hp-home .hp-tile:nth-child(even) { border-left: 1px solid var(--hp-hairline); }
+  .hp-home .hp-tile:nth-child(n+3) { border-top: 1px solid var(--hp-hairline); }
+  .hp-home .hp-tiles > .hp-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .hp-home .hp-standings-grid { margin-inline: calc(-1 * var(--hp-gutter)); }
+  .hp-home .hp-standings-grid > .hp-standings-panel.hp-panel { border-inline: 0; border-radius: 0; }
+  .hp-home .hp-section-sub { display: block; margin: 6px 0 0; }
+  .hp-home .hp-live { flex-wrap: wrap; }
+  .hp-home .hp-live .dash-draft-live-cta { flex: 0 0 100%; padding-left: 23px; }
+  .hp-home .hp-link.nav-link { min-height: 44px; display: inline-flex; align-items: center; }
+}
+
+@media (max-width: 560px) {
+  .hp-home .hp-st-row { grid-template-columns: 26px 24px minmax(0, 1fr) 30px 30px 46px; padding: 0 12px; column-gap: 8px; }
+  .hp-home .hp-st-row > :nth-child(7) { display: none; }       /* PCT stays in the DOM; /standings has the full table */
+}
+
+@media (max-width: 400px) {
+  .hp-home .hp-score b { font-size: 1.625rem; }
+  .hp-home .hp-intel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hp-home .hp-pcard,
+  .hp-home .hp-arrow,
+  .hp-nav .nav-link { transition: none; }
+  .hp-home .hp-pcard:hover { transform: none; }
+}

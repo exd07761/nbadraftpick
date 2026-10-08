@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="css/premium-p1-shell-dashboard.css">
   <link rel="stylesheet" href="css/premium-p1-schedule-standings.css">
   <link rel="stylesheet" href="css/premium-p2-draft.css">
+  <link rel="stylesheet" href="css/premium-p3-home.css">
 </head>
 <body>
 
@@ -69,6 +70,35 @@
     </aside>
 
     <div class="nb-content-col">
+      <!-- Homepage-only top navigation (desktop). Hidden everywhere except while the
+           home view is rendered (see css/premium-p3-home.css); the sidebar/drawer
+           remains the navigation for every other view. These are ordinary
+           .nav-link[data-route] anchors, so public-router.js binds them and
+           toggles .active exactly as it does for the sidebar. -->
+      <header class="hp-nav" id="hpNav">
+        <div class="hp-nav-inner">
+          <a class="nav-link hp-nav-brand" data-route="home" href="#home">NBA <span>2K</span> ASPAKAN</a>
+          <nav class="hp-nav-links" aria-label="Primary">
+            <a class="nav-link hp-nav-link" data-route="home" href="#home">Home</a>
+            <a class="nav-link hp-nav-link" data-route="draft" href="#draft">Draft</a>
+            <a class="nav-link hp-nav-link" data-route="schedule" href="#schedule">Schedule</a>
+            <a class="nav-link hp-nav-link" data-route="standings" href="#standings">Standings</a>
+            <a class="nav-link hp-nav-link" data-route="rosters" href="#rosters">Participants</a>
+          </nav>
+          <div class="hp-more">
+            <button type="button" class="hp-more-btn" aria-haspopup="true">More <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="hp-more-menu">
+              <a class="nav-link hp-more-link" data-route="playoffs" href="#playoffs">Playoffs</a>
+              <a class="nav-link hp-more-link" data-route="players" href="#players">Players</a>
+              <a class="nav-link hp-more-link" data-route="nba2k27" href="#nba2k27">NBA 2K27 Pool</a>
+              <a class="nav-link hp-more-link" data-route="roster-simulator" href="#roster-simulator">Roster Simulator</a>
+              <a class="nav-link hp-more-link" data-route="hall-of-fame" href="#hall-of-fame">Hall of Fame</a>
+              <a class="hp-more-link hp-more-admin" href="admin.html">Admin ↗</a>
+            </div>
+          </div>
+        </div>
+      </header>
+
       <div class="nb-topbar">
         <button class="nb-hamburger" id="nbHamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
         <div class="nb-topbar-title" id="nbTopbarTitle">Dashboard</div>
