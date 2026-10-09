@@ -82,6 +82,7 @@ async function initialize() {
   supabaseClient = window.supabase.createClient(config.url, config.anonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
   });
+  window.draftpSupabaseClient = supabaseClient;
   await restoreSession();
 }
 

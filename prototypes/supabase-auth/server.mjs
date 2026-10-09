@@ -26,7 +26,12 @@ const server = createServer(async (req, res) => {
   }
 
   const pathname = new URL(req.url ?? "/", "http://localhost").pathname;
-  const requested = pathname === "/" ? "index.html" : pathname.slice(1);
+  const requested =
+  pathname === "/"
+    ? "index.html"
+    : pathname === "/reset-password"
+      ? "reset-password.html"
+      : pathname.slice(1);
   const target = resolve(root, requested);
   if (target !== root && !target.startsWith(root + sep)) {
     res.writeHead(403); res.end("Forbidden"); return;
