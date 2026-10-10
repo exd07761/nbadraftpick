@@ -1,0 +1,164 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Premium P7 — Flat editorial homepage (public Home view only)
+
+   APPEND-ONLY, VISUAL-ONLY. Loaded last by index.html, after premium-p6.
+   Every selector is scoped under .hp-home (the wrapper js/views/home.js renders
+   and that exists on no other view), so no other page, the admin, the shared
+   shell, or the P3/P6 top navigation (.hp-nav, shared by every public route)
+   is touched. No HTML, JS, ID, class, data-attribute or displayed-text change.
+   No !important. Same-specificity overrides win by source order (this file
+   loads last), so P1–P6 stay byte-identical and removing this file's <link>
+   fully reverts P7.
+
+   What changes
+     · cards, panels, borders, radii and drop shadows give way to hairline rules
+     · Schedule  → flat scoreboard cells with thin dividers, kept in P3's
+                   horizontal strip (arrows + swipe unchanged)
+     · Standings → two ruled tables, rank numerals instead of ringed badges
+     · Participants → one continuous team strip with a team-colour rule
+     · Season tiles / League Info → continuous ruled information bands
+     · Section titles → rule-led (P3's top rule), no repeated skewed bar
+     · page / season / section background gradients → one flat dark canvas
+   What stays
+     · hero, draft-live strip, season title, champion plate (gold highlight)
+     · every score, status, logo, link, arrow button and responsive strip
+     · type scale (no size increases) and the P3 breakpoints
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. One flat canvas ───────────────────────────────────────────────────── */
+.hp-home { background: rgba(13, 15, 20, 0.88); }
+.hp-home .hp-season { background: rgba(10, 12, 17, 0.86); padding-bottom: clamp(28px, 4vw, 48px); }
+.hp-home .hp-schedule,
+.hp-home .hp-info { background: none; }
+
+/* Containers: no fills, borders, radii. Info-panel spacing is set in §6. */
+.hp-home .hp-panel {
+  background: none;
+  border: 0;
+  border-radius: 0;
+}
+
+/* ── 2. Section rhythm: rule first, title directly under it ───────────────── */
+.hp-home .hp-section { margin-top: clamp(28px, 4vw, 48px); padding-block: 16px 0; }
+.hp-home .hp-season + .hp-section { margin-top: 0; }
+.hp-home .hp-schedule { padding-bottom: 0; }
+.hp-home .hp-section-head { margin-bottom: 10px; }
+.hp-home .hp-section-title { padding-left: 0; }
+.hp-home .hp-section-title::before { content: none; }
+
+/* ── 3. Season: ruled stat band + champion plate ──────────────────────────── */
+.hp-home .hp-tile { padding: 16px 14px 14px; }
+.hp-home .hp-tile-label { white-space: normal; letter-spacing: 0.1em; line-height: 1.3; }
+@media (min-width: 901px) and (max-width: 1100px) {
+  /* the champion plate leaves ~520px for up to six tiles: wrap the band to 3 + 3
+     (same divider logic P3 uses for its 2-column phone layout) */
+  .hp-home .hp-tiles { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hp-home .hp-tile:nth-child(3n + 1) { border-left: 0; }
+  .hp-home .hp-tile:nth-child(n + 4) { border-top: 1px solid var(--hp-hairline); }
+}
+
+/* The champion plate stays the one boxed, gold-framed object on the page; it only
+   loses the soft drop shadow and the SaaS-round corners. */
+.hp-home .hp-plate {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px rgba(212, 160, 23, 0.08);
+}
+
+/* ── 4. Schedule: flat scoreboard cells in the horizontal strip ───────────── */
+.hp-home .hp-game,
+.hp-home .hp-game.is-scheduled {
+  gap: 14px;
+  padding: 4px 20px 8px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.hp-home .hp-game + .hp-game { border-left: 1px solid var(--hp-hairline); }
+.hp-home .hp-game:first-child { padding-left: 0; }
+.hp-home .hp-game-top { padding-bottom: 0; border-bottom: 0; }
+.hp-home .hp-game-chip { padding: 0; background: none; border-radius: 0; color: var(--nb-text-dim); }
+.hp-home .hp-game .team-logo-img-lg,
+.hp-home .hp-game .team-badge-lg { width: 48px; height: 48px; }
+.hp-home .hp-game .team-badge-lg { border-radius: 8px; }
+.hp-home .hp-vs { width: auto; height: auto; background: none; border: 0; border-radius: 0; font-size: 0.8125rem; }
+.hp-home .hp-score b.is-winner { text-shadow: none; }
+/* winner = bright score + name (P3), loser dimmed (P3); the green logo ring goes */
+.hp-home .hp-game.is-final .hp-side.is-winner .team-logo-img,
+.hp-home .hp-game.is-final .hp-side.is-winner .team-badge { box-shadow: none; }
+
+/* ── 5. Standings: two ruled tables ───────────────────────────────────────── */
+@media (min-width: 1024px) {
+  .hp-home .hp-standings-grid { column-gap: clamp(32px, 5vw, 64px); }
+}
+.hp-home .hp-st-row { min-height: 46px; padding-inline: 0; }
+.hp-home .hp-st-head { background: none; border-top: 0; border-bottom: 1px solid var(--nb-surface-border); }
+.hp-home .hp-st-row.is-leader { background: none; }
+/* rank = numeral, not a ringed badge; gold marks the top four (1 included) */
+.hp-home .hp-rank {
+  width: auto;
+  height: auto;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.hp-home .hp-rank.is-top4,
+.hp-home .hp-rank.is-first { background: none; border: 0; color: var(--nb-gold-on-dark, var(--nb-gold)); }
+@media (max-width: 640px) {
+  /* rows sit on the page gutter instead of bleeding to the screen edge */
+  .hp-home .hp-standings-grid { margin-inline: 0; }
+}
+
+/* ── 6. Participants: one team strip ──────────────────────────────────────── */
+.hp-home .hp-participant-strip { gap: 0; }
+.hp-home .hp-pcard {
+  background: none;
+  border: 0;
+  border-top: 2px solid color-mix(in srgb, var(--_t) 65%, transparent);
+  border-radius: 0;
+  box-shadow: none;
+  transition: background-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+.hp-home .hp-pcard + .hp-pcard { border-left: 1px solid var(--hp-hairline); }
+.hp-home .hp-pcard:hover {
+  transform: none;
+  border-color: color-mix(in srgb, var(--_t) 65%, transparent);
+  background: color-mix(in srgb, var(--_t) 9%, transparent);
+}
+.hp-home .hp-pcard + .hp-pcard:hover { border-left-color: var(--hp-hairline); }
+.hp-home .hp-pcard-logo { width: 68px; height: 68px; background: none; }
+
+/* ── 7. League info: ruled band + open blocks ─────────────────────────────── */
+/* Each cell paints its own left/top hairline; the band clips the outer ones, so
+   the dividers stay correct however the grid wraps. */
+.hp-home .hp-intel {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border-block: 1px solid var(--hp-hairline);
+}
+.hp-home .hp-intel-item {
+  padding: 16px 18px;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: -1px -1px 0 0 var(--hp-hairline);
+}
+.hp-home .hp-info-grid { gap: 20px clamp(32px, 5vw, 64px); margin-top: 28px; }
+.hp-home .hp-info-grid > .hp-panel { padding: 14px 0 0; border-top: 1px solid var(--hp-hairline); }
+.hp-home .hp-champion-banner { border-radius: 4px; }
+.hp-home .hp-seasons { gap: 0; }
+.hp-home .hp-season-row { padding: 12px 0; background: none; border: 0; border-bottom: 1px solid var(--hp-hairline); border-radius: 0; }
+.hp-home .hp-season-row:last-child { border-bottom: 0; }
+.hp-home .hp-season-row.is-active { padding-left: 12px; }
+
+@media (max-width: 900px) {
+  .hp-home .hp-intel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .hp-home .hp-intel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── 8. Reduced motion: P3 already drops the card lift; the hover tint stays
+      a plain colour change, which needs no extra rule. ───────────────────── */
