@@ -320,7 +320,26 @@
   -webkit-mask-image: linear-gradient(0deg, #000 14%, rgba(0, 0, 0, 0.55) 55%, transparent 96%);
           mask-image: linear-gradient(0deg, #000 14%, rgba(0, 0, 0, 0.55) 55%, transparent 96%);
 }
-.hp-home .hp-hero-art { position: absolute; inset: 0; z-index: -1; }
+.hp-home .hp-hero-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background:
+    var(--_img) var(--hp-hero-pos, 70% 30%) / cover no-repeat,
+    radial-gradient(120% 95% at 70% 30%, #1e2230 0%, #11141c 44%, #090b10 100%);
+}
+
+.hp-home .hp-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: var(--hp-hero-pos, 70% 30%);
+  pointer-events: none;
+  background: transparent;
+}
 .hp-home .hp-hero-fx { position: absolute; inset: 0; pointer-events: none; }
 
 /* distant crowd / arena bokeh: two offset lattices of tiny lights in a band */
@@ -373,12 +392,13 @@
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 2;
+  pointer-events: none;
   background:
     linear-gradient(90deg, rgba(8, 10, 14, 0.90) 0%, rgba(8, 10, 14, 0.60) 30%, rgba(8, 10, 14, 0) 62%),
     radial-gradient(130% 100% at 64% 42%, transparent 50%, rgba(4, 5, 8, 0.62) 100%),
     linear-gradient(0deg, var(--nb-canvas) 0%, rgba(13, 15, 20, 0) 34%),
-    linear-gradient(180deg, rgba(8, 10, 14, 0.55) 0%, transparent 24%),
-    var(--_img) var(--hp-hero-pos, 70% 30%) / cover no-repeat;
+    linear-gradient(180deg, rgba(8, 10, 14, 0.55) 0%, transparent 24%);
 }
 
 .hp-home .hp-hero-inner { padding-block: clamp(56px, 12vh, 120px) clamp(44px, 8vh, 84px); }
@@ -870,5 +890,10 @@
   .hp-home .hp-pcard,
   .hp-home .hp-arrow,
   .hp-nav .nav-link { transition: none; }
+
   .hp-home .hp-pcard:hover { transform: none; }
+
+  .hp-home .hp-hero-video {
+    display: none;
+  }
 }

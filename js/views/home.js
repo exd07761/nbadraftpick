@@ -65,7 +65,12 @@ const HomeView = {
       <div class="hp-home">
 
         <section class="hp-hero" aria-label="League">
-          <div class="hp-hero-art" aria-hidden="true"><span class="hp-hero-fx"></span></div>
+          <div class="hp-hero-art" aria-hidden="true">
+            <video class="hp-hero-video" autoplay muted loop playsinline preload="metadata">
+              <source src="assets/hero/hero.mp4" type="video/mp4">
+            </video>
+            <span class="hp-hero-fx"></span>
+          </div>
           <div class="hp-wrap hp-hero-inner">
             <div class="hp-hero-copy">
               <span class="hp-hero-eyebrow">${escapeHtml(formatStatus(s.status))}</span>
