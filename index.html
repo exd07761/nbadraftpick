@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="css/premium-p3-home.css">
   <link rel="stylesheet" href="css/premium-p4-schedule.css">
   <link rel="stylesheet" href="css/premium-p5-standings.css">
+  <link rel="stylesheet" href="css/premium-p6-public-shell.css">
 </head>
 <body>
 
@@ -33,7 +34,7 @@
        Replaces the old .site-header top nav. Nav links keep the same
        .nav-link class + data-route attribute the existing public-router.js
        already binds to and toggles .active on — no router changes. ────── -->
-  <div class="nb-shell">
+  <div class="nb-shell nb-shell-public">
     <button class="nb-drawer-scrim" id="nbDrawerScrim" aria-hidden="true" tabindex="-1"></button>
 
     <aside class="nb-sidebar" id="nbSidebar">
@@ -72,9 +73,10 @@
     </aside>
 
     <div class="nb-content-col">
-      <!-- Homepage-only top navigation (desktop). Hidden everywhere except while the
-           home view is rendered (see css/premium-p3-home.css); the sidebar/drawer
-           remains the navigation for every other view. These are ordinary
+      <!-- Public top navigation (desktop, ≥901px), shown on every public route
+           (css/premium-p3-home.css styles it; css/premium-p6-public-shell.css shows
+           it and removes the sidebar). At ≤900px the top bar + drawer below are the
+           only navigation. These are ordinary
            .nav-link[data-route] anchors, so public-router.js binds them and
            toggles .active exactly as it does for the sidebar. -->
       <header class="hp-nav" id="hpNav">
