@@ -894,6 +894,96 @@
   .hp-home .hp-pcard:hover { transform: none; }
 
   .hp-home .hp-hero-video {
-    display: none;
   }
+}
+
+
+
+/* ==========================================================================
+   P8 hero refinement (append-only; scoped to .hp-home .hp-hero*)
+   Source art: assets/hero/hero.mp4 is 1920x810 (2.37:1). Measured inside the
+   frame: logo spans ~17-83% wide / ~5.5-40% tall, player's head ~43-60% wide /
+   ~26-72% tall. Everything below protects that composition.
+
+   Fixes:
+   1. .hp-hero-fx (fallback stage lights/bokeh) painted ABOVE the video -> hidden
+      while a video is present.
+   2. Old object-position 70% 30% + 58vh height cropped the top of the logo
+      (and the whole logo on phones). Now top-anchored, height follows width.
+   3. The 90% black linear scrim sat on top of the NBA emblem / "2K". Replaced
+      by a bottom-left title scrim + bottom melt into the page canvas.
+   4. Ultrawide (>1920px): video capped at 1920px with soft side fades.
+   5. Phones: banner-height video (full logo + face), title below it.
+
+   Hooks (all optional):
+     --hp-hero-video-pos         desktop/tablet object-position (default 50% 0%)
+     --hp-hero-video-pos-mobile  phone object-position          (default 50% 0%)
+   The still-image slot (--hp-hero-image / --hp-hero-pos) is untouched.
+   ========================================================================== */
+
+/* 1. Real video present: do not draw fake arena lights over the artwork */
+@supports selector(:has(*)) {
+  .hp-home .hp-hero-art:has(.hp-hero-video) .hp-hero-fx { display: none; }
+}
+
+/* 2. Desktop framing: hero height follows the video width, top-anchored */
+.hp-home .hp-hero {
+  min-height: clamp(400px, calc(min(100vw, 1920px) * 0.37), 720px);
+}
+.hp-home .hp-hero-video {
+  object-position: var(--hp-hero-video-pos, 50% 0%);
+}
+
+/* 3. Scrims: protect the logo, keep the title readable, melt into the canvas
+      (first layer is painted on top) */
+.hp-home .hp-hero-art::after {
+  background:
+    radial-gradient(62% 80% at 0% 100%, rgba(8, 10, 14, 0.86) 0%, rgba(8, 10, 14, 0.5) 45%, rgba(8, 10, 14, 0) 100%),
+    linear-gradient(0deg, var(--nb-canvas) 0%, rgba(13, 15, 20, 0) 24%),
+    radial-gradient(120% 110% at 40% 40%, transparent 62%, rgba(4, 5, 8, 0.45) 100%),
+    linear-gradient(180deg, rgba(8, 10, 14, 0.4) 0%, transparent 14%);
+}
+
+/* 4. Title block sits lower, inside the bottom fade, clear of the face */
+.hp-home .hp-hero-inner { padding-block: clamp(56px, 12vh, 120px) clamp(28px, 4vh, 40px); }
+.hp-home .hp-hero-eyebrow { text-shadow: 0 1px 8px rgba(0, 0, 0, 0.7); }
+.hp-home .hp-hero-mark { text-shadow: 0 2px 18px rgba(0, 0, 0, 0.6), 0 1px 3px rgba(0, 0, 0, 0.6); }
+
+/* 5. Ultrawide: cap the artwork at its native 1920px, fade into the base */
+@media (min-width: 1921px) {
+  .hp-home .hp-hero-video {
+    left: 50%;
+    right: auto;
+    width: 1920px;
+    transform: translateX(-50%);
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 200px, #000 calc(100% - 420px), transparent 100%);
+            mask-image: linear-gradient(90deg, transparent 0, #000 200px, #000 calc(100% - 420px), transparent 100%);
+  }
+}
+
+/* 6. Tablet: whole banner stays visible, nothing clipped at the top */
+@media (max-width: 900px) {
+  .hp-home .hp-hero { min-height: clamp(340px, 46vw, 420px); }
+}
+
+/* 7. Phones: banner-height video (logo + face fully visible), title below */
+@media (max-width: 640px) {
+  .hp-home .hp-hero {
+    --_hero-vid-h: min(60vw, 330px);
+    min-height: calc(var(--_hero-vid-h) + 96px);
+  }
+  .hp-home .hp-hero-video {
+    inset: 0 0 auto 0;
+    height: var(--_hero-vid-h);
+    object-position: var(--hp-hero-video-pos-mobile, 50% 0%);
+    -webkit-mask-image: linear-gradient(180deg, #000 66%, transparent 100%);
+            mask-image: linear-gradient(180deg, #000 66%, transparent 100%);
+  }
+  .hp-home .hp-hero-art::after {
+    background:
+      radial-gradient(95% 80% at 0% 100%, rgba(8, 10, 14, 0.86) 0%, rgba(8, 10, 14, 0.5) 45%, rgba(8, 10, 14, 0) 100%),
+      linear-gradient(0deg, var(--nb-canvas) 0%, rgba(13, 15, 20, 0) 30%),
+      linear-gradient(180deg, rgba(8, 10, 14, 0.4) 0%, transparent 14%);
+  }
+  .hp-home .hp-hero-inner { padding-block: 72px 32px; }
 }
