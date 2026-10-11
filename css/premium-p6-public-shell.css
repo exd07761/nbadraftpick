@@ -1,0 +1,109 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DraftP — Premium P6: Public navigation + full-width layout
+   DEDICATED, APPEND-ONLY STYLESHEET. CSS only. Loaded by index.html ONLY, after
+   premium-p5-standings.css. admin.html does not link this file (nor any other
+   premium-p*.css), and every rule below is scoped under .nb-shell-public — a
+   class that exists only on the public shell in index.html — so Admin keeps its
+   sidebar and layout by construction.
+
+   What it does (desktop, ≥ 901px):
+     • the public sidebar is removed from every public route; its width is
+       released to the content column (the sidebar is a flex item, so hiding it
+       frees the space — there are no sidebar-dependent margins to unwind)
+     • P1's live "On the Clock" pill, which was positioned relative to the
+       sidebar, is re-seated in the top nav (otherwise it would float over page
+       content)
+     • the P3 top navigation (Home / Draft / Schedule / Standings /
+       Participants + More) is shown on EVERY public route, not just Home
+     • the nav aligns to each page's content column; Home keeps its P3 alignment
+     • the More button shows as current when a More destination is active
+     • the content cap rises so wide tables, schedules and the draft board use
+       the extra width
+   ≤ 900px nothing changes: the existing top bar + hamburger + drawer remain the
+   only navigation (the P3 nav stays hidden there), so there are never two menus.
+
+   No JS, route, handler, ID, data-attribute or displayed-text change.
+   No !important.
+   To revert: remove this file's <link> and the nb-shell-public class.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.nb-shell-public {
+  --p6-content-max: 1840px;
+  --p6-gutter: clamp(1.25rem, 0.5rem + 1.6vw, 2.5rem);   /* same fluid gutter .main-content uses */
+  /* distance from the viewport's right edge to the nav's right content edge, and
+     to the slot just left of the "More" button (live pill) */
+  --p6-nav-right: max(var(--p6-gutter), calc((100vw - var(--p6-content-max)) / 2 + var(--p6-gutter)));
+  --p6-slot-right: calc(var(--p6-nav-right) + 92px);
+}
+.nb-shell-public:has(.hp-home) {
+  --p6-nav-right: max(clamp(16px, 4vw, 40px), calc((100vw - 1200px) / 2 + clamp(16px, 4vw, 40px)));
+}
+
+@media (min-width: 901px) {
+  /* 1. no public sidebar; top navigation on every public route */
+  .nb-shell-public .nb-sidebar { display: none; }
+  .nb-shell-public .hp-nav { display: block; }
+
+  /* 2. nav aligns with the content column of whatever page is showing */
+  .nb-shell-public .hp-nav-inner {
+    max-width: var(--p6-content-max);
+    padding-inline: var(--p6-gutter);
+  }
+  /* Home keeps its approved P3 geometry (1200px column, full-bleed hero) */
+  .nb-shell-public:has(.hp-home) .hp-nav-inner {
+    max-width: 1200px;
+    padding-inline: clamp(16px, 4vw, 40px);
+  }
+
+  /* 3. full-width content: the sidebar's width goes to the page, and the old
+        1680px cap rises so wide tables / boards can breathe (Home is
+        unaffected: P3 already sets max-width:none there). */
+  .nb-shell-public .main-content { max-width: min(var(--p6-content-max), 100%); }
+
+  /* The decorative header glows on Schedule/Standings (P4/P5) reach 28px past
+     their view; with the wider page that could exceed the gutter, so they are
+     held to the gutter instead. */
+  .nb-shell-public #viewContainer .schedule-view::before,
+  .nb-shell-public #viewContainer .standings-view::before {
+    inset: -28px calc(-1 * var(--p6-gutter)) auto calc(-1 * var(--p6-gutter));
+  }
+
+  /* 4. "More" is current when one of its destinations is */
+  .nb-shell-public .hp-more:has(.hp-more-link.active) .hp-more-btn {
+    color: var(--nb-text);
+    box-shadow: inset 0 -2px 0 var(--nb-brand-orange);
+  }
+
+  /* 5. The draft board sizes its scroller from the viewport height; the 56px
+        nav now sits above it, so the same budget keeps the board on screen. */
+  .nb-shell-public #dftPlayerGrid { max-height: max(440px, calc(100vh - 436px)); }
+
+  /* 6. Live "On the Clock" pill (P1 seated it in the sidebar): now a compact gold
+        chip in the nav, just left of "More". */
+  .nb-shell-public .nb-topbar-status {
+    left: auto;
+    right: var(--p6-slot-right);
+    bottom: auto;
+    top: 9px;
+    width: auto;
+    max-width: 300px;
+  }
+  .nb-shell-public .nb-topbar-status a {
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    padding: 0 14px 0 16px;
+    white-space: nowrap;
+    font-size: 0.9375rem;
+  }
+}
+
+/* Between 901 and 1199px the links leave no room beside "More": the live pill sits
+   just under the nav instead. */
+@media (min-width: 901px) and (max-width: 1199px) {
+  .nb-shell-public .nb-topbar-status { top: 64px; right: var(--p6-nav-right); }
+}
+
+@media (min-width: 1680px) {
+  .nb-shell-public .dft-panel-history { max-height: max(360px, calc(100vh - 436px - 420px + 120px)); }
+}

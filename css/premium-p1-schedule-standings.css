@@ -1,0 +1,457 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DraftP — Premium P1: Schedule + Standings ("Primetime")
+   DEDICATED, APPEND-ONLY STYLESHEET. CSS only. Loaded last in index.html, after
+   premium-foundation.css and premium-p1-shell-dashboard.css (neither modified).
+   Every rule is scoped under #viewContainer .schedule-view / .standings-view,
+   so no other page is affected. No JS, markup, ID, class, data-attribute,
+   route, handler or displayed-text change. Needs :has() and container queries
+   for a few refinements; without them the Phase 2 look is kept.
+   To revert: remove this file's <link>.
+
+   Roles (unchanged): indigo = selection / upcoming, gold = top-4 cut, green /
+   red = outcomes only (winner edge, +/-), orange not used here (no elite OVR
+   on these pages), neutral for everything else.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root { --p2-hair: rgba(255, 255, 255, 0.08); --p2-hair-strong: rgba(255, 255, 255, 0.14); }
+
+/* ═════════════════════════ SCHEDULE ═════════════════════════ */
+
+#viewContainer .schedule-view > .helper-text { max-width: 78ch; }
+
+/* S1. Round selector: a broadcast tab strip. Selection = indigo. Behaviour,
+   buttons and data-round hooks are untouched. */
+#viewContainer .schedule-view .round-tabs {
+  gap: 4px;
+  margin: 22px 0 26px;
+  padding: 6px;
+  background: linear-gradient(180deg, #0b0e15, #090b10);
+  border: 1px solid var(--p2-hair);
+  border-radius: 12px;
+}
+#viewContainer .schedule-view .round-tab {
+  min-height: 46px;
+  padding: 0 12px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 0;
+  border-radius: 8px;
+  color: var(--nb-text-muted);
+}
+#viewContainer .schedule-view .round-tab:hover { color: var(--nb-text); background: rgba(255, 255, 255, 0.06); }
+#viewContainer .schedule-view .round-tab.active {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, rgba(91, 91, 240, 0.38), rgba(91, 91, 240, 0.14));
+  box-shadow: inset 0 -3px 0 var(--nb-primary);
+}
+
+/* a touch tighter on 1280-class screens so eleven rounds still sit on one row */
+@media (max-width: 1360px) {
+  #viewContainer .schedule-view .round-tabs { gap: 3px; }
+  #viewContainer .schedule-view .round-tab { padding: 0 9px; font-size: 1.0625rem; letter-spacing: 0.04em; }
+}
+
+/* S2. The tray: all of the round's games sit on one dark scoreboard surface. */
+#viewContainer .schedule-view .schedule-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr));
+  gap: 14px;
+  padding: 18px;
+  background: linear-gradient(180deg, #0e121b 0%, #0a0d14 100%);
+  border: 1px solid var(--p2-hair);
+  border-top-color: rgba(255, 255, 255, 0.11);
+  border-radius: 16px;
+  box-shadow: var(--nb-edge-light), 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* S3. Game tile. Final = quiet neutral edge; upcoming = indigo edge. */
+#viewContainer .schedule-view .matchup-card {
+  container: p2tile / inline-size;
+  gap: 12px;
+  padding: 14px 14px 16px;
+  background: linear-gradient(180deg, #181e2c 0%, #121722 100%);
+  border: 1px solid var(--p2-hair);
+  border-radius: 14px;
+  box-shadow: inset 0 2px 0 var(--nb-primary), 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+#viewContainer .schedule-view .matchup-card.is-completed {
+  background: linear-gradient(180deg, #151b28 0%, #10141e 100%);
+  box-shadow: inset 0 2px 0 var(--nb-border-strong), 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+/* status row: FINAL is a whisper, SCHEDULED is the indigo chip */
+#viewContainer .schedule-view .matchup-card-top { gap: 4px 12px; align-items: center; }
+#viewContainer .schedule-view .matchup-card-status {
+  padding: 2px 10px 2px 8px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 0.9375rem;
+  letter-spacing: 0.16em;
+  line-height: 1.5;
+  border-radius: 999px;
+}
+#viewContainer .schedule-view .matchup-card-status.status-complete {
+  padding-left: 0;
+  background: transparent;
+  color: var(--nb-text-muted);
+}
+#viewContainer .schedule-view .matchup-card-status.status-scheduled {
+  background: var(--nb-primary-dim);
+  color: var(--nb-primary-ink);
+}
+#viewContainer .schedule-view .matchup-card-status.status-bye { background: transparent; color: var(--nb-text-dim); padding-left: 0; }
+#viewContainer .schedule-view .matchup-card-streamer { font-size: 0.8125rem; letter-spacing: 0.01em; }
+
+/* team rows: logo · abbreviation · participant · SCORE */
+#viewContainer .schedule-view .matchup-card-body { gap: 6px; }
+#viewContainer .schedule-view .matchup-side,
+#viewContainer .schedule-view .matchup-side.reverse {
+  min-height: 62px;
+  gap: 10px;
+  padding: 8px 14px 8px 12px;
+  background: #090c12;
+  border-radius: 10px;
+}
+#viewContainer .schedule-view .matchup-side .team-logo-img-md,
+#viewContainer .schedule-view .matchup-side .team-badge-md { width: 38px; height: 38px; }
+#viewContainer .schedule-view .matchup-side .team-identity { gap: 8px; flex: 0 0 auto; }
+#viewContainer .schedule-view .matchup-side .team-identity-abbr {
+  min-width: 3ch;
+  font-size: 1.0625rem;
+  letter-spacing: 0.06em;
+  color: var(--nb-text-muted);
+}
+#viewContainer .schedule-view .matchup-side-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1.0625rem;
+  line-height: 1.15;
+  overflow-wrap: break-word;
+}
+#viewContainer .schedule-view .matchup-side-score {
+  flex: 0 0 auto;
+  min-width: 2.4ch;
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 2.875rem;
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+/* upcoming: both rows the same, names full white */
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-side-name { color: var(--nb-text); }
+
+/* completed: the winner row is lit (restrained green edge + faint wash); the
+   loser recedes but stays well above 4.5:1 */
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side.winner {
+  background: linear-gradient(90deg, rgba(31, 169, 113, 0.13) 0%, #1a2131 58%);
+  box-shadow: inset 3px 0 0 var(--nb-positive);
+}
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side.winner .matchup-side-score { color: var(--nb-text); }
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .matchup-side-score { color: var(--nb-text-dim); }
+
+/* the VS label: a hairline with the label centred (upcoming only; on finals the
+   divider stays visually removed, as before) */
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-vs-divider {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 12px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 0.875rem;
+  letter-spacing: 0.24em;
+  line-height: 1;
+  color: var(--nb-text-dim);
+}
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-vs-divider::before,
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-vs-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--p2-hair);
+}
+
+/* BYE: a quiet, compact placeholder; never competes with a game */
+#viewContainer .schedule-view .matchup-card.is-bye {
+  align-self: start;
+  gap: 8px;
+  padding: 12px 14px;
+  background: transparent;
+  border: 1px dashed var(--p2-hair-strong);
+  box-shadow: none;
+}
+#viewContainer .schedule-view .matchup-card.is-bye .matchup-card-body {
+  gap: 10px;
+  font-size: 0.9375rem;
+  color: var(--nb-text-dim);
+}
+#viewContainer .schedule-view .matchup-card.is-bye .team-logo-img-md,
+#viewContainer .schedule-view .matchup-card.is-bye .team-badge-md { width: 30px; height: 30px; opacity: 0.7; }
+
+/* narrow tiles (one column on a phone, or three tight columns): scores step
+   down so a three-digit score and a long name always fit */
+@container p2tile (max-width: 330px) {
+  #viewContainer .schedule-view .matchup-side-score { font-size: 2.5rem; }
+  #viewContainer .schedule-view .matchup-side,
+  #viewContainer .schedule-view .matchup-side.reverse { gap: 8px; padding: 8px 10px; }
+  #viewContainer .schedule-view .matchup-side .team-logo-img-md,
+  #viewContainer .schedule-view .matchup-side .team-badge-md { width: 34px; height: 34px; }
+  #viewContainer .schedule-view .matchup-side-name { font-size: 1rem; }
+}
+@media (max-width: 700px) {
+  #viewContainer .schedule-view .schedule-grid { padding: 10px; gap: 10px; border-radius: 14px; }
+  /* Phones: the round selector becomes a compact grid of tabs instead of a
+     sideways scroller, so every round is visible and a focused tab can never be
+     left half-hidden (the browser does not scroll a partly visible tab into
+     view). Same buttons, same data-round hooks, same behaviour. */
+  #viewContainer .schedule-view .round-tabs {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+    gap: 4px;
+    overflow: visible;
+    scroll-snap-type: none;
+    padding: 6px;
+  }
+  #viewContainer .schedule-view .round-tab {
+    min-height: 46px;
+    padding: 0 4px;
+    justify-content: center;
+    text-align: center;
+    font-size: 1rem;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+}
+
+/* ═════════════════════════ STANDINGS ═════════════════════════ */
+
+/* T1. Open leaderboard: the table loses its card shell and sits on the page. */
+#viewContainer .standings-view .table-scroll {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+#viewContainer .standings-view .standings-table-wrap { margin-top: 18px; }
+#viewContainer .standings-view .standings-table th {
+  padding: 10px 12px;
+  font-family: var(--nb-font-display);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  letter-spacing: 0.16em;
+  color: var(--nb-text-dim);
+  background: transparent;
+  border-bottom: 1px solid var(--p2-hair-strong);
+}
+#viewContainer .standings-view .standings-table td {
+  padding: 12px 12px;
+  border-bottom: 1px solid var(--p2-hair);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+#viewContainer .standings-view .standings-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+
+/* season table: rank · team · participant · GP W L Win% PF PA PD Rem */
+#viewContainer .standings-view #teamStandingsTable td:first-child { width: 4.5rem; font-size: 2.5rem; line-height: 1; }
+#viewContainer .standings-view #teamStandingsTable th:first-child { width: 4.5rem; }
+#viewContainer .standings-view #teamStandingsTable .team-logo-img-sm,
+#viewContainer .standings-view #teamStandingsTable .team-badge-sm { width: 38px; height: 38px; }
+#viewContainer .standings-view #teamStandingsTable .team-identity-abbr {
+  font-family: var(--nb-font-display);
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+#viewContainer .standings-view #teamStandingsTable td:nth-child(3) { font-size: 1.1875rem; color: var(--nb-text); }   /* participant: primary name */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(4) { color: var(--nb-text-muted); }                  /* GP */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(5),                                                   /* W */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(6),                                                   /* L */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(7),                                                   /* Win% */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(8),                                                   /* PF */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(9),                                                   /* PA */
+#viewContainer .standings-view #teamStandingsTable td:nth-child(10) {                                                 /* PD */
+  font-family: var(--nb-font-display);
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+#viewContainer .standings-view #teamStandingsTable td:nth-child(5) { font-size: 2.125rem; font-weight: 800; color: var(--nb-text); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(6) { font-size: 1.875rem; font-weight: 700; color: var(--nb-text-muted); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(7) { font-size: 1.375rem; font-weight: 700; color: var(--nb-text); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(8),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(9) { font-size: 1.1875rem; font-weight: 600; color: var(--nb-text-muted); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(10) { font-size: 2rem; font-weight: 800; }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(11) { color: var(--nb-text-dim); }                    /* Rem */
+
+/* top-4 cut: a gold wash on the rows that carry the existing top-4 class and a
+   gold hairline under the last of them (same rule the app already applies) */
+#viewContainer .standings-view #teamStandingsTable tbody tr:has(> td.standings-abbr) {
+  background-image: linear-gradient(90deg, rgba(240, 180, 41, 0.08), rgba(240, 180, 41, 0) 46%);
+}
+#viewContainer .standings-view #teamStandingsTable tbody tr:has(> td.standings-abbr):not(:has(+ tr > td.standings-abbr)) td {
+  border-bottom-color: rgba(240, 180, 41, 0.5);
+}
+
+/* season table at tablet widths: the eleven columns step down so all of them
+   stay visible without sideways scrolling (the wrap is the container) */
+#viewContainer .standings-view .standings-table-wrap { container: p2tbl / inline-size; }
+@container p2tbl (max-width: 860px) {
+  #viewContainer .standings-view #teamStandingsTable th { padding-inline: 6px; letter-spacing: 0.1em; font-size: 0.875rem; }
+  #viewContainer .standings-view #teamStandingsTable td { padding-inline: 6px; }
+  #viewContainer .standings-view #teamStandingsTable th:first-child,
+  #viewContainer .standings-view #teamStandingsTable td:first-child { width: 2.75rem; }
+  #viewContainer .standings-view #teamStandingsTable td:first-child { font-size: 2rem; }
+  #viewContainer .standings-view #teamStandingsTable .team-logo-img-sm,
+  #viewContainer .standings-view #teamStandingsTable .team-badge-sm { width: 32px; height: 32px; }
+  #viewContainer .standings-view #teamStandingsTable .team-identity-abbr { font-size: 1.125rem; }
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(3) { font-size: 1.0625rem; }
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(5) { font-size: 1.75rem; }
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(6) { font-size: 1.5rem; }
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(7) { font-size: 1.1875rem; }
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(8),
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(9) { font-size: 1.0625rem; }
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(10) { font-size: 1.625rem; }
+}
+
+/* streamer leaderboard: same open treatment, big counts */
+#viewContainer .standings-view .streamer-table td:first-child { font-size: 1.125rem; color: var(--nb-text); }
+#viewContainer .standings-view .streamer-table td:nth-child(2) {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 2rem;
+  line-height: 1;
+  color: var(--nb-text);
+}
+#viewContainer .standings-view .streamer-table th:nth-child(2),
+#viewContainer .standings-view .streamer-table td:nth-child(2) { width: auto; }
+
+/* section headings: one condensed voice */
+#viewContainer .standings-view h3.section-title {
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.75rem;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+#viewContainer .standings-view h4.section-title {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  letter-spacing: 0.12em;
+}
+
+/* T2. Group stage / conference: open columns, not boxed panels. The collapsible
+   summary stays a full-width 44px+ button (behaviour and ARIA untouched). */
+#viewContainer .standings-view .group-stage-grid { gap: 8px 48px; }
+#viewContainer .standings-view .group-card {
+  container: p2group / inline-size;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+#viewContainer .standings-view .group-card-summary {
+  min-height: 48px;
+  padding: 6px 4px 6px 14px;
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  border-bottom: 2px solid var(--nb-masthead-bar);
+  box-shadow: inset 4px 0 0 var(--nb-masthead-bar);
+}
+#viewContainer .standings-view .group-card-summary:hover { background: rgba(255, 255, 255, 0.04); }
+#viewContainer .standings-view .group-card-body { border-top: 0; }
+#viewContainer .standings-view .group-standings-table th {
+  font-family: var(--nb-font-display);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  letter-spacing: 0.16em;
+  color: var(--nb-text-dim);
+  background: transparent;
+  border-bottom: 1px solid var(--p2-hair-strong);
+}
+#viewContainer .standings-view .group-standings-table td { border-bottom: 1px solid var(--p2-hair); font-variant-numeric: tabular-nums lining-nums; }
+#viewContainer .standings-view .group-standings-table tbody tr:last-child td { border-bottom: 1px solid var(--p2-hair); }
+#viewContainer .standings-view .group-standings-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+#viewContainer .standings-view .group-standings-table td:first-child { font-family: var(--nb-font-display); font-size: 1.875rem; line-height: 1; }
+#viewContainer .standings-view .group-standings-table td:nth-child(3),
+#viewContainer .standings-view .group-standings-table td:nth-child(4),
+#viewContainer .standings-view .group-standings-table td:nth-child(5) { font-family: var(--nb-font-display); line-height: 1; letter-spacing: 0.02em; }
+#viewContainer .standings-view .group-standings-table td:nth-child(3) { font-size: 1.875rem; font-weight: 800; color: var(--nb-text); }
+#viewContainer .standings-view .group-standings-table td:nth-child(4) { font-size: 1.625rem; font-weight: 700; color: var(--nb-text-muted); }
+#viewContainer .standings-view .group-standings-table td:nth-child(5) { font-size: 1.75rem; font-weight: 800; }
+#viewContainer .standings-view .group-standings-table .team-logo-img-sm,
+#viewContainer .standings-view .group-standings-table .team-badge-sm { width: 34px; height: 34px; }
+#viewContainer .standings-view .group-standings-table .team-identity-abbr { font-family: var(--nb-font-display); font-size: 1.125rem; letter-spacing: 0.06em; }
+#viewContainer .standings-view .group-team-name { font-size: 1.0625rem; }
+#viewContainer .standings-view .group-standings-table td.muted:last-child { font-family: var(--nb-font-display); font-size: 1rem; letter-spacing: 0.1em; text-transform: uppercase; }
+/* the old ≤1100px rule stacked the team cell; open columns have room, so it
+   stacks only when the column itself is narrow */
+@container p2group (min-width: 400px) {
+  #viewContainer .standings-view .group-team-cell { flex-direction: row; align-items: center; gap: 10px; }
+  #viewContainer .standings-view .group-team-name { max-width: none; }
+}
+
+/* narrow columns (phones, tight tablets): the numbers step down so W / L / +/- and
+   the Qualifies / Eliminated status all stay visible inside the column */
+@container p2group (max-width: 490px) {
+  #viewContainer .standings-view .group-standings-table th { font-size: 0.8125rem; letter-spacing: 0.1em; padding-inline: 4px; }
+  #viewContainer .standings-view .group-standings-table td { padding-inline: 4px; }
+  #viewContainer .standings-view .group-standings-table th:first-child,
+  #viewContainer .standings-view .group-standings-table td:first-child { width: 1.75rem; }
+  #viewContainer .standings-view .group-standings-table td:first-child { font-size: 1.5rem; }
+  #viewContainer .standings-view .group-standings-table td:nth-child(3) { font-size: 1.5rem; }
+  #viewContainer .standings-view .group-standings-table td:nth-child(4) { font-size: 1.375rem; }
+  #viewContainer .standings-view .group-standings-table td:nth-child(5) { font-size: 1.5rem; }
+  #viewContainer .standings-view .group-standings-table .team-logo-img-sm,
+  #viewContainer .standings-view .group-standings-table .team-badge-sm { width: 28px; height: 28px; }
+  #viewContainer .standings-view .group-standings-table .team-identity-abbr { font-size: 1rem; }
+  #viewContainer .standings-view .group-team-name { font-size: 0.9375rem; max-width: 5.5rem; }
+  #viewContainer .standings-view .group-standings-table td.muted:last-child { font-size: 0.75rem; letter-spacing: 0.04em; }
+}
+
+/* T3. Phone: the stacked cards become open ranked rows (touch-sized), same data. */
+@media (max-width: 700px) {
+  #viewContainer .standings-view .standings-cards { gap: 0; margin-top: 14px; border-top: 1px solid var(--p2-hair-strong); }
+  #viewContainer .standings-view .standings-card {
+    gap: 12px;
+    min-height: 68px;
+    padding: 10px 4px 10px 14px;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--p2-hair);
+    border-radius: 0;
+    box-shadow: none;
+  }
+  #viewContainer .standings-view .standings-card:has(> .standings-card-rank.top4) {
+    background: linear-gradient(90deg, rgba(240, 180, 41, 0.08), rgba(240, 180, 41, 0) 60%);
+    box-shadow: inset 4px 0 0 var(--nb-gold);
+  }
+  #viewContainer .standings-view .standings-card-rank { width: 2.25rem; font-size: 2.25rem; text-align: center; }
+  #viewContainer .standings-view .standings-card-owner { font-size: 1.1875rem; }
+  #viewContainer .standings-view .standings-card-record {
+    margin-top: 4px;
+    font-family: var(--nb-font-display);
+    font-weight: 600;
+    font-size: 1.125rem;
+    letter-spacing: 0.04em;
+    color: var(--nb-text-muted);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  #viewContainer .standings-view .standings-card-pd {
+    min-width: 4.25rem;
+    padding: 6px 12px;
+    font-size: 1.5rem;
+    line-height: 1;
+    text-align: center;
+    background: #090c12;
+    border-color: var(--p2-hair);
+  }
+  #viewContainer .standings-view .group-card-summary { min-height: 52px; font-size: 1.375rem; }
+}

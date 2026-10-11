@@ -6,12 +6,22 @@
   <title>NBA 2K ASPAKAN</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="preload" href="assets/fonts/barlow-condensed/barlow-condensed-latin-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/barlow-condensed/barlow-condensed-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/main.css">
   <link rel="stylesheet" href="css/shell.css">
   <link rel="stylesheet" href="css/draft-public.css">
   <link rel="stylesheet" href="css/public-theme.css">
   <link rel="stylesheet" href="css/roster-simulator.css">
   <link rel="stylesheet" href="css/primitives.css">
+  <link rel="stylesheet" href="css/premium-p1-shell-dashboard.css">
+  <link rel="stylesheet" href="css/premium-p1-schedule-standings.css">
+  <link rel="stylesheet" href="css/premium-p2-draft.css">
+  <link rel="stylesheet" href="css/premium-p3-home.css">
+  <link rel="stylesheet" href="css/premium-p4-schedule.css">
+  <link rel="stylesheet" href="css/premium-p5-standings.css">
+  <link rel="stylesheet" href="css/premium-p6-public-shell.css">
+  <link rel="stylesheet" href="css/premium-p7-flat-editorial.css">
 </head>
 <body>
 
@@ -25,7 +35,7 @@
        Replaces the old .site-header top nav. Nav links keep the same
        .nav-link class + data-route attribute the existing public-router.js
        already binds to and toggles .active on — no router changes. ────── -->
-  <div class="nb-shell">
+  <div class="nb-shell nb-shell-public">
     <button class="nb-drawer-scrim" id="nbDrawerScrim" aria-hidden="true" tabindex="-1"></button>
 
     <aside class="nb-sidebar" id="nbSidebar">
@@ -62,6 +72,36 @@
     </aside>
 
     <div class="nb-content-col">
+      <!-- Public top navigation (desktop, ≥901px), shown on every public route
+           (css/premium-p3-home.css styles it; css/premium-p6-public-shell.css shows
+           it and removes the sidebar). At ≤900px the top bar + drawer below are the
+           only navigation. These are ordinary
+           .nav-link[data-route] anchors, so public-router.js binds them and
+           toggles .active exactly as it does for the sidebar. -->
+      <header class="hp-nav" id="hpNav">
+        <div class="hp-nav-inner">
+          <a class="nav-link hp-nav-brand" data-route="home" href="#home">NBA <span>2K</span> ASPAKAN</a>
+          <nav class="hp-nav-links" aria-label="Primary">
+            <a class="nav-link hp-nav-link" data-route="home" href="#home">Home</a>
+            <a class="nav-link hp-nav-link" data-route="draft" href="#draft">Draft</a>
+            <a class="nav-link hp-nav-link" data-route="schedule" href="#schedule">Schedule</a>
+            <a class="nav-link hp-nav-link" data-route="standings" href="#standings">Standings</a>
+            <a class="nav-link hp-nav-link" data-route="rosters" href="#rosters">Participants</a>
+          </nav>
+          <div class="hp-more">
+            <button type="button" class="hp-more-btn" aria-haspopup="true">More <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="hp-more-menu">
+              <a class="nav-link hp-more-link" data-route="playoffs" href="#playoffs">Playoffs</a>
+              <a class="nav-link hp-more-link" data-route="players" href="#players">Players</a>
+              <a class="nav-link hp-more-link" data-route="nba2k27" href="#nba2k27">NBA 2K27 Pool</a>
+              <a class="nav-link hp-more-link" data-route="roster-simulator" href="#roster-simulator">Roster Simulator</a>
+              <a class="nav-link hp-more-link" data-route="hall-of-fame" href="#hall-of-fame">Hall of Fame</a>
+              <a class="hp-more-link hp-more-admin" href="admin.html">Admin ↗</a>
+            </div>
+          </div>
+        </div>
+      </header>
+
       <div class="nb-topbar">
         <button class="nb-hamburger" id="nbHamburgerBtn" aria-label="Open menu"><span></span><span></span><span></span></button>
         <div class="nb-topbar-title" id="nbTopbarTitle">Dashboard</div>

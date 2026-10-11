@@ -1,0 +1,654 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DraftP — Premium P2: Draft ("Live broadcast")
+   DEDICATED, APPEND-ONLY OVERRIDE LAYER. CSS only. Load LAST in index.html,
+   after premium-foundation.css, premium-p1-shell-dashboard.css and
+   premium-p1-schedule-standings.css (none of them modified).
+   Every rule is scoped under .dft-view, so no other page is affected.
+   No JS, markup, ID, class, data-attribute, route, handler or text change;
+   js/views/draft.js and css/draft-public.css are untouched contracts.
+   No important-flag overrides. No animation (only the existing short colour transitions).
+   To revert: remove this file's <link>.
+
+   Roles (unchanged):
+     gold    = live / on the clock / just picked / championship
+     indigo  = interaction + selection (tabs, focus)
+     orange  = elite OVR only (still comes from primitives.css .pos-ovr-elite;
+               this file never sets an OVR colour except to quiet drafted ones)
+     pools   = pool context only (selector + position-column heads)
+     green/red = outcomes only (not used on this page)
+
+   Display face: the existing condensed display token (--nb-font-display,
+   Barlow Condensed from premium-foundation.css). Fallback chain below only
+   matters if that token is ever missing; no new font is introduced.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.dft-view {
+  --dft-display: var(--nb-font-display, 'Barlow Condensed', 'Arial Narrow', sans-serif);
+  --dft-hair: var(--p2-hair, rgba(255, 255, 255, 0.08));
+  --dft-hair-strong: var(--p2-hair-strong, rgba(255, 255, 255, 0.14));
+  --dft-gold-line: color-mix(in srgb, var(--nb-gold) 45%, transparent);
+  --dft-ink-on-gold: var(--p1-ink-on-gold, #1a1300);
+  --dft-edge: 5px;
+}
+
+/* Lining + tabular numerals everywhere a number is a star. */
+.dft-view .dft-pick-chip,
+.dft-view .dft-progress-fraction,
+.dft-view .dft-progress-pct,
+.dft-view .dft-order-pick,
+.dft-view .dft-order-round,
+.dft-view .dft-history-pick,
+.dft-view .dft-lastpick-meta,
+.dft-view .pos-ovr,
+.dft-view .pos-rank,
+.dft-view .dft-glance-complete-sub {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ═══ A · ON-THE-CLOCK HERO ═══════════════════════════════════════════════ */
+
+.dft-view .dft-glance {
+  background: var(--nb-surface-stage, var(--nb-surface-card));
+  border: 1px solid var(--dft-hair);
+  border-radius: var(--nb-r);
+  /* Live edge: solid gold bar, drawn inset so box size never changes. */
+  box-shadow: inset var(--dft-edge) 0 0 var(--nb-gold), 0 12px 32px rgba(0, 0, 0, 0.34);
+  padding: var(--nb-space-4) var(--nb-space-4) var(--nb-space-4) calc(var(--nb-space-4) + var(--dft-edge));
+  margin-bottom: var(--nb-space-4);
+}
+
+/* Tier A — the broadcast's main subject. */
+.dft-view .dft-tier-a { gap: var(--nb-space-4); margin-bottom: var(--nb-space-3); }
+.dft-view .dft-tier-a .team-logo-img-lg,
+.dft-view .dft-tier-a .team-badge-lg { width: 64px; height: 64px; }
+.dft-view .dft-tier-a .team-badge-lg { font-family: var(--dft-display); font-size: 1.375rem; border-radius: var(--nb-r); }
+.dft-view .team-identity-abbr {
+  font-family: var(--dft-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--nb-text-muted);
+}
+
+/* "On the Clock" = live status bug: solid gold plate, dark ink, square marker. */
+.dft-view .dft-tier-a-eyebrow {
+  gap: 0.45rem;
+  font-family: var(--dft-display);
+  font-size: 0.9375rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--dft-ink-on-gold);
+  background: var(--nb-gold);
+  border: 0;
+  border-radius: 3px;
+  padding: 0.1rem 0.6rem 0.1rem 0.5rem;
+  line-height: 1.35;
+}
+.dft-view .dft-tier-a-eyebrow::before { width: 7px; height: 7px; border-radius: 1px; }
+
+.dft-view .dft-tier-a-name {
+  font-family: var(--dft-display);
+  font-size: clamp(2rem, 9vw, 3rem);
+  font-weight: 800;
+  letter-spacing: 0.005em;
+  line-height: 0.95;
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+.dft-view .dft-tier-a-name.dft-muted { font-family: var(--nb-font-ui, inherit); font-size: var(--nb-fs-h2); text-transform: none; letter-spacing: 0; }
+
+/* Tier B — Round / Pick plates + progress. */
+.dft-view .dft-tier-b { gap: var(--nb-space-2); margin-bottom: var(--nb-space-3); }
+.dft-view .dft-pick-chip {
+  flex: 0 0 auto;
+  font-family: var(--dft-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  background: var(--nb-surface-sunken);
+  border: 0;
+  border-top: 2px solid var(--dft-hair-strong);
+  border-radius: 3px;
+  padding: 0.6rem 0.6rem 0.55rem;
+}
+/* "Pick N overall": the number everyone is waiting on — gold, larger plate. */
+.dft-view .dft-pick-chip:nth-child(2) {
+  white-space: normal; /* single line when the display face is loaded; wraps rather than spills if it is not */
+  flex: 1 1 auto;
+  font-size: 1.5rem;
+  letter-spacing: 0.05em;
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  border-top-color: var(--nb-gold);
+}
+
+.dft-view .dft-progress-numbers { align-items: baseline; flex-wrap: nowrap; gap: 0.6rem; margin-bottom: 0.4rem; }
+.dft-view .dft-progress-label,
+.dft-view .dft-progress-fraction,
+.dft-view .dft-progress-pct { white-space: nowrap; }
+.dft-view .dft-progress-label {
+  font-family: var(--dft-display);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--nb-text-muted);
+}
+.dft-view .dft-progress-fraction {
+  font-family: var(--dft-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  color: var(--nb-text);
+}
+.dft-view .dft-progress-pct {
+  font-family: var(--dft-display);
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  color: var(--nb-gold-ink);
+}
+/* Broadcast progress bar: flat track, ten tick marks (scale, not decoration). */
+.dft-view .dft-progress-track {
+  position: relative;
+  height: 8px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--nb-surface-sunken);
+  box-shadow: inset 0 0 0 1px var(--dft-hair);
+}
+.dft-view .dft-progress-fill { border-radius: 0; }
+.dft-view .dft-progress-track::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(90deg, var(--nb-surface-sunken) 0 2px, transparent 2px);
+  background-size: 10% 100%;
+  pointer-events: none;
+}
+
+/* Tier C — "Just Picked": the previous possession's result. */
+.dft-view .dft-tier-c {
+  gap: 0.2rem 0.6rem;
+  padding-top: var(--nb-space-3);
+  border-top: 1px solid var(--dft-hair);
+}
+.dft-view .dft-lastpick-label {
+  font-family: var(--dft-display);
+  font-size: 0.875rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--nb-text-muted);
+  background: transparent;
+  border: 0;
+  border-left: 3px solid var(--nb-gold);
+  border-radius: 0;
+  padding: 0 0 0 0.5rem;
+  line-height: 1.2;
+}
+.dft-view .dft-lastpick-name {
+  font-family: var(--dft-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+.dft-view .dft-lastpick-meta { font-weight: var(--nb-fw-semibold); color: var(--nb-text); }
+.dft-view .dft-lastpick-by { color: var(--nb-text-muted); }
+
+/* ═══ F · DRAFT TABS — broadcast control strip (phone / tablet) ═══════════ */
+
+.dft-view .dft-tabs {
+  gap: 4px;
+  margin-bottom: var(--nb-space-3);
+  padding: 4px;
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--dft-hair);
+  border-radius: var(--nb-r);
+}
+.dft-view .dft-tab {
+  min-height: var(--nb-control-lg);
+  padding: 0 0.25rem;
+  font-family: var(--dft-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--nb-text-muted);
+  border: 0;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.dft-view .dft-tab::before { inset: 0; }
+.dft-view .dft-tab:hover { color: var(--nb-text); background: var(--nb-surface-hover); }
+.dft-view .dft-tab.active {
+  color: var(--nb-text);
+  font-weight: 800;
+  background: var(--nb-primary-dim);
+  box-shadow: inset 0 -3px 0 var(--nb-primary);
+}
+.dft-view .dft-tab:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: -2px; }
+
+/* ═══ SEARCH ══════════════════════════════════════════════════════════════ */
+
+.dft-view #dftSearch {
+  min-height: var(--nb-control-lg);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--dft-hair-strong);
+  border-radius: 8px;
+}
+
+/* ═══ D · POOL SELECTOR ═══════════════════════════════════════════════════ */
+
+.dft-view .dft-panel-board .pool-tabs { gap: 6px; margin-bottom: var(--nb-space-3); }
+.dft-view .dft-panel-board .pool-tab {
+  min-height: 52px;
+  padding: 0.35rem 0.4rem 0.5rem;
+  row-gap: 0;
+  font-family: var(--dft-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  color: var(--nb-text-muted);
+  background: var(--nb-surface-sunken);
+  border: 1px solid var(--dft-hair);
+  border-radius: 8px;
+}
+.dft-view .dft-panel-board .pool-tab:hover { color: var(--nb-text); background: var(--nb-surface-card); border-color: var(--dft-hair-strong); }
+.dft-view .dft-panel-board .pool-tab .pool-tab-count {
+  font-family: var(--nb-font-ui, inherit);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-medium);
+  line-height: 1.25;
+  opacity: 0.9;
+}
+.dft-view .dft-panel-board .pool-tab .pool-dot { width: 10px; height: 10px; }
+.dft-view .dft-panel-board .pool-tab-white .pool-dot { background: transparent; box-shadow: inset 0 0 0 2px var(--nb-pool-white); }
+/* Selected = pool tint + ink + hue edge + a 4px bar (shape, not colour alone). */
+.dft-view .dft-panel-board .pool-tab.active { box-shadow: inset 0 -4px 0 currentColor; }
+.dft-view .dft-panel-board .pool-tab.active.pool-tab-green { color: var(--nb-pool-green-ink); background: var(--nb-pool-green-tint); border-color: var(--nb-pool-green); }
+.dft-view .dft-panel-board .pool-tab.active.pool-tab-blue  { color: var(--nb-pool-blue-ink);  background: var(--nb-pool-blue-tint);  border-color: var(--nb-pool-blue); }
+.dft-view .dft-panel-board .pool-tab.active.pool-tab-white { color: var(--nb-pool-white-ink); background: var(--nb-pool-white-tint); border-color: var(--nb-pool-white); }
+.dft-view .dft-panel-board .pool-tab:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; }
+
+/* ═══ C · PLAYER BOARD ════════════════════════════════════════════════════ */
+
+.dft-view .dft-panel-board .pos-table {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--dft-hair);
+  border-radius: var(--nb-r);
+}
+
+/* Position header: condensed broadcast label; pool hue = text + a bottom bar. */
+.dft-view .dft-panel-board .pos-table-head {
+  height: 40px;
+  font-family: var(--dft-display);
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em; /* optically re-centres the tracked label */
+  background: var(--nb-surface-raised);
+}
+.dft-view .dft-panel-board .pos-table-green .pos-table-head { color: var(--nb-pool-green-ink); border-bottom: 2px solid var(--nb-pool-green); background: color-mix(in srgb, var(--nb-pool-green) 10%, var(--nb-surface-raised)); }
+.dft-view .dft-panel-board .pos-table-blue  .pos-table-head { color: var(--nb-pool-blue-ink);  border-bottom: 2px solid var(--nb-pool-blue);  background: color-mix(in srgb, var(--nb-pool-blue) 10%, var(--nb-surface-raised)); }
+.dft-view .dft-panel-board .pos-table-white .pos-table-head { color: var(--nb-pool-white-ink); border-bottom: 2px solid var(--nb-pool-white); background: color-mix(in srgb, var(--nb-pool-white) 9%, var(--nb-surface-raised)); }
+
+.dft-view .dft-panel-board .pos-table-columns-head {
+  height: 28px;
+  padding: 0 0.6rem;
+  font-family: var(--dft-display);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  background: var(--nb-surface-sunken);
+  color: var(--nb-text-dim);
+  border-bottom: 1px solid var(--dft-hair-strong);
+  grid-template-columns: 1.15rem minmax(0, 1fr) 2.4rem;
+}
+
+/* Rows: OVR anchor → name → rank. Name wraps instead of clipping; the state
+   tag flows inline after it (and drops to a second line when it must). */
+.dft-view .dft-panel-board .pos-table-row {
+  grid-template-columns: 1.15rem minmax(0, 1fr) 2.4rem;
+  column-gap: 0.3rem;
+  min-height: 44px;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--dft-hair);
+  font-size: var(--nb-fs-table);
+  position: relative;
+}
+.dft-view .dft-panel-board .pos-table-row:hover:not(.drafted):not(.just-picked) { background: var(--nb-surface-hover); }
+.dft-view .dft-panel-board .pos-rank {
+  font-size: 0.6875rem;
+  font-weight: var(--nb-fw-medium);
+  color: var(--nb-text-dim);
+}
+.dft-view .dft-panel-board .pos-name {
+  display: block;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+  font-size: 0.9375rem;
+  font-weight: var(--nb-fw-semibold);
+  line-height: 1.2;
+  letter-spacing: 0;
+  color: var(--nb-text);
+}
+.dft-view .dft-panel-board .pos-name .pos-drafted-tag {
+  display: inline-block;
+  vertical-align: 0.1em;
+  margin-left: 0.4rem;
+  white-space: normal;
+}
+.dft-view .dft-panel-board .pos-ovr {
+  font-family: var(--dft-display);
+  font-size: 1.625rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  text-align: right;
+}
+
+.dft-view .dft-panel-board .pos-table-empty { padding: 1rem 0.7rem; font-size: var(--nb-fs-sm); }
+
+/* ── Player states ── */
+/* Drafted: quiet, struck, clearly unavailable. Never competes with open rows. */
+.dft-view .dft-panel-board .pos-table-row.drafted { opacity: 0.6; }
+.dft-view .dft-panel-board .pos-table-row.drafted .pos-name { font-weight: var(--nb-fw-medium); color: var(--nb-text-muted); }
+.dft-view .dft-panel-board .pos-table-row.drafted .pos-ovr { font-weight: 600; color: var(--nb-text-muted); }
+.dft-view .dft-panel-board .pos-drafted-tag {
+  font-family: var(--dft-display);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  max-width: 100%;
+  white-space: normal; /* wraps (instead of spilling) only if the display face fails to load */
+  padding: 0 0.35rem;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--nb-text-muted);
+  box-shadow: inset 0 0 0 1px var(--dft-hair-strong);
+}
+
+/* Locked: clearly a state, never an error — dim row, gold-ink tag, thin dashed
+   gold edge (dashed = "restricted", distinct from the solid just-picked bar). */
+.dft-view .dft-panel-board .pos-table-row.locked { opacity: 0.72; }
+.dft-view .dft-panel-board .pos-table-row.locked::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  border-left: 2px dashed var(--dft-gold-line);
+}
+.dft-view .dft-panel-board .pos-table-row.locked .pos-name { color: var(--nb-text-muted); }
+.dft-view .dft-panel-board .pos-locked-tag {
+  color: var(--nb-gold-ink);
+  background: var(--nb-gold-dim);
+  box-shadow: inset 0 0 0 1px var(--dft-gold-line);
+}
+
+/* Just Picked: the strongest row state. Full opacity (it is also .drafted),
+   gold band with top/bottom rules + a 4px solid bar. Structure, not tint alone. */
+.dft-view .dft-panel-board .pos-table-row.just-picked {
+  opacity: 1;
+  background: color-mix(in srgb, var(--nb-gold) 20%, var(--nb-surface-card));
+  box-shadow: inset 0 1px 0 var(--dft-gold-line), inset 0 -1px 0 var(--dft-gold-line);
+}
+.dft-view .dft-panel-board .pos-table-row.just-picked::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  border-left: 0;
+  background: var(--nb-gold);
+}
+.dft-view .dft-panel-board .pos-table-row.just-picked .pos-name { font-weight: var(--nb-fw-heavy); color: var(--nb-text); text-decoration: none; }
+.dft-view .dft-panel-board .pos-table-row.just-picked .pos-rank { color: var(--nb-gold-ink); }
+.dft-view .dft-panel-board .pos-table-row.just-picked .pos-ovr { font-weight: 800; color: var(--nb-text); text-decoration: none; }
+.dft-view .dft-panel-board .pos-table-row.just-picked .pos-drafted-tag {
+  color: var(--dft-ink-on-gold);
+  background: var(--nb-gold);
+  box-shadow: none;
+}
+
+/* Legend: swatches mirror the row cues. */
+.dft-view .dft-board-legend { gap: var(--nb-space-4); font-size: var(--nb-fs-xs); }
+.dft-view .dft-board-legend-dot-drafted { width: 10px; height: 2px; border-radius: 0; background: var(--nb-text-muted); }
+.dft-view .dft-board-legend-dot-picked { width: 4px; height: 14px; border-radius: 0; background: var(--nb-gold); }
+
+/* ═══ E · DRAFT ORDER — live draft ticker ═════════════════════════════════ */
+
+.dft-view .dft-order-list,
+.dft-view .dft-history-list {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--dft-hair);
+  border-radius: var(--nb-r);
+}
+.dft-view .dft-order-row {
+  gap: var(--nb-space-3);
+  min-height: 48px;
+  padding: 0.35rem var(--nb-space-3) 0.35rem var(--nb-space-4);
+  border-bottom: 1px solid var(--dft-hair);
+}
+.dft-view .dft-order-row:nth-child(even) { background: transparent; }
+.dft-view .dft-order-pick {
+  min-width: 3rem;
+  font-family: var(--dft-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--nb-text-muted);
+}
+.dft-view .dft-order-name {
+  /* Participant names wrap instead of truncating. */
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+  line-height: 1.15;
+  font-size: var(--nb-fs-body);
+  font-weight: var(--nb-fw-semibold);
+  color: color-mix(in srgb, var(--nb-text) 78%, var(--nb-text-muted));
+}
+.dft-view .dft-order-round {
+  font-family: var(--dft-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--dft-hair-strong);
+  padding: 0 0.45rem;
+}
+/* Progressively quieter: the next two picks stay bright, the rest recede. */
+.dft-view .dft-order-row:nth-child(-n+3) .dft-order-name { color: var(--nb-text); }
+.dft-view .dft-order-row:nth-child(n+7) .dft-order-pick { color: var(--nb-text-dim); }
+
+/* Current pick: tallest row, gold band + 5px bar, big gold number. */
+.dft-view .dft-order-row-current,
+.dft-view .dft-order-row-current:nth-child(even) {
+  min-height: 64px;
+  background: color-mix(in srgb, var(--nb-gold) 16%, var(--nb-surface-card));
+  box-shadow: inset 0 1px 0 var(--dft-gold-line), inset 0 -1px 0 var(--dft-gold-line);
+}
+.dft-view .dft-order-row-current::before { width: var(--dft-edge); }
+.dft-view .dft-order-row-current .dft-order-pick { font-size: 2.25rem; color: var(--nb-gold-ink); }
+.dft-view .dft-order-row-current .dft-order-name { font-size: var(--nb-fs-h2); font-weight: var(--nb-fw-heavy); color: var(--nb-text); }
+.dft-view .dft-order-row-current .team-logo-img-sm,
+.dft-view .dft-order-row-current .team-badge-sm { width: 30px; height: 30px; }
+.dft-view .dft-order-row-current .dft-order-round { color: var(--nb-gold-ink); box-shadow: inset 0 0 0 1px var(--dft-gold-line); }
+
+/* Team abbreviation next to the small badge: quiet. */
+.dft-view .dft-order-row .team-identity-abbr { font-size: 0.875rem; letter-spacing: 0.12em; }
+
+/* ── Info panel: up-next / recent / full history ── */
+.dft-view .dft-upnext-list .dft-order-row { min-height: 44px; font-size: var(--nb-fs-body); padding: 0.3rem var(--nb-space-3) 0.3rem var(--nb-space-4); }
+.dft-view .dft-upnext-list .dft-order-pick { font-size: 1.375rem; }
+.dft-view .dft-info-heading {
+  font-family: var(--dft-display);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--nb-text-muted);
+}
+.dft-view .dft-recent-pick-card {
+  background: var(--nb-surface-card);
+  border: 1px solid var(--dft-hair);
+  border-radius: var(--nb-r);
+  box-shadow: inset var(--dft-edge) 0 0 var(--nb-gold);
+  padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) calc(var(--nb-space-4) + var(--dft-edge) - 2px);
+  gap: 0.2rem;
+}
+.dft-view .dft-recent-pick-card .dft-lastpick-name { font-size: 1.75rem; line-height: 1; }
+.dft-view .dft-recent-pick-card .dft-lastpick-label { border-left-color: var(--nb-gold); }
+
+.dft-view .dft-history-row { padding: 0.5rem var(--nb-space-3) 0.5rem var(--nb-space-4); border-bottom: 1px solid var(--dft-hair); }
+.dft-view .dft-history-pick { font-family: var(--dft-display); font-size: 1.25rem; font-weight: 700; line-height: 1; color: var(--nb-text-dim); }
+.dft-view .dft-history-name { font-weight: var(--nb-fw-semibold); white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; line-height: 1.2; }
+.dft-view .dft-history-by { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
+.dft-view .dft-history-meta { font-weight: var(--nb-fw-semibold); }
+
+/* ═══ G · DRAFT COMPLETE — championship conclusion ════════════════════════ */
+
+.dft-view .dft-glance.dft-glance-complete {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nb-space-1);
+  text-align: center;
+  background: var(--nb-surface-stage, var(--nb-surface-card));
+  border: 1px solid var(--dft-gold-line);
+  border-top: 3px solid var(--nb-gold);
+  border-radius: var(--nb-r);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.34);
+  padding: var(--nb-space-5) var(--nb-space-4);
+}
+.dft-view .dft-glance-complete-title {
+  font-family: var(--dft-display);
+  font-size: clamp(2.5rem, 12vw, 4rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--nb-gold-ink);
+}
+.dft-view .dft-glance-complete-sub {
+  margin-top: 0;
+  font-family: var(--dft-display);
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+}
+
+/* Scrollable rails are keyboard-focusable in browsers: give them the system ring. */
+.dft-view .dft-panel-order:focus-visible,
+.dft-view .dft-panel-history:focus-visible { outline: 2px solid var(--nb-focus-ring); outline-offset: 2px; border-radius: var(--nb-r); }
+
+/* ═══ PHONE / TABLET (< 900px) ════════════════════════════════════════════ */
+
+@media (max-width: 899.98px) {
+  .dft-view .dft-glance { padding: var(--nb-space-3) var(--nb-space-3) var(--nb-space-3) calc(var(--nb-space-3) + var(--dft-edge)); }
+  .dft-view .dft-tier-a { gap: var(--nb-space-3); margin-bottom: var(--nb-space-2); }
+  .dft-view .dft-tier-a .team-logo-img-lg,
+  .dft-view .dft-tier-a .team-badge-lg { width: 56px; height: 56px; }
+  .dft-view .dft-tier-b { margin-bottom: var(--nb-space-2); }
+  .dft-view .dft-pick-chip { font-size: 1.25rem; padding: 0.5rem 0.5rem 0.45rem; }
+  .dft-view .dft-pick-chip:nth-child(2) { font-size: 1.5rem; }
+  .dft-view .dft-tier-c { padding-top: var(--nb-space-2); }
+  .dft-view .dft-tier-c { flex-wrap: wrap; }
+  .dft-view .dft-lastpick-name { font-size: 1.375rem; }
+  .dft-view .dft-panel-board .pos-table-row { min-height: 46px; }
+  .dft-view .dft-panel-board .pos-name { font-size: 1rem; }
+  .dft-view .dft-order-row { gap: var(--nb-space-2); }
+  .dft-view .dft-order-row-current .dft-order-pick { font-size: 2rem; min-width: 2.75rem; }
+}
+
+/* ═══ DESKTOP WORKSPACE (≥ 900px) ═════════════════════════════════════════ */
+
+@media (min-width: 900px) {
+  .dft-view .dft-glance {
+    gap: var(--nb-space-3) var(--nb-space-5);
+    padding: var(--nb-space-4) var(--nb-space-5) var(--nb-space-4) calc(var(--nb-space-5) + var(--dft-edge));
+  }
+  .dft-view .dft-tier-a { gap: var(--nb-space-4); }
+  .dft-view .dft-tier-a .team-logo-img-lg,
+  .dft-view .dft-tier-a .team-badge-lg { width: 80px; height: 80px; }
+  .dft-view .dft-tier-a-name { font-size: 3.25rem; }
+  .dft-view .dft-tier-a-eyebrow { font-size: 1.0625rem; padding: 0.15rem 0.7rem 0.15rem 0.6rem; }
+  .dft-view .dft-tier-c { border-top: 0; border-left: 1px solid var(--dft-hair); padding-top: 0; padding-left: var(--nb-space-5); }
+  .dft-view .dft-lastpick-name { font-size: 1.75rem; }
+
+  /* Section labels (the tab names, hidden here): broadcast headings. */
+  .dft-view .dft-panel::before {
+    font-family: var(--dft-display);
+    font-size: 1.125rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: var(--nb-text);
+    padding-bottom: var(--nb-space-2);
+    margin-bottom: var(--nb-space-3);
+    border-bottom: 1px solid var(--dft-hair);
+  }
+
+  /* Sticky heads follow the new header heights (40 + 28). */
+  .dft-view .dft-panel-board .pos-table-columns-head { top: 40px; }
+  .dft-view .dft-panel-board .pos-table-row { min-height: 40px; padding: 0.25rem 0.5rem; column-gap: 0.25rem; }
+  .dft-view .dft-panel-board .pos-table-columns-head { padding: 0 0.5rem; }
+  .dft-view .dft-panel-board .pos-name { font-size: 0.875rem; }
+  .dft-view .dft-panel-board .pos-ovr { font-size: 1.5rem; }
+}
+
+@media (min-width: 900px) and (max-width: 1439.98px) {
+  .dft-view .dft-panel-board .pos-name { font-size: 0.8125rem; }
+  .dft-view .dft-panel-board .pos-table-columns-head,
+  .dft-view .dft-panel-board .pos-table-row { grid-template-columns: 1rem minmax(0, 1fr) 2.1rem; }
+  .dft-view .dft-progress-label { font-size: 0.8125rem; letter-spacing: 0.1em; }
+  .dft-view .dft-progress-fraction,
+  .dft-view .dft-progress-pct { font-size: 1.25rem; }
+}
+
+@media (min-width: 1200px) {
+  .dft-view .dft-tier-a-name { font-size: 2.5rem; }
+  .dft-view .dft-tier-b { flex: 0 0 290px; padding-left: var(--nb-space-5); border-left: 1px solid var(--dft-hair); }
+  /* Round + Pick share one row so the band stays short. */
+  .dft-view .dft-pick-chip { font-size: 1.125rem; padding: 0.5rem 0.55rem 0.45rem; }
+  .dft-view .dft-pick-chip:nth-child(2) { flex: 1 1 0; min-width: 0; font-size: 1.25rem; letter-spacing: 0.04em; }
+  .dft-view .dft-tier-c { flex: 0 0 200px; }
+  .dft-view .dft-lastpick-name { font-size: 1.375rem; }
+}
+
+@media (min-width: 1440px) {
+  .dft-view .dft-tier-a-name { font-size: 3rem; }
+  .dft-view .dft-tier-b { flex-basis: 310px; }
+  .dft-view .dft-pick-chip:nth-child(2) { font-size: 1.375rem; }
+  .dft-view .dft-tier-c { flex-basis: 220px; }
+  .dft-view .dft-lastpick-name { font-size: 1.5rem; }
+}
+
+/* Wide screens: the hero gets its full broadcast scale. */
+@media (min-width: 1600px) {
+  .dft-view .dft-tier-a .team-logo-img-lg,
+  .dft-view .dft-tier-a .team-badge-lg { width: 88px; height: 88px; }
+  .dft-view .dft-tier-a-name { font-size: 4rem; }
+  .dft-view .dft-tier-b { flex-basis: 340px; }
+  .dft-view .dft-tier-c { flex-basis: 260px; }
+  .dft-view .dft-lastpick-name { font-size: 1.75rem; }
+}

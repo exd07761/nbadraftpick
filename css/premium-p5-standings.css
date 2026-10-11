@@ -1,0 +1,577 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DraftP — Premium P5: Standings ("League table")
+   DEDICATED, APPEND-ONLY STYLESHEET. CSS only. Loaded after
+   premium-p4-schedule.css; none of the existing stylesheets are modified.
+   Every rule is scoped under #viewContainer .standings-view, so Home,
+   Schedule, Draft, Admin and every other view are unaffected. No JS, markup,
+   ID, class, data-attribute, route, handler or displayed-text change.
+   No !important. To revert: remove this file's <link>; P1 stays underneath.
+
+   Same visual language as the P3 homepage and P4 Schedule: restrained type
+   (numerals ≤ 1.25rem, names 1rem, labels 11–13px), Barlow Condensed only for
+   the title, rank and numerals, Inter for everything else.
+   Roles: orange = brand accent, gold = rank 1 / top-4 cut only, green/red =
+   point differential and Qualifies/Eliminated only, NBA team colour = a thin
+   edge and a faint backing behind the logo, never a row fill.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#viewContainer .standings-view {
+  --p5-hair: rgba(255, 255, 255, 0.07);
+  --p5-hair-strong: rgba(255, 255, 255, 0.13);
+  --p5-gold: var(--nb-gold-on-dark, var(--nb-gold));
+  position: relative;
+  isolation: isolate;
+}
+#viewContainer .standings-view::before {      /* faint arena glow behind the header (same as Schedule) */
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -28px -28px auto -28px;
+  height: 340px;
+  pointer-events: none;
+  background:
+    radial-gradient(50% 100% at 12% 0%, rgba(232, 99, 10, 0.10), transparent 70%),
+    radial-gradient(40% 90% at 88% 0%, rgba(91, 91, 240, 0.07), transparent 70%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%), linear-gradient(90deg, transparent 0%, #000 22%, #000 78%, transparent 100%);
+          mask-image: linear-gradient(180deg, #000 0%, transparent 100%), linear-gradient(90deg, transparent 0%, #000 22%, #000 78%, transparent 100%);
+  -webkit-mask-composite: source-in;
+          mask-composite: intersect;
+}
+
+/* ── 1. Headings ────────────────────────────────────────────────────────── */
+#viewContainer .standings-view > h2.section-title {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 14px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  border: 0;
+}
+#viewContainer .standings-view > h2.section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  bottom: 0.05em;
+  width: 4px;
+  background: var(--nb-brand-orange);
+  transform: skewX(-14deg);
+}
+#viewContainer .standings-view h3.section-title {
+  position: relative;
+  padding: 0 0 0 12px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.125rem;
+  line-height: 1.1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  border: 0;
+}
+#viewContainer .standings-view h3.section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  bottom: 0.05em;
+  width: 3px;
+  background: var(--nb-brand-orange);
+  transform: skewX(-14deg);
+}
+#viewContainer .standings-view > h2.section-title + h3.section-title { margin-top: 22px; }
+#viewContainer .standings-view h3.section-title { margin-bottom: 14px; }
+#viewContainer .standings-view h4.section-title { margin: 22px 0 12px; }
+#viewContainer .standings-view h4.section-title {
+  font-family: var(--nb-font-display);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--nb-text-muted);
+  border: 0;
+}
+#viewContainer .standings-view h4.section-title::after { background: var(--p5-hair); }
+#viewContainer .standings-view .helper-text {
+  max-width: 78ch;
+  margin-top: 12px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--nb-text-dim);
+}
+
+/* ── 2. League table (round robin): one dark surface, hairline rows ─────── */
+#viewContainer .standings-view .standings-table-wrap {
+  margin-top: 22px;
+  background:
+    radial-gradient(90% 40% at 50% 0%, rgba(255, 255, 255, 0.035), transparent 70%),
+    linear-gradient(180deg, #161b26, #10141c);
+  border: 1px solid var(--p5-hair);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 26px rgba(0, 0, 0, 0.26);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+#viewContainer .standings-view .standings-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+#viewContainer .standings-view .standings-table th {
+  padding: 12px 10px;
+  font-family: var(--nb-font-ui);
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--nb-text-dim);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--p5-hair-strong);
+}
+#viewContainer .standings-view .standings-table td {
+  height: 58px;
+  padding: 0 10px;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums lining-nums;
+  border-bottom: 1px solid var(--p5-hair);
+  color: var(--nb-text);
+}
+#viewContainer .standings-view .standings-table tbody tr:last-child td { border-bottom: 0; }
+#viewContainer .standings-view .standings-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+
+/* column roles: rank · team · participant · GP | W L Win% | PF PA | PD | Rem */
+#viewContainer .standings-view #teamStandingsTable th:first-child,
+#viewContainer .standings-view #teamStandingsTable td:first-child { width: 60px; padding: 0; text-align: center; }
+#viewContainer .standings-view #teamStandingsTable th:nth-child(n+4),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(n+4) { text-align: right; }
+#viewContainer .standings-view #teamStandingsTable th:last-child,
+#viewContainer .standings-view #teamStandingsTable td:last-child { padding-right: 16px; }
+#viewContainer .standings-view #teamStandingsTable th:nth-child(2) { padding-left: 14px; }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(2) { width: 1%; padding-left: 14px; padding-right: 14px; white-space: nowrap; }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(3) {
+  min-width: 9rem;
+  font-family: var(--nb-font-ui);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--nb-text);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+#viewContainer .standings-view #teamStandingsTable td:nth-child(4),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(8),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(9),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(11) {      /* secondary: GP, PF, PA, Rem */
+  font-family: var(--nb-font-ui);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--nb-text-dim);
+}
+#viewContainer .standings-view #teamStandingsTable td:nth-child(5),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(6),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(7),
+#viewContainer .standings-view #teamStandingsTable td:nth-child(10) {      /* primary numerals */
+  font-family: var(--nb-font-display);
+  font-size: 1.25rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+#viewContainer .standings-view #teamStandingsTable td:nth-child(5) { font-weight: 700; color: var(--nb-text); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(6) { font-weight: 600; color: var(--nb-text-muted); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(7) { font-weight: 700; color: var(--nb-text); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(10) { font-weight: 700; color: var(--nb-text-muted); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(10).pd-pos { color: var(--nb-positive-ink, var(--nb-positive)); }
+#viewContainer .standings-view #teamStandingsTable td:nth-child(10).pd-neg { color: var(--nb-negative-ink, var(--nb-negative)); }
+
+/* team identity: modest logo + abbreviation, thin team-colour edge, faint backing */
+#viewContainer .standings-view #teamStandingsTable .team-identity { display: inline-flex; align-items: center; gap: 10px; }
+#viewContainer .standings-view #teamStandingsTable .team-logo-img-sm,
+#viewContainer .standings-view #teamStandingsTable .team-badge-sm { width: 34px; height: 34px; }
+#viewContainer .standings-view #teamStandingsTable .team-identity-abbr {
+  font-family: var(--nb-font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  color: var(--nb-text-dim);
+}
+#viewContainer .standings-view #teamStandingsTable tbody tr { --tint: 15%; }
+#viewContainer .standings-view #teamStandingsTable tbody tr:hover { --tint: 26%; }
+#viewContainer .standings-view #teamStandingsTable td:first-child {
+  position: relative;
+  isolation: isolate;
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--tc, transparent) 70%, transparent);
+}
+#viewContainer .standings-view #teamStandingsTable td:nth-child(2) {
+  background: radial-gradient(circle 32px at 31px 50%, color-mix(in srgb, var(--tc, transparent) var(--tint), transparent), transparent 100%);
+}
+
+/* rank medallion (drawn behind the existing number; no markup change) */
+#viewContainer .standings-view #teamStandingsTable td:first-child {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1;
+  color: var(--nb-text-muted);
+}
+#viewContainer .standings-view #teamStandingsTable td:first-child::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 50%;
+  left: 50%;
+  width: 30px;
+  height: 30px;
+  transform: translate(-50%, -50%);
+  border: 1px solid var(--p5-hair-strong);
+  border-radius: 50%;
+}
+
+/* top 4 (the app's existing cut, via td.standings-abbr): faint gold cue; rank 1: restrained gold fill */
+#viewContainer .standings-view #teamStandingsTable td.standings-abbr { color: var(--p5-gold); }
+#viewContainer .standings-view #teamStandingsTable td.standings-abbr::before { border-color: rgba(212, 160, 23, 0.55); background: rgba(212, 160, 23, 0.09); }
+#viewContainer .standings-view #teamStandingsTable tbody tr:has(> td.standings-abbr) {
+  background-image: linear-gradient(90deg, rgba(212, 160, 23, 0.06), rgba(212, 160, 23, 0) 52%);
+}
+#viewContainer .standings-view #teamStandingsTable tbody tr:first-child {
+  background-image: linear-gradient(90deg, rgba(212, 160, 23, 0.15), rgba(212, 160, 23, 0) 58%);
+}
+#viewContainer .standings-view #teamStandingsTable tbody tr:first-child td:first-child { color: #1a1405; }
+#viewContainer .standings-view #teamStandingsTable tbody tr:first-child td:first-child::before { background: var(--p5-gold); border-color: transparent; }
+#viewContainer .standings-view #teamStandingsTable tbody tr:has(> td.standings-abbr):not(:has(+ tr > td.standings-abbr)) td {
+  border-bottom-color: rgba(212, 160, 23, 0.4);
+}
+
+/* tablet: secondary columns step aside; W · L · Win% · +/- always stay */
+@container p2tbl (max-width: 880px) {
+  #viewContainer .standings-view #teamStandingsTable th:nth-child(8),
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(8),
+  #viewContainer .standings-view #teamStandingsTable th:nth-child(9),
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(9),
+  #viewContainer .standings-view #teamStandingsTable th:nth-child(11),
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(11) { display: none; }
+}
+@container p2tbl (max-width: 640px) {
+  #viewContainer .standings-view #teamStandingsTable th:nth-child(4),
+  #viewContainer .standings-view #teamStandingsTable td:nth-child(4) { display: none; }
+  #viewContainer .standings-view #teamStandingsTable th,
+  #viewContainer .standings-view #teamStandingsTable td { padding-inline: 8px; }
+  #viewContainer .standings-view #teamStandingsTable th:first-child,
+  #viewContainer .standings-view #teamStandingsTable td:first-child { width: 48px; padding: 0; }
+}
+
+/* ── 3. Group Stage + Conference cards: one panel per group ─────────────── */
+#viewContainer .standings-view .group-stage-grid { gap: 16px; }
+#viewContainer .standings-view .group-card {
+  container: p2group / inline-size;
+  min-width: 0;
+  background: linear-gradient(180deg, #161b26, #10141c);
+  border: 1px solid var(--p5-hair);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 26px rgba(0, 0, 0, 0.26);
+  overflow: hidden;
+}
+#viewContainer .standings-view .group-card-summary {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 16px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  background: rgba(255, 255, 255, 0.025);
+  border: 0;
+  border-bottom: 1px solid var(--p5-hair);
+  box-shadow: inset 3px 0 0 var(--nb-brand-orange);
+}
+#viewContainer .standings-view .group-card-summary:hover { background: rgba(255, 255, 255, 0.05); }
+#viewContainer .standings-view .group-card-summary:focus-visible { outline: 2px solid var(--nb-focus-ring-on-dark, var(--nb-focus-ring)); outline-offset: -2px; }
+#viewContainer .standings-view .group-card-body { border-top: 0; }
+#viewContainer .standings-view .group-card .table-scroll { background: none; border: 0; border-radius: 0; box-shadow: none; }
+#viewContainer .standings-view .group-standings-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+#viewContainer .standings-view .group-standings-table th {
+  padding: 10px 8px;
+  font-family: var(--nb-font-ui);
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--nb-text-dim);
+  background: transparent;
+  border-bottom: 1px solid var(--p5-hair-strong);
+}
+#viewContainer .standings-view .group-standings-table td {
+  height: 54px;
+  padding: 0 8px;
+  vertical-align: middle;
+  font-variant-numeric: tabular-nums lining-nums;
+  border-bottom: 1px solid var(--p5-hair);
+  color: var(--nb-text);
+}
+#viewContainer .standings-view .group-standings-table tbody tr:last-child td { border-bottom: 0; }
+#viewContainer .standings-view .group-standings-table tbody tr:hover td { background: rgba(255, 255, 255, 0.03); }
+#viewContainer .standings-view .group-standings-table th:first-child,
+#viewContainer .standings-view .group-standings-table td:first-child { width: 40px; padding-inline: 0; text-align: center; }
+#viewContainer .standings-view .group-standings-table th:nth-child(n+3),
+#viewContainer .standings-view .group-standings-table td:nth-child(n+3) { text-align: right; }
+#viewContainer .standings-view .group-standings-table th:last-child,
+#viewContainer .standings-view .group-standings-table td:last-child { padding-right: 14px; }
+#viewContainer .standings-view .group-standings-table td:first-child {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.0625rem;
+  line-height: 1;
+  color: var(--nb-text-muted);
+}
+#viewContainer .standings-view .group-standings-table tbody tr:first-child td:first-child { color: var(--p5-gold); }
+#viewContainer .standings-view .group-standings-table td:nth-child(3),
+#viewContainer .standings-view .group-standings-table td:nth-child(4),
+#viewContainer .standings-view .group-standings-table td:nth-child(5) {
+  font-family: var(--nb-font-display);
+  font-size: 1.25rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+#viewContainer .standings-view .group-standings-table td:nth-child(3) { font-weight: 700; color: var(--nb-text); }
+#viewContainer .standings-view .group-standings-table td:nth-child(4) { font-weight: 600; color: var(--nb-text-muted); }
+#viewContainer .standings-view .group-standings-table td:nth-child(5) { font-weight: 700; color: var(--nb-text-muted); }
+#viewContainer .standings-view .group-standings-table td:nth-child(5).pd-pos { color: var(--nb-positive-ink, var(--nb-positive)); }
+#viewContainer .standings-view .group-standings-table td:nth-child(5).pd-neg { color: var(--nb-negative-ink, var(--nb-negative)); }
+#viewContainer .standings-view .group-team-cell { flex-direction: row; align-items: center; gap: 10px; min-width: 0; }
+#viewContainer .standings-view .group-team-cell .team-identity { flex-direction: column; align-items: center; gap: 3px; flex: 0 0 auto; }
+#viewContainer .standings-view .group-standings-table .team-logo-img-sm,
+#viewContainer .standings-view .group-standings-table .team-badge-sm { width: 32px; height: 32px; }
+#viewContainer .standings-view .group-standings-table .team-identity-abbr {
+  font-family: var(--nb-font-ui);
+  font-size: 0.5625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  color: var(--nb-text-dim);
+}
+#viewContainer .standings-view .group-team-name {
+  min-width: 0;
+  max-width: none;
+  font-family: var(--nb-font-ui);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--nb-text);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+/* conference outcome column: Qualifies / Eliminated (existing text, existing classes) */
+#viewContainer .standings-view .group-standings-table td.muted:last-child,
+#viewContainer .standings-view .group-standings-table td.cap-over-text {
+  font-family: var(--nb-font-ui);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+#viewContainer .standings-view .group-standings-table td.muted:last-child { color: var(--nb-text-dim); }
+#viewContainer .standings-view .group-standings-table td.cap-over-text { color: var(--nb-negative-ink, var(--nb-negative)); }
+#viewContainer .standings-view .group-standings-table td.muted:last-child::before,
+#viewContainer .standings-view .group-standings-table td.cap-over-text::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  vertical-align: 1px;
+  border-radius: 50%;
+}
+#viewContainer .standings-view .group-standings-table td.muted:last-child::before { background: var(--nb-positive); }
+#viewContainer .standings-view .group-standings-table td.cap-over-text::before { background: var(--nb-negative); }
+#viewContainer .standings-view .group-standings-table tr:has(img) td:first-child { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--tc, transparent) 70%, transparent); }
+
+/* narrow group columns: the numerals and status keep fitting */
+@container p2group (max-width: 400px) {
+  #viewContainer .standings-view .group-standings-table th { padding-inline: 4px; letter-spacing: 0.08em; }
+  #viewContainer .standings-view .group-standings-table td { padding-inline: 4px; }
+  #viewContainer .standings-view .group-standings-table th:first-child,
+  #viewContainer .standings-view .group-standings-table td:first-child { width: 30px; }
+  #viewContainer .standings-view .group-standings-table td:nth-child(3),
+  #viewContainer .standings-view .group-standings-table td:nth-child(4),
+  #viewContainer .standings-view .group-standings-table td:nth-child(5) { font-size: 1.125rem; }
+  #viewContainer .standings-view .group-team-cell { gap: 8px; }
+  #viewContainer .standings-view .group-team-name { font-size: 0.875rem; }
+  #viewContainer .standings-view .group-standings-table td.muted:last-child,
+  #viewContainer .standings-view .group-standings-table td.cap-over-text { letter-spacing: 0.02em; }
+}
+
+/* ── 4. Streamer leaderboard ────────────────────────────────────────────── */
+#viewContainer .standings-view .streamer-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+#viewContainer .standings-view .table-scroll:has(> .streamer-table) {
+  background: linear-gradient(180deg, #161b26, #10141c);
+  border: 1px solid var(--p5-hair);
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 26px rgba(0, 0, 0, 0.26);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+#viewContainer .standings-view .streamer-table th {
+  padding: 12px 16px;
+  font-family: var(--nb-font-ui);
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--nb-text-dim);
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid var(--p5-hair-strong);
+}
+#viewContainer .standings-view .streamer-table td {
+  height: 52px;
+  padding: 0 16px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--p5-hair);
+}
+#viewContainer .standings-view .streamer-table tbody tr:last-child td { border-bottom: 0; }
+#viewContainer .standings-view .streamer-table td:first-child { font-family: var(--nb-font-ui); font-size: 1rem; font-weight: 600; color: var(--nb-text); overflow-wrap: anywhere; }
+#viewContainer .standings-view .streamer-table td:nth-child(2) {
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--nb-text);
+}
+
+/* ── 5. Phone: ranked rows on one panel (the existing cards, same data) ─── */
+@media (max-width: 700px) {
+  #viewContainer .standings-view .standings-cards {
+    gap: 0;
+    margin-top: 20px;
+    background: linear-gradient(180deg, #161b26, #10141c);
+    border: 1px solid var(--p5-hair);
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 10px 26px rgba(0, 0, 0, 0.26);
+    overflow: hidden;
+  }
+  #viewContainer .standings-view .standings-card {
+    --tint: 20%;
+    align-items: center;
+    gap: 12px;
+    min-height: 68px;
+    padding: 10px 14px 10px 12px;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--p5-hair);
+    border-radius: 0;
+    box-shadow: inset 2px 0 0 color-mix(in srgb, var(--tc, transparent) 70%, transparent);
+  }
+  #viewContainer .standings-view .standings-card:last-child { border-bottom: 0; }
+  #viewContainer .standings-view .standings-card:has(> .standings-card-rank.top4) { background-image: linear-gradient(90deg, rgba(212, 160, 23, 0.06), rgba(212, 160, 23, 0) 60%); }
+  #viewContainer .standings-view .standings-card:first-child { background-image: linear-gradient(90deg, rgba(212, 160, 23, 0.15), rgba(212, 160, 23, 0) 66%); }
+  #viewContainer .standings-view .standings-card-rank {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    font-family: var(--nb-font-display);
+    font-weight: 700;
+    font-size: 1.0625rem;
+    line-height: 1;
+    color: var(--nb-text-muted);
+    border: 1px solid var(--p5-hair-strong);
+    border-radius: 50%;
+  }
+  #viewContainer .standings-view .standings-card-rank.top4 { color: var(--p5-gold); border-color: rgba(212, 160, 23, 0.55); background: rgba(212, 160, 23, 0.09); }
+  #viewContainer .standings-view .standings-card:first-child .standings-card-rank { color: #1a1405; background: var(--p5-gold); border-color: transparent; }
+  #viewContainer .standings-view .standings-card .team-identity { flex: 0 0 auto; flex-direction: column; align-items: center; gap: 3px; }
+  #viewContainer .standings-view .standings-card .team-logo-img-md,
+  #viewContainer .standings-view .standings-card .team-badge-md { width: 38px; height: 38px; }
+  #viewContainer .standings-view .standings-card .team-identity-abbr { font-size: 0.5625rem; font-weight: 600; letter-spacing: 0.1em; line-height: 1; color: var(--nb-text-dim); }
+  #viewContainer .standings-view .standings-card-main { min-width: 0; }
+  #viewContainer .standings-view .standings-card-owner {
+    font-family: var(--nb-font-ui);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.2;
+    color: var(--nb-text);
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  #viewContainer .standings-view .standings-card-record {
+    margin-top: 4px;
+    font-family: var(--nb-font-ui);
+    font-weight: 500;
+    font-size: 0.8125rem;
+    letter-spacing: 0.01em;
+    color: var(--nb-text-dim);
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  #viewContainer .standings-view .standings-card-pd {
+    flex: 0 0 auto;
+    min-width: 3.5rem;
+    padding: 5px 8px;
+    font-family: var(--nb-font-display);
+    font-weight: 700;
+    font-size: 1.0625rem;
+    line-height: 1;
+    text-align: center;
+    color: var(--nb-text-muted);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--p5-hair);
+    border-radius: 8px;
+  }
+  #viewContainer .standings-view .standings-card-pd.pd-pos { color: var(--nb-positive-ink, var(--nb-positive)); background: rgba(31, 169, 113, 0.10); border-color: rgba(31, 169, 113, 0.35); }
+  #viewContainer .standings-view .standings-card-pd.pd-neg { color: var(--nb-negative-ink, var(--nb-negative)); background: rgba(224, 72, 58, 0.10); border-color: rgba(224, 72, 58, 0.35); }
+
+  #viewContainer .standings-view .group-stage-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  #viewContainer .standings-view .group-card-summary { min-height: 52px; }
+}
+
+/* ── 6. Team colour accents (thin edge + faint logo backing, via --tc) ──────
+   CSS-only: standings.js adds no team-colour hook, so each team's colour is
+   keyed off its logo file. Values come from NBA_TEAMS in js/data.js (colour, or
+   its alternate when the primary is near-black so it stays visible). If a
+   team's logo or colour changes in data.js, update the matching line here. */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="atlanta-hawks.svg"]) { --tc: #E03A3E; } /* ATL */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="boston-celtics.svg"]) { --tc: #007A33; } /* BOS */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="brooklyn-nets.svg"]) { --tc: #FFFFFF; } /* BKN */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="charlotte-hornets.svg"]) { --tc: #00788C; } /* CHA */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="chicago-bulls.svg"]) { --tc: #CE1141; } /* CHI */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="cleveland-cavaliers.svg"]) { --tc: #860038; } /* CLE */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="dallas-mavericks.svg"]) { --tc: #00538C; } /* DAL */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="denver-nuggets.svg"]) { --tc: #FEC524; } /* DEN */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="detroit-pistons.svg"]) { --tc: #C8102E; } /* DET */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="golden-state-warriors.svg"]) { --tc: #1D428A; } /* GSW */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="houston-rockets.svg"]) { --tc: #CE1141; } /* HOU */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="indiana-pacers.svg"]) { --tc: #FDBB30; } /* IND */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="la-clippers.svg"]) { --tc: #C8102E; } /* LAC */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="los-angeles-lakers.svg"]) { --tc: #552583; } /* LAL */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="memphis-grizzlies.svg"]) { --tc: #5D76A9; } /* MEM */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="miami-heat.svg"]) { --tc: #98002E; } /* MIA */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="milwaukee-bucks.svg"]) { --tc: #00471B; } /* MIL */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="minnesota-timberwolves.svg"]) { --tc: #236192; } /* MIN */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="new-orleans-pelicans.svg"]) { --tc: #C8102E; } /* NOP */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="new-york-knicks.svg"]) { --tc: #006BB6; } /* NYK */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="oklahoma-city-thunder.svg"]) { --tc: #007AC1; } /* OKC */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="orlando-magic.svg"]) { --tc: #0077C0; } /* ORL */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="philadelphia-76ers.svg"]) { --tc: #006BB6; } /* PHI */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="phoenix-suns.svg"]) { --tc: #E56020; } /* PHX */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="portland-trail-blazers.svg"]) { --tc: #E03A3E; } /* POR */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="sacramento-kings.svg"]) { --tc: #5A2D81; } /* SAC */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="san-antonio-spurs.svg"]) { --tc: #C4CED4; } /* SAS */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="toronto-raptors.svg"]) { --tc: #CE1141; } /* TOR */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="utah-jazz.svg"]) { --tc: #F9A01B; } /* UTA */
+#viewContainer .standings-view :is(tr, .standings-card):has(img[src$="washington-wizards.svg"]) { --tc: #E31837; } /* WAS */
+
+@media (prefers-reduced-motion: reduce) {
+  #viewContainer .standings-view .group-card-summary { transition: none; }
+}

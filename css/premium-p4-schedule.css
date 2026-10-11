@@ -1,0 +1,359 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DraftP — Premium P4: Schedule ("Fixture board")
+   DEDICATED, APPEND-ONLY STYLESHEET. CSS only. Loaded after
+   premium-p1-schedule-standings.css and premium-p3-home.css; none of the
+   existing stylesheets are modified. Every rule is scoped under
+   #viewContainer .schedule-view, so Home, Standings, Draft, Admin and every
+   other view are unaffected. No JS, markup, ID, class, data-attribute, route,
+   handler or displayed-text change. No !important.
+   To revert: remove this file's <link>; P1 remains the baseline underneath.
+
+   Same visual language as the P3 homepage: restrained type (scores ≈ 28–34px,
+   names 15–17px, labels 11–13px), Barlow Condensed only for the title, round
+   numbers, scores and small caps labels, Inter for everything else.
+   Roles: orange = brand accent / selected round, indigo = upcoming + selection,
+   green/red = real outcomes only (winner edge), NBA team colour = a faint
+   accent behind each logo, never a fill.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#viewContainer .schedule-view {
+  --p4-hair: rgba(255, 255, 255, 0.07);
+  --p4-hair-strong: rgba(255, 255, 255, 0.13);
+  --p4-card-a: #171c27;
+  --p4-card-b: #10141c;
+  position: relative;
+  isolation: isolate;
+}
+#viewContainer .schedule-view::before {      /* faint arena glow behind the header */
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -28px -28px auto -28px;
+  height: 340px;
+  pointer-events: none;
+  background:
+    radial-gradient(50% 100% at 12% 0%, rgba(232, 99, 10, 0.10), transparent 70%),
+    radial-gradient(40% 90% at 88% 0%, rgba(91, 91, 240, 0.07), transparent 70%);
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, transparent 100%), linear-gradient(90deg, transparent 0%, #000 22%, #000 78%, transparent 100%);
+          mask-image: linear-gradient(180deg, #000 0%, transparent 100%), linear-gradient(90deg, transparent 0%, #000 22%, #000 78%, transparent 100%);
+  -webkit-mask-composite: source-in;
+          mask-composite: intersect;
+}
+
+/* ── 1. Page header ─────────────────────────────────────────────────────── */
+#viewContainer .schedule-view > .section-title {
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 14px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1.375rem;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nb-text);
+  border: 0;
+}
+#viewContainer .schedule-view > .section-title::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  bottom: 0.05em;
+  width: 4px;
+  background: var(--nb-brand-orange);
+  transform: skewX(-14deg);
+}
+#viewContainer .schedule-view > .helper-text {
+  max-width: 78ch;
+  margin: 8px 0 0 14px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--nb-text-dim);
+}
+
+/* ── 2. Round selector ──────────────────────────────────────────────────── */
+/* Wraps (never a hidden scroller) so every round is always visible and the
+   active one can't be left off-screen when the view re-renders on selection. */
+#viewContainer .schedule-view .round-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 24px 0 22px;
+  padding: 0 0 14px;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--p4-hair);
+  border-radius: 0;
+  overflow: visible;
+}
+#viewContainer .schedule-view .round-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 1 auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--nb-text-dim);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  box-shadow: none;
+}
+#viewContainer .schedule-view .round-tab:hover { color: var(--nb-text); background: rgba(255, 255, 255, 0.05); }
+#viewContainer .schedule-view .round-tab.active {
+  color: var(--nb-text);
+  background: linear-gradient(180deg, rgba(91, 91, 240, 0.24), rgba(91, 91, 240, 0.08));
+  box-shadow: inset 0 -3px 0 var(--nb-brand-orange);
+}
+#viewContainer .schedule-view .round-tab:focus-visible {
+  outline: 2px solid var(--nb-focus-ring-on-dark, var(--nb-focus-ring));
+  outline-offset: 2px;
+}
+
+/* ── 3. Fixture board: the grid sits directly on the page ───────────────── */
+#viewContainer .schedule-view .schedule-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* ── 4. Matchup card ────────────────────────────────────────────────────── */
+#viewContainer .schedule-view .matchup-card {
+  container: p2tile / inline-size;   /* same named container P1 declares; used for narrow-card steps */
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(90% 55% at 50% 0%, rgba(255, 255, 255, 0.04), transparent 70%),
+    linear-gradient(180deg, var(--p4-card-a), var(--p4-card-b));
+  border: 1px solid var(--p4-hair);
+  border-radius: 12px;
+  box-shadow: inset 0 2px 0 color-mix(in srgb, var(--nb-primary) 65%, transparent), 0 10px 26px rgba(0, 0, 0, 0.26);
+  transition: border-color var(--nb-dur-fast) var(--nb-ease-standard);
+}
+#viewContainer .schedule-view .matchup-card:hover { border-color: var(--p4-hair-strong); }
+#viewContainer .schedule-view .matchup-card.is-completed {
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.12), 0 10px 26px rgba(0, 0, 0, 0.26);
+}
+
+/* status row: Final is a whisper; Scheduled is the indigo chip; meta is secondary */
+#viewContainer .schedule-view .matchup-card-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 12px 16px 11px;
+  border-bottom: 1px solid var(--p4-hair);
+}
+#viewContainer .schedule-view .matchup-card-status {
+  padding: 3px 10px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 0.8125rem;
+  letter-spacing: 0.16em;
+  line-height: 1.3;
+  border-radius: 999px;
+}
+#viewContainer .schedule-view .matchup-card-status.status-complete { padding-left: 0; background: none; color: var(--nb-text-muted); }
+#viewContainer .schedule-view .matchup-card-status.status-scheduled { background: var(--nb-primary-dim); color: var(--nb-primary-ink); }
+#viewContainer .schedule-view .matchup-card-status.status-bye { padding-left: 0; background: none; color: var(--nb-text-dim); }
+#viewContainer .schedule-view .matchup-card-streamer {
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--nb-text-dim);
+}
+#viewContainer .schedule-view .matchup-card-status + .matchup-card-streamer { margin-left: auto; }
+
+/* body: two stacked team rows on one hairline, NBA.com-scoreboard style */
+#viewContainer .schedule-view .matchup-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+#viewContainer .schedule-view .matchup-side,
+#viewContainer .schedule-view .matchup-side.reverse {
+  --tint: 13%;
+  min-height: 72px;
+  gap: 12px;
+  padding: 10px 16px;
+  text-align: left;
+  background: radial-gradient(70% 190% at 0% 50%, color-mix(in srgb, var(--tc, transparent) var(--tint), transparent), transparent 72%);
+  border-radius: 0;
+  box-shadow: none;
+}
+#viewContainer .schedule-view .matchup-side:hover { --tint: 22%; }
+#viewContainer .schedule-view .matchup-card-body > .matchup-side:first-child { border-bottom: 1px solid var(--p4-hair); }
+
+/* logo prominent, abbreviation tucked beneath it */
+#viewContainer .schedule-view .matchup-side .team-identity {
+  flex: 0 0 52px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+}
+#viewContainer .schedule-view .matchup-side .team-logo-img-md,
+#viewContainer .schedule-view .matchup-side .team-badge-md { width: 44px; height: 44px; }
+#viewContainer .schedule-view .matchup-side .team-identity-abbr {
+  min-width: 0;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  color: var(--nb-text-dim);
+}
+/* participant names wrap instead of truncating, so nothing is ever clipped */
+#viewContainer .schedule-view .matchup-side-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--nb-text);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+#viewContainer .schedule-view .matchup-side-score {
+  flex: 0 0 auto;
+  min-width: 2.2ch;
+  font-family: var(--nb-font-display);
+  font-weight: 800;
+  font-size: 1.875rem;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+
+/* ── 5. Completed: the winner is lit, the loser recedes ─────────────────── */
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side.winner,
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side.reverse.winner {
+  background:
+    linear-gradient(90deg, rgba(31, 169, 113, 0.12), transparent 64%),
+    radial-gradient(70% 190% at 0% 50%, color-mix(in srgb, var(--tc, transparent) var(--tint), transparent), transparent 72%);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--nb-positive) 85%, transparent);
+}
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side.winner .matchup-side-name,
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side.winner .matchup-side-score { color: var(--nb-text); }
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .matchup-side-name { color: var(--nb-text-muted); font-weight: 500; }
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .matchup-side-score { color: var(--nb-text-dim); }
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .team-logo-img,
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-side:not(.winner) .team-badge { opacity: 0.62; }
+#viewContainer .schedule-view .matchup-card.is-completed .matchup-vs-divider { display: none; }
+
+/* ── 6. Scheduled: both teams equal, a quiet VS on the dividing hairline ── */
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-side-name { color: var(--nb-text); }
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-vs-divider {
+  position: relative;
+  z-index: 1;
+  display: block;
+  align-self: center;
+  margin: -11px 0;
+  padding: 3px 11px;
+  font-family: var(--nb-font-display);
+  font-weight: 700;
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  line-height: 1.2;
+  color: var(--nb-primary-ink);
+  background: #141926;
+  border: 1px solid color-mix(in srgb, var(--nb-primary) 45%, transparent);
+  border-radius: 999px;
+}
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-vs-divider::before,
+#viewContainer .schedule-view .matchup-card:not(.is-completed) .matchup-vs-divider::after { content: none; }
+
+/* ── 7. BYE: a quiet ruled placeholder that never competes with a game ──── */
+#viewContainer .schedule-view .matchup-card.is-bye {
+  align-self: start;
+  background: none;
+  border: 1px dashed var(--p4-hair-strong);
+  box-shadow: none;
+  opacity: 1;
+}
+#viewContainer .schedule-view .matchup-card.is-bye .matchup-card-top { padding: 10px 16px 0; border-bottom: 0; }
+#viewContainer .schedule-view .matchup-card.is-bye .matchup-card-body { flex-direction: row; align-items: center; justify-content: flex-start; gap: 12px; padding: 8px 16px 14px; font-size: 0.875rem; color: var(--nb-text-dim); }
+#viewContainer .schedule-view .matchup-card.is-bye .team-identity { flex-direction: column; gap: 3px; }
+#viewContainer .schedule-view .matchup-card.is-bye .team-logo-img-md,
+#viewContainer .schedule-view .matchup-card.is-bye .team-badge-md { width: 34px; height: 34px; opacity: 0.6; }
+#viewContainer .schedule-view .matchup-card.is-bye .team-identity-abbr { font-size: 0.625rem; letter-spacing: 0.12em; color: var(--nb-text-dim); }
+
+/* ── 8. Team colour accents (faint tint behind each logo; set via --tc above) ──
+   CSS-only: schedule.js adds no team-colour hook, so each team's colour is keyed
+   off its logo file. Values come from NBA_TEAMS in js/data.js (colour, or its
+   alternate when the primary is near-black so the tint stays visible). If a
+   team's logo or colour changes in data.js, update the matching line here. */
+#viewContainer .schedule-view .matchup-side:has(img[src$="atlanta-hawks.svg"]) { --tc: #E03A3E; } /* ATL */
+#viewContainer .schedule-view .matchup-side:has(img[src$="boston-celtics.svg"]) { --tc: #007A33; } /* BOS */
+#viewContainer .schedule-view .matchup-side:has(img[src$="brooklyn-nets.svg"]) { --tc: #FFFFFF; } /* BKN */
+#viewContainer .schedule-view .matchup-side:has(img[src$="charlotte-hornets.svg"]) { --tc: #00788C; } /* CHA */
+#viewContainer .schedule-view .matchup-side:has(img[src$="chicago-bulls.svg"]) { --tc: #CE1141; } /* CHI */
+#viewContainer .schedule-view .matchup-side:has(img[src$="cleveland-cavaliers.svg"]) { --tc: #860038; } /* CLE */
+#viewContainer .schedule-view .matchup-side:has(img[src$="dallas-mavericks.svg"]) { --tc: #00538C; } /* DAL */
+#viewContainer .schedule-view .matchup-side:has(img[src$="denver-nuggets.svg"]) { --tc: #FEC524; } /* DEN */
+#viewContainer .schedule-view .matchup-side:has(img[src$="detroit-pistons.svg"]) { --tc: #C8102E; } /* DET */
+#viewContainer .schedule-view .matchup-side:has(img[src$="golden-state-warriors.svg"]) { --tc: #1D428A; } /* GSW */
+#viewContainer .schedule-view .matchup-side:has(img[src$="houston-rockets.svg"]) { --tc: #CE1141; } /* HOU */
+#viewContainer .schedule-view .matchup-side:has(img[src$="indiana-pacers.svg"]) { --tc: #FDBB30; } /* IND */
+#viewContainer .schedule-view .matchup-side:has(img[src$="la-clippers.svg"]) { --tc: #C8102E; } /* LAC */
+#viewContainer .schedule-view .matchup-side:has(img[src$="los-angeles-lakers.svg"]) { --tc: #552583; } /* LAL */
+#viewContainer .schedule-view .matchup-side:has(img[src$="memphis-grizzlies.svg"]) { --tc: #5D76A9; } /* MEM */
+#viewContainer .schedule-view .matchup-side:has(img[src$="miami-heat.svg"]) { --tc: #98002E; } /* MIA */
+#viewContainer .schedule-view .matchup-side:has(img[src$="milwaukee-bucks.svg"]) { --tc: #00471B; } /* MIL */
+#viewContainer .schedule-view .matchup-side:has(img[src$="minnesota-timberwolves.svg"]) { --tc: #236192; } /* MIN */
+#viewContainer .schedule-view .matchup-side:has(img[src$="new-orleans-pelicans.svg"]) { --tc: #C8102E; } /* NOP */
+#viewContainer .schedule-view .matchup-side:has(img[src$="new-york-knicks.svg"]) { --tc: #006BB6; } /* NYK */
+#viewContainer .schedule-view .matchup-side:has(img[src$="oklahoma-city-thunder.svg"]) { --tc: #007AC1; } /* OKC */
+#viewContainer .schedule-view .matchup-side:has(img[src$="orlando-magic.svg"]) { --tc: #0077C0; } /* ORL */
+#viewContainer .schedule-view .matchup-side:has(img[src$="philadelphia-76ers.svg"]) { --tc: #006BB6; } /* PHI */
+#viewContainer .schedule-view .matchup-side:has(img[src$="phoenix-suns.svg"]) { --tc: #E56020; } /* PHX */
+#viewContainer .schedule-view .matchup-side:has(img[src$="portland-trail-blazers.svg"]) { --tc: #E03A3E; } /* POR */
+#viewContainer .schedule-view .matchup-side:has(img[src$="sacramento-kings.svg"]) { --tc: #5A2D81; } /* SAC */
+#viewContainer .schedule-view .matchup-side:has(img[src$="san-antonio-spurs.svg"]) { --tc: #C4CED4; } /* SAS */
+#viewContainer .schedule-view .matchup-side:has(img[src$="toronto-raptors.svg"]) { --tc: #CE1141; } /* TOR */
+#viewContainer .schedule-view .matchup-side:has(img[src$="utah-jazz.svg"]) { --tc: #F9A01B; } /* UTA */
+#viewContainer .schedule-view .matchup-side:has(img[src$="washington-wizards.svg"]) { --tc: #E31837; } /* WAS */
+
+/* ── 9. Responsive ──────────────────────────────────────────────────────── */
+@container p2tile (max-width: 300px) {
+  #viewContainer .schedule-view .matchup-side,
+  #viewContainer .schedule-view .matchup-side.reverse { gap: 10px; padding-inline: 12px; }
+  #viewContainer .schedule-view .matchup-card-top { padding-inline: 12px; }
+  #viewContainer .schedule-view .matchup-side .team-identity { flex-basis: 46px; }
+  #viewContainer .schedule-view .matchup-side .team-logo-img-md,
+  #viewContainer .schedule-view .matchup-side .team-badge-md { width: 40px; height: 40px; }
+  #viewContainer .schedule-view .matchup-side-name { font-size: 0.9375rem; }
+  #viewContainer .schedule-view .matchup-side-score { font-size: 1.75rem; }
+}
+
+@media (max-width: 700px) {
+  #viewContainer .schedule-view::before { inset: -16px -16px auto -16px; height: 260px; }
+  #viewContainer .schedule-view .round-tabs { gap: 4px; margin: 20px 0 18px; padding-bottom: 12px; }
+  #viewContainer .schedule-view .round-tab { flex: 1 1 auto; padding: 0 10px; }
+  #viewContainer .schedule-view .schedule-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 0; }
+  #viewContainer .schedule-view .matchup-card.is-bye { align-self: stretch; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #viewContainer .schedule-view .matchup-card { transition: none; }
+}
