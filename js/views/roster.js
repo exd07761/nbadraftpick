@@ -190,7 +190,7 @@ const PublicRosterView = {
                   <td>${classificationBadge(e.isJoker ? 'PINK' : e.classification)}</td>
                   <td>${p ? escapeHtml(e.effectivePosition || p.position || '—') : '—'}${e.isJoker ? ' <span title="Joker-assigned position">🃏</span>' : ''}</td>
                   <td class="ovr">${p ? p.overall : '—'}</td>
-                  <td class="roster-card-source">${escapeHtml(e.source || '—')}</td>
+                  <td class="roster-card-source">${e.source === 'signed' ? 'Signed' : escapeHtml(e.source || '—')}</td>
                 </tr>`;
             }).join('')}
           </tbody>

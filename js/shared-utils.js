@@ -236,6 +236,8 @@ function _positionPoolColumn(posLabel, rows, pool, mode) {
 
 const _DRAFT_STATUS_LABELS = {
   'drafted': 'Drafted',
+  'signed': 'Signed',
+  'rostered': 'Rostered',
   'variant-locked': 'Variant Taken',
   'position-locked': 'Locked',
   'no-position': 'No Position',
@@ -265,10 +267,10 @@ function _positionPoolRow(entry, rank, mode) {
   // checks). The "Locked"/"No Position" tag below is untouched — the
   // commissioner still sees why a NORMAL pick of this player wouldn't
   // work; only the click-to-open behavior changes.
-  const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'variant-locked' && status !== 'minimum-rating';
+  const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'signed' && status !== 'rostered' && status !== 'variant-locked' && status !== 'minimum-rating';
   const ovr = player.overall ?? 0;
   const tier = ovr >= 90 ? 'pos-ovr-elite' : ovr >= 80 ? 'pos-ovr-good' : 'pos-ovr-role';
-  const statusTag = mode === 'draft' && _DRAFT_STATUS_LABELS[status]
+  const statusTag = (mode === 'draft' || status === 'signed') && _DRAFT_STATUS_LABELS[status]
     ? `<span class="pos-drafted-tag ${status === 'position-locked' || status === 'no-position' ? 'pos-locked-tag' : ''}">${_DRAFT_STATUS_LABELS[status]}</span>`
     : isDrafted ? `<span class="pos-drafted-tag">Drafted</span>`
     : isLocked ? `<span class="pos-drafted-tag pos-locked-tag">Variant taken</span>`

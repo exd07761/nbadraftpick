@@ -444,8 +444,8 @@ const AdminDraftView = {
         // confirm modal, since a Joker Pick can draft them at a different
         // effective position. Only 'drafted' and 'variant-locked' are
         // truly absolute here.
-        const openable = status !== 'drafted' && status !== 'variant-locked';
-        const label = { drafted: 'Drafted', 'variant-locked': 'Variant taken', 'position-locked': 'Locked', 'no-position': 'No position' }[status];
+        const openable = status !== 'drafted' && status !== 'signed' && status !== 'rostered' && status !== 'variant-locked';
+        const label = { drafted: 'Drafted', signed: 'Signed', rostered: 'Rostered', 'variant-locked': 'Variant taken', 'position-locked': 'Locked', 'no-position': 'No position' }[status];
         return `
           <div class="draft-search-row ${openable ? '' : 'disabled'}" ${openable ? `data-action="selectPlayer" data-player-id="${player.id}"` : ''}>
             <span class="dsr-name">${escapeHtml(player.name)}</span>

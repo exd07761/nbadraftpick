@@ -706,7 +706,7 @@ function countPositionsForRoster(entries, playersById) {
  * participant's own pick slots #1-10 (ownPickNumber 1-10 — a normal draft
  * pick, or a manual Fill Slot, which inherits that same slot number), OR
  * (B) it's a plain manually-added player with no slot to inherit at all
- * (source === "manual" && draftSlot == null — the generic "+ Add Player"
+ * (source === "signed" && draftSlot == null — the generic "+ Add Player"
  * action, as opposed to "+ Fill Slot", which already satisfies rule A).
  *
  * `ownPickNumber` must already be resolved by the caller (including
@@ -724,7 +724,9 @@ function countPositionsForRoster(entries, playersById) {
  */
 function isJokerEligibleRosterEntry({ ownPickNumber, source, draftSlot }) {
   if (ownPickNumber != null && ownPickNumber >= 1 && ownPickNumber <= 10) return true;
-  return source === "manual" && draftSlot == null;
+  // `manual` remains accepted for legacy persisted rosters; new manual
+  // signings use the explicit `signed` source.
+  return (source === "signed" || source === "manual") && draftSlot == null;
 }
 
 /**
@@ -2337,7 +2339,9 @@ const LeagueData = {
     const season = this.getSeason(seasonId);
     if (!season) return [];
     const drafted = new Set(season.playerDraftPicks.map((p) => p.playerId));
-    let players = this.getAllPlayers(seasonId).filter((p) => !drafted.has(p.id));
+    const assigned = new Set(Object.values(season.currentRosters || {}).flatMap(entries =>
+      entries.filter(e => e.source !== "empty" && e.playerId).map(e => e.playerId)));
+    let players = this.getAllPlayers(seasonId).filter((p) => !drafted.has(p.id) && !assigned.has(p.id));
     if (season.playerPoolScope) {
       players = players.filter((p) => p.seasonId === season.playerPoolScope);
     }
@@ -2597,6 +2601,15 @@ const LeagueData = {
     }
 
     const draftedIds = new Set(season.playerDraftPicks.map((p) => p.playerId));
+    const activeAssignments = new Map();
+    Object.values(season.currentRosters || {}).forEach(entries => {
+      entries.forEach(entry => {
+        if (!entry.playerId || entry.source === "empty") return;
+        if (!activeAssignments.has(entry.playerId)) {
+          activeAssignments.set(entry.playerId, entry.source === "signed" || entry.source === "manual" ? "signed" : "rostered");
+        }
+      });
+    });
     const draftedVariantGroups = new Set(
       season.playerDraftPicks
         .map((p) => data.players[p.playerId]?.variantGroup)
@@ -2611,6 +2624,8 @@ const LeagueData = {
       let status = "available";
       if (draftedIds.has(player.id)) {
         status = "drafted";
+      } else if (activeAssignments.has(player.id)) {
+        status = activeAssignments.get(player.id);
       } else if (player.variantGroup && draftedVariantGroups.has(player.variantGroup)) {
         status = "variant-locked";
       } else if (player.pool === "blue" && player.overall < BLUE_MIN_RATING) {
@@ -3326,6 +3341,11 @@ const LeagueData = {
     Object.values(season.currentRosters || {}).forEach((entries) => {
       entries.forEach((e) => ownedIds.add(e.playerId));
     });
+    // A historical draft pick remains reserved to its original owner even
+    // if its active roster slot is later vacated by a signing/transfer.
+    // Manual signings themselves have no draft record and become available
+    // again after removal when no active roster owns them.
+    (season.playerDraftPicks || []).forEach(pick => ownedIds.add(pick.playerId));
     let candidates = Object.values(data.players);
     if (season.playerPoolScope) {
       candidates = candidates.filter((p) => p.seasonId === season.playerPoolScope);
@@ -4089,6 +4109,11 @@ const AdminActions = {
       (p) => p.playerId === playerId
     );
     if (alreadyDrafted) throw new Error("Player already drafted");
+    const activeRosterOwner = findCurrentRosterEntry(season, playerId);
+    if (activeRosterOwner) {
+      const ownerName = season.participants[activeRosterOwner.participantId]?.name || "a participant";
+      throw new Error(`Player is already assigned to ${ownerName}'s active roster`);
+    }
 
     // ── Phase 4B: variant-group lock ────────────────────────────────────
     // If this player belongs to a variant group (e.g. multiple LeBron
@@ -6533,11 +6558,11 @@ const AdminActions = {
       // Replace would — see getPlayerClassificationInfo.
       const inheritedClassificationSource = vacatedEntry.classificationSourcePlayerId ?? null;
       afterEntries[slotIndex] = {
-        playerId, source: "manual", draftSlot: targetDraftSlot,
+        playerId, source: "signed", draftSlot: targetDraftSlot,
         ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}),
       };
     } else {
-      afterEntries = [...roster, { playerId, source: "manual", draftSlot: null }];
+      afterEntries = [...roster, { playerId, source: "signed", draftSlot: null }];
     }
 
     // Revision 3 — Manual Override: normal roster/game rules (position
@@ -6568,6 +6593,75 @@ const AdminActions = {
       approvedBy: "commissioner",
     });
 
+    saveData(data);
+  },
+
+  /** Assign a free agent or atomically transfer an owned player to a roster.
+   * The draft history is deliberately untouched; filling a vacancy retains
+   * that existing slot number without creating a draft-pick record. */
+  manualSignPlayerToRoster(seasonId, participantId, playerId, transfer = false, targetDraftSlot = null, expectedOwnerId = null) {
+    const data = loadData(seasonId);
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    ensureTransactionFields(season);
+    if (!season.rostersInitialized) throw new Error("Rosters must be initialized before signing players.");
+    if (!season.participants[participantId]) throw new Error("Participant not found.");
+    const player = data.players[playerId];
+    if (!player) throw new Error("Player not found.");
+
+    const owner = findCurrentRosterEntry(season, playerId);
+    if (owner && !transfer) {
+      const ownerName = season.participants[owner.participantId]?.name || "another participant";
+      throw new Error(`${player.name} already belongs to ${ownerName}. Confirm Transfer & Sign to move them.`);
+    }
+    if (owner?.participantId === participantId) throw new Error(`${player.name} is already on this roster.`);
+    if (transfer) {
+      if (!owner || !expectedOwnerId || owner.participantId !== expectedOwnerId) {
+        throw new Error("The selected player's current owner changed. Reopen the transfer confirmation and try again.");
+      }
+      const activeAssignments = Object.entries(season.currentRosters || {}).flatMap(([pid, entries]) =>
+        entries.filter(e => e.source !== "empty" && e.playerId === playerId).map(() => pid));
+      if (activeAssignments.length !== 1 || activeAssignments[0] !== expectedOwnerId) {
+        throw new Error(`${player.name} has inconsistent active roster ownership. Resolve that roster conflict before transferring.`);
+      }
+    }
+
+    const destination = (season.currentRosters[participantId] || []).slice();
+    let insertionIndex = destination.length;
+    if (targetDraftSlot != null) {
+      insertionIndex = destination.findIndex(e => e.source === "empty" && e.draftSlot === targetDraftSlot);
+      if (insertionIndex < 0) throw new Error(`Draft slot #${targetDraftSlot} is not an open vacancy on this roster.`);
+    }
+    const inheritedClassificationSource = targetDraftSlot != null
+      ? destination[insertionIndex].classificationSourcePlayerId ?? null
+      : null;
+    // Player existence, requested vacancy, and active ownership are checked
+    // before mutation. Roster compliance remains the separate Validate Rosters action.
+    if (owner) {
+      const oldRoster = (season.currentRosters[owner.participantId] || []).slice();
+      const oldIndex = oldRoster.findIndex(e => e.playerId === playerId);
+      const oldEntry = oldRoster[oldIndex];
+      if (oldEntry.draftSlot != null) {
+        oldRoster[oldIndex] = { source: "empty", playerId: null, draftSlot: oldEntry.draftSlot,
+          classificationSourcePlayerId: oldEntry.classificationSourcePlayerId ?? oldEntry.playerId };
+      } else oldRoster.splice(oldIndex, 1);
+      season.currentRosters[owner.participantId] = oldRoster;
+    }
+    const transferSource = owner
+      ? (owner.entry.source === "manual" ? "signed" : owner.entry.source)
+      : "signed";
+    const signedEntry = { playerId, source: transferSource, draftSlot: targetDraftSlot ?? null,
+      ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}) };
+    destination.splice(insertionIndex, 1, signedEntry);
+    season.currentRosters[participantId] = destination;
+    season.transactions.push({
+      id: generateId("txn"), seasonId, seasonDay: season.currentSeasonDay,
+      timestamp: new Date().toISOString(), type: owner ? "manualRosterTransfer" : "manualRosterSign",
+      teamA: participantId, teamB: owner?.participantId || null,
+      playersOut: owner ? [{ playerId, name: player.name, overall: player.overall, pool: player.pool, returnedToPool: false }] : [],
+      playersIn: [{ playerId, name: player.name, overall: player.overall, pool: player.pool, isJoker: false, draftSlot: targetDraftSlot ?? null }],
+      fee: 0, feeDoubled: false, approvedBy: "commissioner",
+    });
     saveData(data);
   },
 
@@ -6672,7 +6766,7 @@ const AdminActions = {
    * check), not a property of the slot, so a replacement is never
    * accidentally made a Joker just by occupying a Joker's old spot.
    */
-  manualReplacePlayerOnRoster(seasonId, participantId, outgoingPlayerId, incomingPlayerId) {
+  manualReplacePlayerOnRoster(seasonId, participantId, outgoingPlayerId, incomingPlayerId, options = {}) {
     const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
@@ -6693,26 +6787,48 @@ const AdminActions = {
     const incomingPlayer = data.players[incomingPlayerId];
     if (!incomingPlayer) throw new Error("Incoming player not found.");
     const owner = findCurrentRosterEntry(season, incomingPlayerId);
-    if (owner) {
+    const isTransfer = !!options.transferOwnerId;
+    if (owner && (!isTransfer || owner.participantId !== options.transferOwnerId)) {
       const ownerName = season.participants[owner.participantId]?.name || "another team";
       throw new Error(`${incomingPlayer.name} is already on ${ownerName}'s roster — cannot be assigned twice.`);
+    }
+    if (isTransfer && (!owner || owner.participantId === participantId)) {
+      throw new Error("The selected player is no longer owned by the participant shown in the transfer confirmation.");
+    }
+
+    if (isTransfer) {
+      const assignments = Object.entries(season.currentRosters || {}).flatMap(([pid, entries]) =>
+        entries.filter(e => e.source !== "empty" && e.playerId === incomingPlayerId).map(() => pid));
+      if (assignments.length !== 1 || assignments[0] !== options.transferOwnerId) {
+        throw new Error(`${incomingPlayer.name} has inconsistent active roster ownership. Resolve that roster conflict before transferring.`);
+      }
     }
 
     const preservedDraftSlot = outEntry.draftSlot ?? null;
     const classificationSourcePlayerId = outEntry.classificationSourcePlayerId ?? outgoingPlayerId;
     const afterEntries = roster.slice();
+    const replacementSource = owner
+      ? (owner.entry.source === "manual" ? "signed" : owner.entry.source)
+      : "signed";
     afterEntries[idx] = {
-      playerId: incomingPlayerId, source: "manual", draftSlot: preservedDraftSlot, classificationSourcePlayerId,
+      playerId: incomingPlayerId, source: replacementSource, draftSlot: preservedDraftSlot, classificationSourcePlayerId,
     };
 
-    // Revision 3 — Manual Override: normal roster/game rules (position
-    // requirements, Blue/Green composition, minimum rating, rating cap)
-    // are intentionally NOT enforced here — see the Revision 2/3 header
-    // comment above. Duplicate-ownership was already rejected above via
-    // findCurrentRosterEntry, and `incomingPlayer` above already confirms
-    // the playerId resolves to a real record — both are data integrity,
-    // not a game rule, and remain enforced unconditionally.
+    // Ownership integrity remains enforced here; roster-rule checks are
+    // intentionally left to the independent Validate Rosters action.
 
+    if (isTransfer) {
+      const ownerRoster = (season.currentRosters[owner.participantId] || []).slice();
+      const ownerIndex = ownerRoster.findIndex(e => e.playerId === incomingPlayerId);
+      const ownerEntry = ownerRoster[ownerIndex];
+      if (ownerEntry.draftSlot != null) {
+        ownerRoster[ownerIndex] = {
+          source: "empty", playerId: null, draftSlot: ownerEntry.draftSlot,
+          classificationSourcePlayerId: ownerEntry.classificationSourcePlayerId ?? ownerEntry.playerId,
+        };
+      } else ownerRoster.splice(ownerIndex, 1);
+      season.currentRosters[owner.participantId] = ownerRoster;
+    }
     season.currentRosters[participantId] = afterEntries;
 
     const outgoingPlayer = data.players[outgoingPlayerId];
@@ -6721,10 +6837,11 @@ const AdminActions = {
       seasonId,
       seasonDay: season.currentSeasonDay,
       timestamp: new Date().toISOString(),
-      type: "manualRosterReplace",
+      type: isTransfer ? "manualRosterTransferReplace" : "manualRosterReplace",
       teamA: participantId,
-      teamB: null,
-      playersOut: [{
+      teamB: isTransfer ? owner.participantId : null,
+      playersOut: [...(isTransfer ? [{ playerId: incomingPlayerId, name: incomingPlayer.name, overall: incomingPlayer.overall,
+        pool: incomingPlayer.pool, returnedToPool: false, transfer: true }] : []), {
         playerId: outgoingPlayerId, name: outgoingPlayer?.name, overall: outgoingPlayer?.overall,
         pool: outgoingPlayer?.pool, isJoker: !!outEntry.isJoker, returnedToPool: true,
         draftSlot: preservedDraftSlot,
