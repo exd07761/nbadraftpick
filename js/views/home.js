@@ -71,12 +71,6 @@ const HomeView = {
             </video>
             <span class="hp-hero-fx"></span>
           </div>
-          <div class="hp-wrap hp-hero-inner">
-            <div class="hp-hero-copy">
-              <span class="hp-hero-eyebrow">${escapeHtml(formatStatus(s.status))}</span>
-              <div class="hp-hero-mark">NBA <span>2K</span> ASPAKAN</div>
-            </div>
-          </div>
         </section>
 
         ${draftLive ? `
