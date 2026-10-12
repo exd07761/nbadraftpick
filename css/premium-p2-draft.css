@@ -652,3 +652,106 @@
   .dft-view .dft-tier-c { flex-basis: 260px; }
   .dft-view .dft-lastpick-name { font-size: 1.75rem; }
 }
+
+/* ═══ EDITORIAL REFINEMENT · flat, ruled sections ══════════════════════════
+   Keep this treatment inside the public Draft wrapper. The gold live-pick
+   cues remain the page's one emphatic surface; supporting content relies on
+   type, alignment and hairline separators instead of nested cards. */
+.dft-view .dft-glance {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: inset var(--dft-edge) 0 0 var(--nb-gold);
+}
+.dft-view .dft-glance.dft-glance-complete {
+  background: transparent;
+  border: 0;
+  border-top: 2px solid var(--nb-positive);
+  border-radius: 0;
+  box-shadow: none;
+}
+.dft-view .dft-pick-chip {
+  background: transparent;
+  border-top-color: var(--dft-hair-strong);
+  border-radius: 0;
+  text-align: left;
+  padding-inline: 0.15rem;
+}
+.dft-view .dft-pick-chip:nth-child(2) {
+  background: transparent;
+  border-top-color: var(--nb-gold);
+  color: var(--nb-gold);
+}
+.dft-view .dft-panel-board .pool-tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--dft-hair-strong);
+  border-radius: 0;
+  justify-content: flex-start;
+  text-align: left;
+}
+/* The pool ink tokens are intentionally dark; retain their tint for contrast. */
+.dft-view .dft-panel-board .pool-tab.active.pool-tab-green { background: var(--nb-pool-green-tint); }
+.dft-view .dft-panel-board .pool-tab.active.pool-tab-blue { background: var(--nb-pool-blue-tint); }
+.dft-view .dft-panel-board .pool-tab.active.pool-tab-white { background: var(--nb-pool-white-tint); }
+.dft-view .dft-panel-board .pool-tab:not(.active) {
+  color: var(--nb-text-muted);
+  border-bottom-color: var(--dft-hair-strong);
+}
+.dft-view .dft-panel-board .pos-table {
+  background: transparent;
+  border: 0;
+  border-top: 2px solid var(--dft-hair-strong);
+  border-radius: 0;
+}
+.dft-view .dft-panel-board .pos-table-head {
+  justify-content: flex-start;
+  padding-inline: 0.65rem;
+  background: transparent;
+}
+.dft-view .dft-panel-board .pos-table-columns-head { background: transparent; }
+.dft-view .dft-panel-board .pos-table-row { padding-inline: 0.65rem; }
+.dft-view .dft-order-list,
+.dft-view .dft-history-list {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--dft-hair-strong);
+  border-radius: 0;
+}
+.dft-view .dft-order-row {
+  padding-inline: 0.65rem;
+  border-bottom-color: var(--dft-hair);
+}
+.dft-view .dft-order-row-current,
+.dft-view .dft-order-row-current:nth-child(even) {
+  background: color-mix(in srgb, var(--nb-gold) 16%, transparent);
+}
+.dft-view .dft-order-round { box-shadow: none; padding-inline: 0.15rem; }
+.dft-view .dft-order-row-current .dft-order-pick,
+.dft-view .dft-order-row-current .dft-order-round { color: var(--nb-gold); }
+.dft-view .dft-history-row { padding-inline: 0.65rem; }
+.dft-view .dft-recent-pick-card {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--dft-gold-line);
+  border-radius: 0;
+  box-shadow: inset 3px 0 0 var(--nb-gold);
+  padding-left: var(--nb-space-4);
+}
+.dft-view .dft-info-heading {
+  font-family: var(--dft-display);
+  font-size: 1rem;
+  letter-spacing: 0.14em;
+  color: var(--nb-text);
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--dft-hair);
+}
+
+@media (max-width: 599.98px) {
+  .dft-view .dft-panel-board .pool-tab { justify-content: center; text-align: center; }
+  .dft-view .dft-panel-board .pos-table-head { padding-inline: 0.5rem; }
+}
+
+@media (min-width: 900px) and (max-width: 1439.98px) {
+  .dft-view .dft-panel-board .pos-name { font-size: 0.875rem; }
+}

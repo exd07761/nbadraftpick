@@ -160,5 +160,201 @@
   .hp-home .hp-intel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* ── 8. Reduced motion: P3 already drops the card lift; the hover tint stays
+/* ── 8. Public rosters: one ruled league ledger, no nested cards ──────────── */
+.all-rosters-view {
+  width: 100%;
+  min-width: 0;
+  gap: clamp(22px, 3vw, 36px);
+  padding: clamp(16px, 2vw, 28px) clamp(14px, 2vw, 28px) 40px;
+  background: rgba(13, 15, 20, 0.88);
+}
+.all-rosters-view .all-rosters-header {
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--nb-surface-border);
+  border-radius: 0;
+  box-shadow: none;
+  background: none;
+}
+.all-rosters-view .all-rosters-title {
+  font-family: var(--nb-font-condensed, "Barlow Condensed", sans-serif);
+  font-size: clamp(1.8rem, 3vw, 2.4rem);
+  font-weight: 800;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+.all-rosters-view .all-rosters-cap-note,
+.all-rosters-view .all-rosters-old-season-badge {
+  border-radius: 0;
+  box-shadow: none;
+}
+.all-rosters-view .roster-card-grid {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  padding-top: 12px;
+  gap: clamp(18px, 2vw, 28px) clamp(16px, 1.6vw, 24px);
+}
+.all-rosters-view .roster-card {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+  padding: 14px 12px 16px;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid var(--nb-surface-border);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.all-rosters-view .roster-card-head {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  gap: 4px 8px;
+  padding: 0;
+  white-space: nowrap;
+}
+.all-rosters-view .roster-card-name {
+  min-width: 0;
+  font-family: var(--nb-font-condensed, "Barlow Condensed", sans-serif);
+  font-size: clamp(1.15rem, 1.5vw, 1.4rem);
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.all-rosters-view .roster-card-count {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  font-size: var(--nb-fs-xs);
+}
+.all-rosters-view .roster-card-team {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  min-width: 0;
+  padding: 0;
+}
+.all-rosters-view .roster-card-team .team-logo-img-lg,
+.all-rosters-view .roster-card-team .team-badge-lg { width: 30px; height: 30px; }
+.all-rosters-view .roster-card-team .team-identity { gap: 8px; min-width: 0; max-width: 100%; }
+.all-rosters-view .roster-card-team .team-identity-name {
+  min-width: 0;
+  color: var(--nb-text);
+  font-size: var(--nb-fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.all-rosters-view .roster-card-cap {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.all-rosters-view .roster-card-cap-labels { gap: 8px; margin: 0; }
+.all-rosters-view .roster-card-ovr-total { font-size: var(--nb-fs-sm); color: var(--nb-gold-on-dark, var(--nb-gold)); }
+.all-rosters-view .roster-card-cap-value { font-size: var(--nb-fs-xs); }
+.all-rosters-view .cap-bar-track { width: clamp(56px, 6vw, 88px); height: 4px; }
+.all-rosters-view .roster-card-remaining { margin: 0; white-space: normal; }
+.all-rosters-view .roster-card .table-scroll,
+.all-rosters-view .empty-roster { grid-column: 1 / -1; min-width: 0; }
+.all-rosters-view .roster-card .table-scroll {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.all-rosters-view .roster-card-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+  border-radius: 0;
+}
+.all-rosters-view .roster-card-table th:not(:nth-child(2)):nth-child(1),
+.all-rosters-view .roster-card-table td:nth-child(1) { width: 8%; }
+.all-rosters-view .roster-card-table th:nth-child(2),
+.all-rosters-view .roster-card-table td:nth-child(2) { width: 34%; }
+.all-rosters-view .roster-card-table th:not(:nth-child(2)):nth-child(3),
+.all-rosters-view .roster-card-table td:nth-child(3) { width: 15%; }
+.all-rosters-view .roster-card-table th:not(:nth-child(2)):nth-child(4),
+.all-rosters-view .roster-card-table td:nth-child(4) { width: 15%; }
+.all-rosters-view .roster-card-table th:not(:nth-child(2)):nth-child(5),
+.all-rosters-view .roster-card-table td:nth-child(5) { width: 8%; }
+.all-rosters-view .roster-card-table th:not(:nth-child(2)):nth-child(6),
+.all-rosters-view .roster-card-table td:nth-child(6) { width: 8%; }
+.all-rosters-view .roster-card-table th:not(:nth-child(2)):nth-child(7),
+.all-rosters-view .roster-card-table td:nth-child(7) { width: 12%; }
+.all-rosters-view .roster-card-table th {
+  font-family: var(--nb-font-condensed, "Barlow Condensed", sans-serif);
+  font-size: var(--nb-fs-xs);
+  font-weight: var(--nb-fw-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: normal;
+  overflow-wrap: normal;
+}
+.all-rosters-view .roster-card-table td {
+  padding: 0.42rem 0.2rem;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+.all-rosters-view .roster-card-table td:nth-child(2) {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.all-rosters-view .roster-card-table td.ovr {
+  padding-right: 0.2rem;
+  font-size: var(--nb-fs-xs);
+  line-height: var(--nb-lh-table);
+}
+.all-rosters-view .roster-card-table td:nth-child(3),
+.all-rosters-view .roster-card-table td:nth-child(4),
+.all-rosters-view .roster-card-table td:nth-child(5),
+.all-rosters-view .roster-card-table td:nth-child(6),
+.all-rosters-view .roster-card-table td:nth-child(7) {
+  white-space: normal;
+}
+.all-rosters-view .roster-card-table .pick-color-badge {
+  padding-inline: 0.22rem;
+  font-size: 0.65rem;
+  letter-spacing: 0;
+}
+.all-rosters-view .roster-card-table tbody tr:hover { background: rgba(255, 255, 255, 0.025); }
+.all-rosters-view .roster-row-empty td { background: transparent; }
+.all-rosters-view .empty-roster { padding: 14px 0 0; text-align: left; }
+
+@media (max-width: 1199px) {
+  .all-rosters-view .roster-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 767px) {
+  .all-rosters-view .roster-card-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 380px) {
+  .all-rosters-view .roster-card { grid-template-columns: minmax(0, 1fr); }
+  .all-rosters-view .roster-card-team { grid-column: 1; grid-row: 2; }
+  .all-rosters-view .roster-card-cap { grid-row: 3; }
+  .all-rosters-view .roster-card { padding-inline: 8px; }
+  .all-rosters-view .roster-card-table th,
+  .all-rosters-view .roster-card-table td { padding-inline: 0.12rem; }
+}
+
+/* ── 9. Reduced motion: P3 already drops the card lift; the hover tint stays
       a plain colour change, which needs no extra rule. ───────────────────── */
