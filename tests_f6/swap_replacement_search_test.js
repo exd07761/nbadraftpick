@@ -19,6 +19,7 @@ const tradesSrc = fs.readFileSync(tradesJsPath, 'utf8');
 function makeSandbox() {
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({ doc: () => ({ onSnapshot: () => {}, set: () => Promise.resolve() }) }),
