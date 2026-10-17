@@ -115,6 +115,7 @@ const PublicRosterSimulatorView = {
       playerId: e.playerId ?? null,
       source: e.source || null,
       draftSlot: e.draftSlot ?? null,
+      displayPickNumber: e.displayPickNumber ?? null,
       isJoker: !!e.isJoker,
       jokerPosition: e.jokerPosition,
       classification: e.classification ?? null,
@@ -640,7 +641,7 @@ const PublicRosterSimulatorView = {
   _renderTable(entries, { editable, beforeEntries, beforeIds }) {
     const rows = entries.map((e, i) => {
       const p = e.player;
-      const slotLabel = e.draftSlot != null ? e.draftSlot : '—';
+      const slotLabel = e.displayPickNumber ?? e.draftSlot ?? '—';
 
       if (!p) {
         if (!editable) {

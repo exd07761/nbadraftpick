@@ -5,10 +5,8 @@
  * A normal swap (isJokerSwap falsy) must enforce ONLY: Rating Cap,
  * Minimum Rating, Season Day (plus basic data integrity — Ownership,
  * Replacement eligibility). Position limit and Blue restrictions must be
- * bypassed entirely for a normal swap. The dedicated Joker Swap path
- * (isJokerSwap === true) must be completely unaffected — it still runs
- * every check, including Position limit, Blue restrictions, and the
- * Joker-must-be-outgoing check.
+ * bypassed for both normal and Joker swaps. Minimum rating, Season Day,
+ * Rating Cap, and basic ownership/replacement integrity remain enforced.
  *
  * Same VM-sandbox convention as the other tests_f6 swap test files.
  */
@@ -22,6 +20,7 @@ const dataSrc = fs.readFileSync(dataJsPath, 'utf8');
 function makeSandbox() {
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({ doc: () => ({ onSnapshot: () => {}, set: () => Promise.resolve() }) }),
@@ -222,10 +221,9 @@ check('Test 6b: Replacement eligibility is still enforced (incoming player must 
   assertTrue(elig && !elig.valid, 'expected Replacement eligibility to fail');
 });
 
-// ── Test 7 — the dedicated Joker Swap path is completely unaffected: ───────
-//    Position limit and Blue restrictions still run and can still block it.
+// ── Test 7 — Joker swaps also bypass position/Blue composition rules. ─────
 
-check('Test 7: Position limit and Blue restrictions are still evaluated for a Joker Swap', () => {
+check('Test 7: Position limit and Blue restrictions are bypassed for a Joker Swap', () => {
   const result = AdminActions.evaluateSwap(scenario.seasonId, {
     participantId: scenario.pA.id,
     outgoingPlayerId: scenario.jokerCard.id, // the current Joker
@@ -233,11 +231,21 @@ check('Test 7: Position limit and Blue restrictions are still evaluated for a Jo
     isJokerSwap: true,
     jokerPosition: 'SG',
   });
-  assertTrue(!!findCheck(result, 'Position limit'), 'Position limit must still be evaluated for a Joker Swap');
-  assertTrue(!!findCheck(result, 'Blue restrictions'), 'Blue restrictions must still be evaluated for a Joker Swap');
+  assertTrue(!findCheck(result, 'Position limit'), 'Position limit must not be evaluated for a Joker Swap');
+  assertTrue(!findCheck(result, 'Blue restrictions'), 'Blue restrictions must not be evaluated for a Joker Swap');
 });
 
-check('Test 7b: a Joker Swap is still blocked when it genuinely violates Position limit', () => {
+check('Test 7a: a Joker Swap may bring in a Blue player beyond the roster Blue limit', () => {
+  const sixthBlue = AdminActions.addPlayer({ name: 'Joker Swap Blue 6', position: 'PF', overall: 80, pool: 'blue' });
+  const result = AdminActions.evaluateSwap(scenario.seasonId, {
+    participantId: scenario.pA.id, outgoingPlayerId: scenario.unrelatedSG.id,
+    incomingPlayerId: sixthBlue.id, isJokerSwap: true, jokerPosition: 'PG',
+  });
+  assertTrue(result.valid, `expected Blue Pool restriction to be bypassed: ${JSON.stringify(result.checks)}`);
+  assertTrue(!findCheck(result, 'Blue restrictions'), 'Blue restrictions must not be evaluated for a Joker Swap');
+});
+
+check('Test 7b: a Joker Swap remains valid when it exceeds Position limit', () => {
   // Dedicated mini-scenario: two natural PGs already on the roster, and
   // the current Joker plays their own natural SF (no hidden PG slot). A
   // Joker Swap that reassigns the INCOMING Joker to PG would make 3
@@ -271,9 +279,40 @@ check('Test 7b: a Joker Swap is still blocked when it genuinely violates Positio
     isJokerSwap: true,
     jokerPosition: 'PG', // would make PG1 + PG2 + new Joker = 3, over cap of 2
   });
-  assertTrue(!result.valid, 'expected the Joker Swap to be rejected');
-  const posCheck = findCheck(result, 'Position limit');
-  assertTrue(posCheck && !posCheck.valid, 'expected Position limit to fail for this Joker Swap, unchanged by this revision');
+  assertTrue(result.valid, `expected Position limit to be bypassed: ${JSON.stringify(result.checks)}`);
+  assertTrue(!findCheck(result, 'Position limit'), 'Position limit must not be evaluated for a Joker Swap');
+});
+
+check('Test 8: Joker Swap still enforces the 875 OVR cap', () => {
+  const result = AdminActions.evaluateSwap(scenario.seasonId, {
+    participantId: scenario.pA.id, outgoingPlayerId: scenario.unrelatedSG.id,
+    incomingPlayerId: scenario.overCapPlayer.id, isJokerSwap: true, jokerPosition: 'PG',
+  });
+  assertTrue(!result.valid, 'expected the over-cap Joker Swap to fail');
+  const capCheck = findCheck(result, 'Rating cap (875)');
+  assertTrue(capCheck && !capCheck.valid, 'expected the Joker Swap Rating Cap check to fail');
+});
+
+check('Test 9: Joker Swap still enforces minimum rating', () => {
+  const result = AdminActions.evaluateSwap(scenario.seasonId, {
+    participantId: scenario.pA.id, outgoingPlayerId: scenario.unrelatedSG.id,
+    incomingPlayerId: scenario.belowMinRating.id, isJokerSwap: true, jokerPosition: 'PG',
+  });
+  assertTrue(!result.valid, 'expected the below-minimum Joker Swap to fail');
+  const check = findCheck(result, 'Minimum rating');
+  assertTrue(check && !check.valid, 'expected the Joker Swap Minimum Rating check to fail');
+});
+
+check('Test 10: Joker Swap still enforces locked season days', () => {
+  AdminActions.setSeasonDay(scenario.seasonId, 12);
+  const result = AdminActions.evaluateSwap(scenario.seasonId, {
+    participantId: scenario.pA.id, outgoingPlayerId: scenario.unrelatedSG.id,
+    incomingPlayerId: scenario.incomingPG.id, isJokerSwap: true, jokerPosition: 'PG',
+  });
+  assertTrue(!result.valid, 'expected Joker Swap to fail on a locked day');
+  const check = findCheck(result, 'Season Day');
+  assertTrue(check && !check.valid, 'expected the Joker Swap Season Day check to fail');
+  AdminActions.setSeasonDay(scenario.seasonId, 1);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

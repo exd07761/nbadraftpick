@@ -559,6 +559,8 @@ const AdminDraftView = {
             ${CORE_POSITIONS.map(pos => `<option value="${pos}">${pos}</option>`).join('')}
           </select>
         </div>
+        <div id="draftRuleReminder" class="info-banner" role="status" aria-live="polite"
+          style="display:none;margin-top:0.75rem;"></div>
         <div class="modal-actions">
           <button class="btn btn-ghost" id="modalCancelBtn">Cancel</button>
           <button class="btn btn-primary" id="modalConfirmBtn">Draft Player</button>
@@ -580,6 +582,7 @@ const AdminDraftView = {
     const jokerPositionRow = document.getElementById('draftJokerPositionRow');
     const jokerPositionSelect = document.getElementById('draftJokerPositionSelect');
     const confirmBtn = document.getElementById('modalConfirmBtn');
+    const ruleReminder = document.getElementById('draftRuleReminder');
     const updateConfirmLabel = () => {
       if (jokerCheckbox.checked) {
         const pos = jokerPositionSelect.value;
@@ -587,12 +590,29 @@ const AdminDraftView = {
       } else {
         confirmBtn.textContent = 'Draft Player';
       }
+      const draftState = LeagueData.getDraftState(season.id);
+      const ownPicks = (season.playerDraftPicks || []).filter(
+        pick => pick.participantId === draftState.currentParticipantId
+      );
+      const jokerCount = ownPicks.filter(pick => !!pick.isJoker).length;
+      const reminders = [];
+      if (jokerCheckbox.checked && jokerCount === 1) {
+        const firstFourAreGreen = ownPicks.length >= 4 && ownPicks
+          .slice(0, 4)
+          .every(pick => LeagueData.getPlayer(pick.playerId, season.id)?.pool === 'green');
+        reminders.push(firstFourAreGreen
+          ? '⚠ This will be the participant’s 2nd Joker Pick. Their first four picks are all Green Pool players, so the second Joker is eligible.'
+          : '⚠ This will be the participant’s 2nd Joker Pick. A second Joker is allowed only when the participant’s first four picks are all Green Pool players.');
+      }
+      ruleReminder.textContent = reminders.join(' ');
+      ruleReminder.style.display = reminders.length ? '' : 'none';
     };
     jokerCheckbox.addEventListener('change', () => {
       jokerPositionRow.style.display = jokerCheckbox.checked ? '' : 'none';
       updateConfirmLabel();
     });
     jokerPositionSelect.addEventListener('change', updateConfirmLabel);
+    updateConfirmLabel();
 
     document.getElementById('modalConfirmBtn').onclick = () => {
       AuthBoundary.requireAuth();

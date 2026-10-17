@@ -894,9 +894,10 @@ function ensureTransactionFields(season) {
  * the "never invent a pick number" rule, since a slot already replaced
  * under the old code has no recoverable original number.
  */
-function ensureRosterDraftSlots(season) {
+function ensureRosterDraftSlots(season, onlyParticipantId = null) {
   if (!season.rostersInitialized || !season.currentRosters) return;
-  for (const participantId of Object.keys(season.currentRosters)) {
+  const participantIds = onlyParticipantId ? [onlyParticipantId] : Object.keys(season.currentRosters);
+  for (const participantId of participantIds) {
     const roster = season.currentRosters[participantId];
     if (!Array.isArray(roster) || !roster.length) continue;
     if (roster.every((e) => e.draftSlot !== undefined)) continue; // already backfilled
@@ -906,6 +907,38 @@ function ensureRosterDraftSlots(season) {
       const pickIdx = ownPicks.findIndex((p) => p.playerId === entry.playerId);
       entry.draftSlot = pickIdx === -1 ? null : pickIdx + 1;
     }
+  }
+}
+
+/** Next stable roster-table number, counting original slots and older
+ * slotless signings without changing their source or draft history. */
+function nextRosterDisplayPickNumber(season, participantId) {
+  const roster = (season.currentRosters && season.currentRosters[participantId]) || [];
+  const ownPicks = (season.playerDraftPicks || []).filter((p) => p.participantId === participantId);
+  let highest = 0;
+  let unnumberedAdditions = 0;
+  for (const entry of roster) {
+    if (entry.displayPickNumber != null) highest = Math.max(highest, entry.displayPickNumber);
+    else if (entry.draftSlot != null) highest = Math.max(highest, entry.draftSlot);
+    else {
+      const pickIdx = ownPicks.findIndex((p) => p.playerId === entry.playerId);
+      if (pickIdx !== -1) highest = Math.max(highest, pickIdx + 1);
+      else if (entry.playerId && entry.source !== "empty") unnumberedAdditions++;
+    }
+  }
+  return highest + unnumberedAdditions + 1;
+}
+
+/** Persist only this participant's legacy slotless manual roster numbers. */
+function ensureRosterDisplayPickNumbers(season, participantId) {
+  const roster = (season.currentRosters && season.currentRosters[participantId]) || [];
+  const ownPicks = (season.playerDraftPicks || []).filter((p) => p.participantId === participantId);
+  let next = Math.max(ownPicks.length, ...roster.map((entry) => entry.displayPickNumber ?? entry.draftSlot ?? 0)) + 1;
+  for (const entry of roster) {
+    if (!entry.playerId || entry.displayPickNumber != null || entry.draftSlot != null) continue;
+    const pickIndex = ownPicks.findIndex((pick) => pick.playerId === entry.playerId);
+    if (pickIndex !== -1) continue;
+    if (entry.source !== "empty") entry.displayPickNumber = next++;
   }
 }
 
@@ -2433,6 +2466,8 @@ const LeagueData = {
 
     if (season.rostersInitialized && season.currentRosters[participantId]) {
       const ownPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
+      let nextDisplayPickNumber = Math.max(ownPicks.length, ...season.currentRosters[participantId]
+        .map((entry) => entry.displayPickNumber ?? entry.draftSlot ?? 0)) + 1;
       return season.currentRosters[participantId].map(entry => {
         const player = data.players[entry.playerId] || null;
         // Display-only fallback for legacy rosters saved before the
@@ -2444,10 +2479,14 @@ const LeagueData = {
           const pickIdx = ownPicks.findIndex((p) => p.playerId === entry.playerId);
           draftSlot = pickIdx === -1 ? null : pickIdx + 1;
         }
+        const displayPickNumber = draftSlot != null
+          ? draftSlot
+          : (entry.displayPickNumber ?? nextDisplayPickNumber++);
         return {
           ...entry,
           player,
           draftSlot,
+          displayPickNumber,
           // Pool-agnostic — see getEffectivePosition. Added so every roster
           // display (public Rosters page, admin Rosters page) can show a
           // Joker's assigned position instead of always falling back to the
@@ -4147,25 +4186,22 @@ const AdminActions = {
     const round = schedule.currentRound;
     const pick = season.playerDraftPicks.length + 1;
 
-    // ── Joker Pick: data-layer validation (cannot be bypassed by the UI) ─
-    // At most one Joker Pick per participant, enforced by scanning the
-    // actual draft history (not a cached flag) — this is what makes undo
-    // work automatically (see undoLastDraftPick): pop the pick, and the
-    // participant is immediately eligible again since this scan just
-    // won't find it anymore.
+    // ── Joker Pick: chronological two-Joker eligibility ────────────────
     const isJoker = !!options.isJoker;
     const jokerPosition = isJoker ? options.jokerPosition : undefined;
+    if (isJoker && !CORE_POSITIONS.includes(jokerPosition)) {
+      throw new Error(`A Joker Pick requires a valid designated position (${CORE_POSITIONS.join("/")}).`);
+    }
     if (isJoker) {
-      if (!CORE_POSITIONS.includes(jokerPosition)) {
-        throw new Error(
-          `A Joker Pick requires a valid designated position (${CORE_POSITIONS.join("/")}).`
-        );
-      }
-      const alreadyHasJoker = season.playerDraftPicks.some(
-        (p) => p.participantId === participantId && p.isJoker
-      );
-      if (alreadyHasJoker) {
-        throw new Error("This participant has already made their Joker Pick.");
+      const participantPicks = season.playerDraftPicks.filter((p) => p.participantId === participantId);
+      const existingJokers = participantPicks.filter((p) => p.isJoker).length;
+      if (existingJokers >= 2) throw new Error("This participant may have at most two Joker Picks.");
+      if (existingJokers === 1) {
+        const firstFourAreGreen = participantPicks.length >= 4 && participantPicks.slice(0, 4)
+          .every((p) => data.players[p.playerId]?.pool === "green");
+        if (!firstFourAreGreen) {
+          throw new Error("A second Joker Pick is allowed only when the participant's first four picks are all Green Pool players.");
+        }
       }
     }
     // The EFFECTIVE draft-time position for every rule below: the
@@ -6205,15 +6241,10 @@ const AdminActions = {
    * on that roster is cleared in the same commit, since only one Joker per
    * participant is allowed at a time.
    *
-   * Revision — Unrestricted Swap Validation: for BOTH Normal Pool Swap and
-   * Joker Swap, the only resulting-roster rule enforced is the Rating Cap
-   * (≤875 by default, see cap/capCheck below). Former swap validators for
-   * Season Day, Minimum Rating, RED/YELLOW Classification match, Joker
-   * position requirement, Position limit, and Blue composition are not
-   * enforced here. Basic data integrity still applies: the season/rosters
-   * must exist, the outgoing player must be on this roster, the incoming
-   * player must exist, and the incoming player must not already be owned by
-   * another roster or this roster.
+   * Normal and Joker swaps enforce Season Day, Minimum Rating, and the
+   * resulting-roster Rating Cap (875 by default). Joker designation,
+   * position limit, Blue Pool, and roster-composition rules are bypassed.
+   * Basic ownership and replacement eligibility still apply.
    *
    * This does not change how Red/Yellow tags are computed or displayed:
    * getPlayerClassificationInfo remains the source of those tags elsewhere
@@ -6261,11 +6292,9 @@ const AdminActions = {
     // Rule 10: a swap returns the outgoing player to the pool and draws an
     // eligible replacement — the incoming player must not already be owned
     // by any roster. The Discord rules don't require the replacement to
-    // come from the SAME pool as the outgoing player (Blue restrictions are
-    // explicitly meant to be checked "after every transaction," implying a
-    // swap can turn a Green slot into a Blue one); pool/rating/position/cap
-    // eligibility is enforced below via the standard resulting-roster checks
-    // instead of a same-pool requirement.
+    // come from the SAME pool as the outgoing player; pool, position, and
+    // roster-composition restrictions are intentionally bypassed for swaps.
+    // Minimum rating and resulting-roster cap checks still apply below.
     const ownedElsewhere = Object.entries(season.currentRosters).some(
       ([pid, entries]) => pid !== participantId && entries.some((e) => e.playerId === incomingPlayerId)
     );
@@ -6277,10 +6306,12 @@ const AdminActions = {
     }
 
 
-    // Unrestricted Swap Validation: Minimum rating, RED/YELLOW
-    // classification matching, and Joker-position requirement are not
-    // enforced for swaps. The swap only needs basic data integrity and the
-    // resulting-roster Rating Cap below.
+    const day = season.currentSeasonDay ?? 1;
+    if (isTransactionsLockedDay(day)) fail("Season Day", `Day ${day} — transactions are closed.`);
+    else pass("Season Day");
+    const minimumCheck = validateMinimumRating(incomingPlayer);
+    if (!minimumCheck.valid) fail("Minimum rating", minimumCheck.reason);
+    else pass("Minimum rating");
 
     // Revision — Fix Joker Swap: outgoing player / new Joker logic. A
     // Joker Swap no longer requires the OUTGOING player to already be the
@@ -6302,9 +6333,8 @@ const AdminActions = {
         : { playerId: incomingPlayerId, source: "swap" },
     ];
 
-    // Unrestricted Swap Validation: Position-limit and Blue-composition
-    // checks are not enforced for either Normal Pool Swap or Joker Swap.
-    // The resulting-roster Rating Cap below remains enforced for both.
+    // Position-limit and Blue-composition checks are intentionally bypassed
+    // for both swap types; rating cap remains enforced below.
 
     const cap = season.ratingCap ?? 875;
     const capCheck = validateRatingCap(afterEntries, data.players, cap);
@@ -6533,7 +6563,8 @@ const AdminActions = {
     if (!season.rostersInitialized) {
       throw new Error("Rosters must be initialized (post-draft) before manual roster editing.");
     }
-    ensureRosterDraftSlots(season);
+    ensureRosterDraftSlots(season, participantId);
+    ensureRosterDisplayPickNumbers(season, participantId);
     if (!season.participants[participantId]) throw new Error("Participant not found.");
     const player = data.players[playerId];
     if (!player) throw new Error("Player not found.");
@@ -6558,11 +6589,12 @@ const AdminActions = {
       // Replace would — see getPlayerClassificationInfo.
       const inheritedClassificationSource = vacatedEntry.classificationSourcePlayerId ?? null;
       afterEntries[slotIndex] = {
-        playerId, source: "signed", draftSlot: targetDraftSlot,
+        playerId, source: "signed", draftSlot: targetDraftSlot, displayPickNumber: targetDraftSlot,
         ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}),
       };
     } else {
-      afterEntries = [...roster, { playerId, source: "signed", draftSlot: null }];
+      afterEntries = [...roster, { playerId, source: "signed", draftSlot: null,
+        displayPickNumber: nextRosterDisplayPickNumber(season, participantId) }];
     }
 
     // Revision 3 — Manual Override: normal roster/game rules (position
@@ -6605,6 +6637,8 @@ const AdminActions = {
     if (!season) throw new Error("Season not found");
     ensureTransactionFields(season);
     if (!season.rostersInitialized) throw new Error("Rosters must be initialized before signing players.");
+    ensureRosterDraftSlots(season, participantId);
+    ensureRosterDisplayPickNumbers(season, participantId);
     if (!season.participants[participantId]) throw new Error("Participant not found.");
     const player = data.players[playerId];
     if (!player) throw new Error("Player not found.");
@@ -6651,6 +6685,7 @@ const AdminActions = {
       ? (owner.entry.source === "manual" ? "signed" : owner.entry.source)
       : "signed";
     const signedEntry = { playerId, source: transferSource, draftSlot: targetDraftSlot ?? null,
+      displayPickNumber: targetDraftSlot ?? nextRosterDisplayPickNumber(season, participantId),
       ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}) };
     destination.splice(insertionIndex, 1, signedEntry);
     season.currentRosters[participantId] = destination;
@@ -6691,7 +6726,7 @@ const AdminActions = {
     if (!season.rostersInitialized) {
       throw new Error("Rosters must be initialized (post-draft) before manual roster editing.");
     }
-    ensureRosterDraftSlots(season);
+    ensureRosterDraftSlots(season, participantId);
     const roster = season.currentRosters[participantId] || [];
     const idx = roster.findIndex((e) => e.playerId === playerId);
     if (idx === -1) throw new Error("Player is not currently on this participant's roster.");
@@ -6774,7 +6809,8 @@ const AdminActions = {
     if (!season.rostersInitialized) {
       throw new Error("Rosters must be initialized (post-draft) before manual roster editing.");
     }
-    ensureRosterDraftSlots(season);
+    ensureRosterDraftSlots(season, participantId);
+    ensureRosterDisplayPickNumbers(season, participantId);
     if (outgoingPlayerId === incomingPlayerId) {
       throw new Error("Outgoing and incoming player cannot be the same.");
     }
@@ -6805,13 +6841,15 @@ const AdminActions = {
     }
 
     const preservedDraftSlot = outEntry.draftSlot ?? null;
+    const preservedDisplayPickNumber = outEntry.displayPickNumber ?? preservedDraftSlot;
     const classificationSourcePlayerId = outEntry.classificationSourcePlayerId ?? outgoingPlayerId;
     const afterEntries = roster.slice();
     const replacementSource = owner
       ? (owner.entry.source === "manual" ? "signed" : owner.entry.source)
       : "signed";
     afterEntries[idx] = {
-      playerId: incomingPlayerId, source: replacementSource, draftSlot: preservedDraftSlot, classificationSourcePlayerId,
+      playerId: incomingPlayerId, source: replacementSource, draftSlot: preservedDraftSlot,
+      displayPickNumber: preservedDisplayPickNumber, classificationSourcePlayerId,
     };
 
     // Ownership integrity remains enforced here; roster-rule checks are

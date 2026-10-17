@@ -174,7 +174,7 @@ const PublicRosterView = {
           <tbody>
             ${rosterEntries.map((e) => {
               const p = e.player;
-              const slotLabel = e.draftSlot != null ? e.draftSlot : '—';
+              const slotLabel = e.displayPickNumber ?? e.draftSlot ?? '—';
               if (e.source === 'empty') {
                 return `
                   <tr class="roster-row-empty">

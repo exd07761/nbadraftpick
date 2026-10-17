@@ -212,7 +212,7 @@ const AdminRosterView = {
       ? rosterEntries.map((e) => {
           const p = e.player;
           const isEmpty = e.source === 'empty';
-          const slotLabel = e.draftSlot != null ? e.draftSlot : '—';
+          const slotLabel = e.displayPickNumber ?? e.draftSlot ?? '—';
           if (isEmpty) {
             return `
               <tr class="roster-row-empty">

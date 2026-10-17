@@ -16,6 +16,7 @@ const vm = require('vm');
 const assert = require('assert');
 
 const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'data.js'), 'utf8');
+const draftSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'admin', 'draft.js'), 'utf8');
 
 let failures = 0;
 function test(name, fn) {
@@ -33,6 +34,7 @@ function makeSandbox(seasonData, playersData) {
   const dataDoc = { exists: true, data: () => ({ seasons: seasonData, players: playersData || {}, settings: {} }), metadata: { hasPendingWrites: false } };
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({
@@ -185,7 +187,7 @@ test('8. A Joker Pick with no designated position is rejected at the data layer'
   );
 });
 
-test('9. A second Joker Pick by the same participant is rejected (data-layer enforced)', () => {
+test('9. A second Joker Pick is rejected unless the first four picks were all Green', () => {
   const { seasons, players } = freshSeasonFixture();
   players.p2a = player('p2a', { position: 'PG', overall: 50 });
   players.p2b = player('p2b', { position: 'SG', overall: 50 });
@@ -195,13 +197,74 @@ test('9. A second Joker Pick by the same participant is rejected (data-layer enf
     { round: 2, pick: 3, participantId: 'p2', playerId: 'p2b' }, // idx2: p2
   ];
   const { AdminActions } = makeSandbox(seasons, players);
-  // idx3: p1's turn again. A different position (PG, which p1 doesn't have
-  // yet) isolates this from any position-cap conflict — this must fail
-  // purely because p1 already has a Joker.
+  // idx3: p1's turn again. Their history is too short to qualify for the
+  // second Joker, so this must fail the first-four eligibility rule.
   assert.throws(
     () => AdminActions.makeDraftPick('s1', 'pg1', { isJoker: true, jokerPosition: 'PG' }),
-    /already made their Joker Pick/
+    /first four picks are all Green Pool players/
   );
+});
+
+test('9b. Four Green opening picks allow the second Joker Pick', () => {
+  const { seasons, players } = freshSeasonFixture();
+  ['PG', 'SG', 'SF', 'PF'].forEach((position, i) => {
+    const id = `green${i}`;
+    players[id] = player(id, { position, overall: 80, pool: 'green' });
+    seasons.s1.playerDraftPicks.push({ round: 1, pick: i + 1, participantId: 'p1', playerId: id,
+      ...(i === 0 ? { isJoker: true, jokerPosition: 'PG' } : {}) });
+  });
+  for (let i = 0; i < 3; i++) {
+    const id = `other${i}`;
+    players[id] = player(id, { position: ['PG', 'SG', 'SF'][i], overall: 50 });
+    seasons.s1.playerDraftPicks.push({ round: 1, pick: 5 + i, participantId: 'p2', playerId: id });
+  }
+  const { AdminActions } = makeSandbox(seasons, players);
+  const result = AdminActions.makeDraftPick('s1', 'c1', { isJoker: true, jokerPosition: 'C' });
+  assert.equal(result.participantId, 'p1');
+  assert.equal(result.isJoker, true);
+  assert.match(draftSrc, /2nd Joker Pick[\s\S]*first four picks are all Green Pool players/);
+});
+
+test('9c. A third Joker Pick is rejected', () => {
+  const { seasons, players } = freshSeasonFixture();
+  ['PG', 'SG', 'SF', 'PF'].forEach((position, i) => {
+    const id = `green${i}`;
+    players[id] = player(id, { position, overall: 80, pool: 'green' });
+    seasons.s1.playerDraftPicks.push({ round: 1, pick: i + 1, participantId: 'p1', playerId: id,
+      ...(i < 2 ? { isJoker: true, jokerPosition: position } : {}) });
+  });
+  for (let i = 0; i < 3; i++) {
+    const id = `other${i}`;
+    players[id] = player(id, { position: ['PG', 'SG', 'SF'][i], overall: 50 });
+    seasons.s1.playerDraftPicks.push({ round: 1, pick: 5 + i, participantId: 'p2', playerId: id });
+  }
+  const { AdminActions } = makeSandbox(seasons, players);
+  assert.throws(() => AdminActions.makeDraftPick('s1', 'c1', { isJoker: true, jokerPosition: 'C' }), /at most two Joker Picks/);
+});
+
+test('9d. Eligibility follows chronological picks, not the current roster order', () => {
+  const { seasons, players } = freshSeasonFixture();
+  ['PG', 'SG', 'SF', 'PF'].forEach((position, i) => {
+    const greenId = `chronGreen${i}`;
+    players[greenId] = player(greenId, { position, overall: 80, pool: 'green' });
+  });
+  players.chronBlue = player('chronBlue', { position: 'C', overall: 80, pool: 'blue' });
+  for (let i = 0; i < 3; i++) players[`chronOther${i}`] = player(`chronOther${i}`, { position: ['PG', 'SG', 'SF'][i], overall: 50 });
+  seasons.s1.playerDraftPicks = [
+    { round: 1, pick: 1, participantId: 'p1', playerId: 'chronGreen0', isJoker: true, jokerPosition: 'PG' },
+    { round: 1, pick: 2, participantId: 'p2', playerId: 'chronOther0' },
+    { round: 1, pick: 3, participantId: 'p1', playerId: 'chronBlue' },
+    { round: 1, pick: 4, participantId: 'p2', playerId: 'chronOther1' },
+    { round: 1, pick: 5, participantId: 'p1', playerId: 'chronGreen2' },
+    { round: 1, pick: 6, participantId: 'p2', playerId: 'chronOther2' },
+    { round: 1, pick: 7, participantId: 'p1', playerId: 'chronGreen3' },
+  ];
+  // A mutable roster display order that would misleadingly show four Greens.
+  seasons.s1.currentRosters = { p1: ['chronGreen0', 'chronGreen2', 'chronGreen3', 'chronGreen1']
+    .map((playerId, i) => ({ playerId, source: 'draft', draftSlot: i + 1 })) };
+  const { AdminActions } = makeSandbox(seasons, players);
+  assert.throws(() => AdminActions.makeDraftPick('s1', 'c1', { isJoker: true, jokerPosition: 'C' }),
+    /first four picks are all Green Pool players/);
 });
 
 test('10. A different participant can still make their own Joker Pick', () => {
