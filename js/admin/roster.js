@@ -335,8 +335,16 @@ const AdminRosterView = {
     const season = LeagueData.getSeason(seasonId) || LeagueData.getCurrentSeason();
     const selectedPool = String(pool || '').toLowerCase();
     const participantId = this._manualAddTarget;
-    const poolCandidates = LeagueData.getSwapEligibleReplacements(seasonId, selectedPool);
-    const candidates = poolCandidates
+    const catalogPlayers = (LeagueData.getManualRosterCatalogPlayers
+      ? LeagueData.getManualRosterCatalogPlayers(seasonId)
+      : LeagueData.getSwapEligibleReplacements(seasonId, selectedPool))
+      .filter(p => String(p.pool || '').toLowerCase() === selectedPool)
+      .filter(p => !season?.playerPoolScope || p.seasonId === season.playerPoolScope);
+    const targetRosterIds = new Set(((LeagueData.getCurrentRoster
+      ? LeagueData.getCurrentRoster(seasonId, participantId)
+      : []) || [])
+      .filter(entry => entry.source !== 'empty' && entry.playerId).map(entry => entry.playerId));
+    const candidates = catalogPlayers.filter(p => !targetRosterIds.has(p.id))
       .map(p => ({ ...p, ownerId: null, ownerName: null }));
     const byId = new Map(candidates.map(p => [p.id, p]));
     LeagueData.getRosterSummary(seasonId).forEach(summary => {
@@ -349,8 +357,8 @@ const AdminRosterView = {
         // record through only when the selected season's current pool has
         // the same stable source slug and pool; this supports an in-season
         // transfer without exposing unrelated out-of-scope players.
-        if (season?.playerPoolScope && p.seasonId != null && p.seasonId !== season.playerPoolScope) {
-          const scopedMatch = p.nba2kRef && poolCandidates.find(candidate =>
+        if (season?.playerPoolScope && p.seasonId !== season.playerPoolScope) {
+          const scopedMatch = p.nba2kRef && catalogPlayers.find(candidate =>
             candidate.nba2kRef === p.nba2kRef
             && String(candidate.pool || '').toLowerCase() === selectedPool
           );
@@ -359,7 +367,12 @@ const AdminRosterView = {
           // owner validation, and avoid showing the matching live ID twice.
           if (scopedMatch.id !== p.id) byId.delete(scopedMatch.id);
         }
-        const ownedCandidate = { ...p, ownerId: summary.participant.id, ownerName: summary.participant.name };
+        const catalogMatch = catalogPlayers.find(candidate => candidate.id === p.id)
+          || (p.nba2kRef && catalogPlayers.find(candidate =>
+            candidate.nba2kRef === p.nba2kRef
+            && String(candidate.pool || '').toLowerCase() === selectedPool
+          ));
+        const ownedCandidate = { ...(catalogMatch || p), id: p.id, ownerId: summary.participant.id, ownerName: summary.participant.name };
         // Roster ownership is authoritative if a stale availability snapshot
         // also contains this ID: keep one row and route it through transfer.
         byId.set(p.id, ownedCandidate);
@@ -552,7 +565,6 @@ const AdminRosterView = {
     const currentEntry = LeagueData.getCurrentRoster(seasonId, participantId)
       .find((entry) => entry.playerId === playerId);
     const isCurrentJoker = !!currentEntry?.isJoker;
-    const canSafelyRemove = !!currentEntry?.jokerOriginalPosition;
     const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
     return `
       <div class="roster-manual-picker card-form" style="margin-top:0.75rem;">
@@ -563,10 +575,10 @@ const AdminRosterView = {
         <p class="helper-text">
           ${isCurrentJoker
             ? `Already this participant's Joker (currently ${escapeHtml(currentEntry.jokerPosition || '')}) — pick a new position to reposition them.`
-            : `A second Joker can coexist with the current Joker after confirmation. The Joker keeps their own pool/identity and draft slot — only their roster position changes.`}
+            : `Manual roster editing can designate additional Jokers after confirmation. Pool, identity, and draft history stay unchanged.`}
         </p>
-        ${isCurrentJoker && !canSafelyRemove
-          ? '<p class="error-text">This Joker predates saved position history, so its original roster position cannot be restored safely.</p>'
+        ${isCurrentJoker && !currentEntry?.jokerOriginalPosition
+          ? '<p class="helper-text">Its original position was not saved. Removing it will ask for confirmation and restore its canonical player position as a fallback.</p>'
           : ''}
         <div class="form-group">
           <label>Assigned position</label>
@@ -577,18 +589,16 @@ const AdminRosterView = {
         </div>
         <p id="manualJokerError" class="error-text"></p>
         <button type="button" class="btn btn-primary" data-manual-action="confirmJokerSwap" data-participant-id="${participantId}" data-player-id="${playerId}">Apply Joker Swap</button>
-        ${isCurrentJoker ? `<button type="button" class="btn btn-ghost" data-manual-action="removeJoker" data-participant-id="${participantId}" data-player-id="${playerId}" ${canSafelyRemove ? '' : 'disabled'}>Remove Joker</button>` : ''}
+        ${isCurrentJoker ? `<button type="button" class="btn btn-ghost" data-manual-action="removeJoker" data-participant-id="${participantId}" data-player-id="${playerId}">Remove Joker</button>` : ''}
       </div>`;
   },
 
   // ── Revision 2: inline available-player picker, shown inside a roster
   // card when that participant's "+ Add Player" (or a row's "⇄ Replace")
-  // has been clicked. Reuses LeagueData.getSwapEligibleReplacements —
-  // the exact same "currently unowned by any currentRosters entry" pool
-  // Phase 5 swaps already use — so this never invents a second notion of
-  // "available", and it is generic across Green/Blue/Classics/All-Time/
-  // any future pool since it reads the global player database, not a
-  // hard-coded list. ───────────────────────────────────────────────────
+  // has been clicked. Reads the active season's scoped catalog, including
+  // historically drafted and owned identities; current ownership is layered
+  // on separately so an owned choice must go through transfer confirmation.
+  // Pool matching remains generic and never deduplicates variants by name.
   _renderManualPicker(participantId, seasonId) {
     const pool = this._manualAddPool;
     const q = (this._manualSearch || '').trim().toLowerCase();
@@ -779,14 +789,20 @@ const AdminRosterView = {
         const playerId = btn.dataset.playerId;
         const currentRoster = FirebaseSync.getCache()?.seasons?.[season.id]?.currentRosters?.[participantId] || [];
         const targetEntry = currentRoster.find((entry) => entry.playerId === playerId);
-        const createsSecondJoker = !targetEntry?.isJoker
-          && currentRoster.filter((entry) => entry.isJoker).length === 1;
-        if (createsSecondJoker && !window.confirm('Warning: This participant will have two Jokers. Do you want to continue?')) return;
+        const existingJokers = currentRoster.filter((entry) => entry.isJoker).length;
+        const createsAdditionalJoker = !targetEntry?.isJoker && existingJokers > 0;
+        if (createsAdditionalJoker) {
+          const count = existingJokers + 1;
+          const warning = count === 2
+            ? 'Warning: This participant will have two Jokers. Do you want to continue?'
+            : `Warning: This participant will have ${count} Jokers. Do you want to continue?`;
+          if (!window.confirm(warning)) return;
+        }
         try {
           // Manual-only options preserve the ordinary admin/draft rules.
           AdminActions.designateJoker(
             season.id, participantId, playerId, position,
-            { bypassRosterRules: true, allowSecondJokerManual: createsSecondJoker, captureJokerOriginalPosition: true }
+            { bypassRosterRules: true, manualRosterEdit: true, captureJokerOriginalPosition: true }
           );
           showToast('Joker Swap applied.', 'success');
           this._manualJokerFor = null;
@@ -801,9 +817,18 @@ const AdminRosterView = {
     container.querySelectorAll('[data-manual-action="removeJoker"]').forEach(btn => {
       btn.onclick = () => {
         AuthBoundary.requireAuth();
+        const entry = LeagueData.getCurrentRoster(season.id, btn.dataset.participantId)
+          .find(item => item.playerId === btn.dataset.playerId);
+        const needsFallback = !entry?.jokerOriginalPosition;
+        if (needsFallback && !window.confirm(
+          'The original roster position was not saved. Remove this Joker and restore the player’s canonical position as a fallback?'
+        )) return;
         try {
-          AdminActions.manualRemoveJoker(season.id, btn.dataset.participantId, btn.dataset.playerId);
-          showToast('Joker removed and original roster position restored.', 'success');
+          AdminActions.manualRemoveJoker(season.id, btn.dataset.participantId, btn.dataset.playerId,
+            { confirmedFallback: needsFallback });
+          showToast(needsFallback
+            ? 'Joker removed; canonical player position restored as a fallback.'
+            : 'Joker removed and original roster position restored.', 'success');
           this._manualJokerFor = null;
           AdminApp.renderView('roster');
         } catch (e) {

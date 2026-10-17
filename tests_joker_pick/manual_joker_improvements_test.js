@@ -27,6 +27,7 @@ const firstFour = ['PG', 'SG', 'SF', 'PF'].map((position, i) => dataContext.Admi
 }));
 const second = dataContext.AdminActions.addPlayer({ name: 'Second Candidate', position: 'C', overall: 81, pool: 'green' });
 const third = dataContext.AdminActions.addPlayer({ name: 'Third Candidate', position: 'C', overall: 82, pool: 'green' });
+const fourth = dataContext.AdminActions.addPlayer({ name: 'Fourth Candidate', position: 'SF', overall: 83, pool: 'blue' });
 const savedSeason = cache.seasons[season.id];
 savedSeason.rostersInitialized = true;
 savedSeason.ratingCap = 875;
@@ -40,8 +41,9 @@ savedSeason.currentRosters = {
       playerId: player.id, source: 'draft', draftSlot: i + 1,
       ...(i === 0 ? { isJoker: true, jokerPosition: 'PG' } : {}),
     })),
-    { playerId: second.id, source: 'manual', draftSlot: null },
+    { playerId: second.id, source: 'manual', draftSlot: null, rosterPosition: 'PF' },
     { playerId: third.id, source: 'manual', draftSlot: null },
+    { playerId: fourth.id, source: 'manual', draftSlot: null },
   ],
 };
 dataContext.FirebaseSync.save(cache);
@@ -94,7 +96,7 @@ assert.equal(rosterBefore(), beforeCancel, 'cancellation makes no roster change'
 confirmResult = true;
 confirmButton.onclick();
 assert.equal(rosterNow().filter(entry => entry.isJoker).length, 2, 'confirmation preserves the first Joker and assigns the second');
-assert.equal(rosterNow().find(entry => entry.playerId === second.id).jokerOriginalPosition, 'C');
+assert.equal(rosterNow().find(entry => entry.playerId === second.id).jokerOriginalPosition, 'PF');
 assert.equal(JSON.stringify(cache.seasons[season.id].playerDraftPicks), historyBefore);
 assert.equal(confirmCount, 2);
 const picker = view._renderJokerSwapPicker(participant.id, second.id, season.id);
@@ -105,7 +107,7 @@ positionSelect.value = 'PF';
 confirmButton.onclick();
 assert.equal(confirmCount, 2, 'repositioning does not ask for second-Joker confirmation');
 assert.equal(rosterNow().find(entry => entry.playerId === second.id).jokerPosition, 'PF');
-assert.equal(rosterNow().find(entry => entry.playerId === second.id).jokerOriginalPosition, 'C');
+assert.equal(rosterNow().find(entry => entry.playerId === second.id).jokerOriginalPosition, 'PF');
 
 removeButton.onclick();
 let roster = rosterNow();
@@ -115,27 +117,35 @@ assert.equal(restored.jokerPosition, undefined);
 assert.equal(restored.jokerOriginalPosition, undefined);
 assert.equal(restored.source, 'manual');
 assert.equal(restored.draftSlot, null);
+assert.equal(restored.rosterPosition, 'PF', 'saved original assigned position is restored exactly');
 assert.equal(roster.filter(entry => entry.isJoker).length, 1, 'removing one Joker leaves the other untouched');
 assert.equal(JSON.stringify(cache.seasons[season.id].playerDraftPicks), historyBefore);
 assert.equal(dataContext.LeagueData.getCurrentRoster(season.id, participant.id).reduce((sum, entry) => sum + entry.player.overall, 0), ovrBefore);
 assert.ok(ovrBefore <= 875);
 
-// Historical Joker entries lack position metadata; never guess a restoration position.
-const legacyBefore = rosterBefore();
-assert.throws(
-  () => dataContext.AdminActions.manualRemoveJoker(season.id, participant.id, firstFour[0].id),
-  /original roster position was not saved/,
-);
-assert.equal(rosterBefore(), legacyBefore, 'legacy removal failure leaves the roster unchanged');
-
-// A third Joker remains prohibited even with the manual-only option.
+// Manual Roster Edit may assign a third Joker after its confirmation; ordinary
+// designation remains restricted by the existing no-option path.
 dataContext.AdminActions.designateJoker(season.id, participant.id, second.id, 'C', {
-  bypassRosterRules: true, allowSecondJokerManual: true, captureJokerOriginalPosition: true,
+  bypassRosterRules: true, manualRosterEdit: true, captureJokerOriginalPosition: true,
 });
-assert.throws(
-  () => dataContext.AdminActions.designateJoker(season.id, participant.id, third.id, 'C', {
-    bypassRosterRules: true, allowSecondJokerManual: true, captureJokerOriginalPosition: true,
-  }),
-  /at most two Jokers/,
-);
-console.log('Manual Joker improvements: confirmation, cancellation, two-Joker preservation, removal, legacy safety, draft isolation, OVR, and cap checks passed.');
+dataContext.AdminActions.designateJoker(season.id, participant.id, third.id, 'C', {
+  bypassRosterRules: true, manualRosterEdit: true, captureJokerOriginalPosition: true,
+});
+assert.equal(rosterNow().filter(entry => entry.isJoker).length, 3, 'manual override permits third Joker while preserving the existing two');
+assert.throws(() => dataContext.AdminActions.designateJoker(
+  season.id, participant.id, fourth.id, 'SF'
+), /at most two Jokers/);
+
+// Legacy Joker removal requires explicit fallback confirmation and restores
+// the canonical player position without changing identity/history.
+const legacyBefore = rosterBefore();
+assert.throws(() => dataContext.AdminActions.manualRemoveJoker(
+  season.id, participant.id, firstFour[0].id
+), /Confirm removal/);
+assert.equal(rosterBefore(), legacyBefore, 'unconfirmed legacy fallback leaves roster unchanged');
+dataContext.AdminActions.manualRemoveJoker(season.id, participant.id, firstFour[0].id, { confirmedFallback: true });
+const legacyRestored = rosterNow().find(entry => entry.playerId === firstFour[0].id);
+assert.equal(legacyRestored.isJoker, undefined);
+assert.equal(legacyRestored.rosterPosition, 'PG', 'legacy fallback uses canonical player position');
+assert.equal(JSON.stringify(cache.seasons[season.id].playerDraftPicks), historyBefore);
+console.log('Manual Joker improvements: confirmation, cancellation, multi-Joker override, position restoration, draft isolation, OVR, and cap checks passed.');

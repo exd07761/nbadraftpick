@@ -16,7 +16,7 @@ const adminRosterSource = fs.readFileSync(path.join(root, 'js/admin/roster.js'),
 const stylesheet = fs.readFileSync(path.join(root, 'css/admin.css'), 'utf8');
 const freeAgent = { id: 'free-agent-actual-id', name: 'Free Agent', team: 'Boston Celtics', position: 'PG', pool: 'green', overall: 91, seasonId: 'season-scope' };
 const ownedPlayer = { id: 'owned-player-actual-id', name: 'Owned Star', team: 'Phoenix Suns', position: 'SG', pool: 'blue', overall: 94, seasonId: 'season-scope' };
-const ownedGreenPlayer = { id: 'owned-green-actual-id', name: 'Owned Green Player', team: 'Chicago Bulls', position: 'SF', pool: 'green', overall: 86 };
+const ownedGreenPlayer = { id: 'owned-green-actual-id', name: 'Owned Green Player', team: 'Chicago Bulls', position: 'SF', pool: 'green', overall: 86, seasonId: 'season-scope' };
 const ownedScopedGreenPlayer = { id: 'owned-scoped-green-id', name: 'Owned Scoped Green', team: 'Miami Heat', position: 'PF', pool: 'green', overall: 88, seasonId: 'season-scope' };
 const ownedForeignGreenPlayer = { id: 'owned-foreign-green-id', name: 'Owned Foreign Green', team: 'Dallas Mavericks', position: 'C', pool: 'green', overall: 89, seasonId: 'other-season-scope' };
 const ownedWrongPoolPlayer = { id: 'owned-wrong-pool-id', name: 'Owned Blue Player', team: 'Denver Nuggets', position: 'SG', pool: 'blue', overall: 87, seasonId: 'season-scope' };
@@ -274,6 +274,15 @@ assert.ok(!dataContext.LeagueData.getAvailablePlayers(actualSeason.id).some(p =>
   'transferring a drafted player does not make them available');
 assert.equal(JSON.stringify(savedSeason.playerDraftPicks), historyBefore, 'transfers preserve existing draft history');
 
+const validationSnapshot = JSON.stringify(dataContext.FirebaseSync.getCache().seasons[actualSeason.id]);
+const validationResult = dataContext.LeagueData.validateAllRosters(actualSeason.id);
+assert.ok(validationResult.errors.some(finding => finding.type === 'RATING_CAP'),
+  'Validate Roster reports an over-cap roster after the manual override');
+assert.ok(validationResult.errors.some(finding => finding.type === 'MISSING_POSITION'),
+  'Validate Roster reports missing position requirements');
+assert.equal(JSON.stringify(dataContext.FirebaseSync.getCache().seasons[actualSeason.id]), validationSnapshot,
+  'Validate Roster is read-only and does not repair or mutate roster data');
+
 // Sequential display numbers are participant-scoped, persisted, and do not
 // modify existing draft records or drafted roster rows.
 const numberedTeam = dataContext.AdminActions.addParticipant(actualSeason.id, 'Numbered Team');
@@ -376,7 +385,7 @@ dom.window.document.removeEventListener = (type, listener, options) => {
 };
 const domReplaceCalls = [];
 const domSignCalls = [];
-const addTransferCandidate = { id: actualAddOwned.id, name: actualAddOwned.name, team: 'Phoenix Suns', position: 'SF', pool: 'green', overall: 82 };
+const addTransferCandidate = { id: actualAddOwned.id, name: actualAddOwned.name, team: 'Phoenix Suns', position: 'SF', pool: 'green', overall: 82, seasonId: 'season-scope' };
 players.push(addTransferCandidate, ownedScopedGreenPlayer, ownedForeignGreenPlayer, ownedWrongPoolPlayer);
 ownerSummary.rosterEntries.push(
   { player: addTransferCandidate, source: 'signed', draftSlot: null },
