@@ -208,7 +208,7 @@ assert.doesNotThrow(() => dataContext.AdminActions.manualSignPlayerToRoster(
 ), 'unowned players can be signed into empty draft slots above the cap');
 savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
 assert.deepEqual(JSON.parse(JSON.stringify(savedSeason.currentRosters[actualSlotDestination.id][0])), {
-  playerId: slotFree.id, source: 'signed', draftSlot: 4,
+  playerId: slotFree.id, source: 'signed', draftSlot: 4, displayPickNumber: 4,
 });
 assert.throws(() => dataContext.AdminActions.manualSignPlayerToRoster(
   actualSeason.id, actualSlotDestination.id, actualOwned.id, true, 5, 'stale-owner-id'
@@ -253,6 +253,60 @@ assert.ok(!dataContext.LeagueData.getAvailablePlayers(actualSeason.id).some(p =>
 assert.ok(!dataContext.LeagueData.getAvailablePlayers(actualSeason.id).some(p => p.id === actualOwned.id),
   'transferring a drafted player does not make them available');
 assert.equal(JSON.stringify(savedSeason.playerDraftPicks), historyBefore, 'transfers preserve existing draft history');
+
+// Sequential display numbers are participant-scoped, persisted, and do not
+// modify existing draft records or drafted roster rows.
+const numberedTeam = dataContext.AdminActions.addParticipant(actualSeason.id, 'Numbered Team');
+const shorterTeam = dataContext.AdminActions.addParticipant(actualSeason.id, 'Shorter Team');
+const untouchedTeam = dataContext.AdminActions.addParticipant(actualSeason.id, 'Untouched Team');
+const numberedPicks = [], numberedRoster = [], shorterPicks = [], shorterRoster = [];
+for (let i = 1; i <= 9; i++) {
+  const drafted = dataContext.AdminActions.addPlayer({ name: `Drafted ${i}`, position: ['PG', 'SG', 'SF', 'PF', 'C'][(i - 1) % 5], overall: 75, pool: 'green' });
+  numberedPicks.push({ participantId: numberedTeam.id, playerId: drafted.id, round: 1, pick: i });
+  numberedRoster.push({ playerId: drafted.id, source: 'draft', draftSlot: i });
+  if (i <= 5) {
+    shorterPicks.push({ participantId: shorterTeam.id, playerId: drafted.id, round: 1, pick: i });
+    shorterRoster.push({ playerId: drafted.id, source: 'draft', draftSlot: i, classificationSourcePlayerId: `classification-${i}` });
+  }
+}
+const numberedCache = dataContext.FirebaseSync.getCache();
+const untouchedDrafted = dataContext.AdminActions.addPlayer({ name: 'Untouched Drafted', position: 'C', overall: 75, pool: 'green' });
+numberedCache.seasons[actualSeason.id].playerDraftPicks.push({ participantId: untouchedTeam.id, playerId: untouchedDrafted.id, round: 1, pick: 1 });
+numberedCache.seasons[actualSeason.id].draftComplete = true;
+numberedCache.seasons[actualSeason.id].playerDraftPicks.push(...numberedPicks, ...shorterPicks);
+numberedCache.seasons[actualSeason.id].currentRosters[numberedTeam.id] = numberedRoster;
+numberedCache.seasons[actualSeason.id].currentRosters[shorterTeam.id] = shorterRoster;
+numberedCache.seasons[actualSeason.id].currentRosters[untouchedTeam.id] = [{ playerId: untouchedDrafted.id, source: 'draft' }];
+dataContext.FirebaseSync.save(numberedCache);
+const manualOne = dataContext.AdminActions.addPlayer({ name: 'Manual One', position: 'PG', overall: 75, pool: 'green' });
+const manualTwo = dataContext.AdminActions.addPlayer({ name: 'Manual Two', position: 'SG', overall: 75, pool: 'green' });
+dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, numberedTeam.id, manualOne.id);
+dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, numberedTeam.id, manualTwo.id);
+savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
+const numberedRows = dataContext.LeagueData.getCurrentRoster(actualSeason.id, numberedTeam.id);
+assert.equal(numberedRows.find(e => e.playerId === manualOne.id).displayPickNumber, 10);
+assert.equal(numberedRows.find(e => e.playerId === manualTwo.id).displayPickNumber, 11);
+assert.equal(numberedRows.find(e => e.playerId === manualOne.id).draftSlot, null);
+assert.equal(savedSeason.currentRosters[numberedTeam.id].find(e => e.playerId === manualOne.id).source, 'signed');
+assert.deepEqual(Array.from(numberedRows.filter(e => e.source === 'draft'), e => e.displayPickNumber), [1,2,3,4,5,6,7,8,9]);
+assert.equal(savedSeason.playerDraftPicks.filter(p => p.participantId === numberedTeam.id).length, 9);
+assert.deepEqual(JSON.parse(JSON.stringify(savedSeason.currentRosters[numberedTeam.id].slice(0, 9))), numberedRoster);
+assert.ok(savedSeason.currentRosters[shorterTeam.id].every(entry => !Object.hasOwn(entry, 'displayPickNumber')));
+assert.ok(!Object.hasOwn(savedSeason.currentRosters[untouchedTeam.id][0], 'draftSlot'),
+  'editing one team does not backfill original-slot fields on another participant');
+const shorterManual = dataContext.AdminActions.addPlayer({ name: 'Short Team Manual', position: 'PF', overall: 75, pool: 'green' });
+dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, shorterTeam.id, shorterManual.id);
+savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
+assert.equal(savedSeason.currentRosters[shorterTeam.id].find(e => e.playerId === shorterManual.id).displayPickNumber, 6);
+assert.equal(savedSeason.currentRosters[numberedTeam.id].filter(e => e.source === 'signed').length, 2);
+dataCache = JSON.parse(JSON.stringify(dataContext.FirebaseSync.getCache()));
+assert.equal(dataContext.LeagueData.getCurrentRoster(actualSeason.id, numberedTeam.id).find(e => e.playerId === manualTwo.id).displayPickNumber, 11);
+const manualThree = dataContext.AdminActions.addPlayer({ name: 'Manual Three', position: 'SF', overall: 75, pool: 'green' });
+dataContext.AdminActions.manualAddPlayerToRoster(actualSeason.id, numberedTeam.id, manualThree.id);
+savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
+assert.equal(savedSeason.currentRosters[numberedTeam.id].find(e => e.playerId === manualThree.id).displayPickNumber, 12);
+assert.match(publicRosterSource, /e\.displayPickNumber \?\? e\.draftSlot/);
+assert.match(adminRosterSource, /e\.displayPickNumber \?\? e\.draftSlot/);
 dataContext.AdminActions.manualRemovePlayerFromRoster(actualSeason.id, actualSlotDestination.id, acuff.id);
 assert.ok(dataContext.LeagueData.getAvailablePlayers(actualSeason.id).some(p => p.id === acuff.id),
   'a removed undrafted signing returns to the pool when no active assignment remains');

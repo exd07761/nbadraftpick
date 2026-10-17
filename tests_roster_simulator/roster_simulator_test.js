@@ -59,6 +59,7 @@ function makeSandbox() {
   const counters = { rawSet: 0, save: 0, saveAndConfirm: 0 };
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({
@@ -263,6 +264,18 @@ check('2b. AFTER starts as an exact clone of BEFORE (no changes detected)', () =
   assertEqual(d.removed.length, 0); assertEqual(d.added.length, 0); assertEqual(d.ovrChange, 0);
 });
 
+check('2c. Simulator snapshot and table retain a manual display pick number', () => {
+  const manualEntry = {
+    playerId: 'sim-manual-player', source: 'signed', draftSlot: null, displayPickNumber: 10,
+    player: { id: 'sim-manual-player', name: 'Manual Player', position: 'PG', overall: 75, pool: 'green' },
+    classification: null, isJoker: false, effectivePosition: 'PG',
+  };
+  const snapshot = sim._snapshotEntry(manualEntry);
+  assertEqual(snapshot.displayPickNumber, 10, 'snapshot preserves the display number');
+  const html = sim._renderTable([snapshot], { editable: false, beforeEntries: [], beforeIds: new Set() });
+  assertIncludes(html, '<td>10</td>', 'simulator table renders the manual display number');
+});
+
 // ─── 3. Removing a player ────────────────────────────────────────────────
 check('3. Removing a player opens a slot (slot number kept) and reports it as REMOVED', () => {
   sim.selectManager(alpha.id);
@@ -421,36 +434,37 @@ check('7. BEFORE shows RED, YELLOW, colorless and PINK exactly like the existing
   assertIncludes(c.innerHTML, '🃏');
 });
 
-check('7b. Pool players show the classification the EXISTING helper reports for them', () => {
+check('7b. Pool candidates use helper classifications; historical draft picks stay reserved', () => {
   const c = new FakeContainer();
   sim.selectManager(bravo.id);
   sim.openPicker(0);
   sim.render(c);
-  // B2 was Bravo's original 2nd pick, swapped out: still RED in the pool
+  // B2 was Bravo's original 2nd pick and was swapped out of the roster, but
+  // its immutable draft record keeps it reserved to Bravo.
   const viaHelper = LeagueData.getPlayerClassification(seasonId, B2.id).classification;
   assertEqual(viaHelper, 'RED', 'fixture sanity');
-  const cand = sim._candidates.find((x) => x.id === B2.id);
-  assertEqual(cand.classification, viaHelper, 'candidate tag === LeagueData.getPlayerClassification');
-  assertIncludes(c.innerHTML, classificationBadge('RED'));
-  // undrafted pool players are colorless per the existing helper
-  assertEqual(sim._candidates.find((x) => x.id === P_GREEN_STAR.id).classification,
+  assertFalsy(sim._candidates.some((x) => x.id === B2.id), 'historically drafted B2 remains reserved after leaving its roster');
+  // Available undrafted pool players are colorless per the existing helper.
+  const poolCandidate = sim._candidates.find((x) => x.id === P_GREEN_STAR.id);
+  assertTruthy(poolCandidate, 'available undrafted pool player is offered');
+  assertEqual(poolCandidate.classification,
     LeagueData.getPlayerClassification(seasonId, P_GREEN_STAR.id).classification);
+  assertEqual(poolCandidate.classification, null);
+  assertNotIncludes(sim._renderPickerList(), classificationBadge('RED'), 'picker does not invent a historical tag for pool candidates');
   sim.closePicker();
 });
 
-check('7c. After adding a pool player, the AFTER row carries the same tag the helper gives that player', () => {
+check('7c. After adding an undrafted pool player, the AFTER row carries the helper classification', () => {
   const c = new FakeContainer();
   sim.selectManager(alpha.id);
   const i = idxOfPlayer(sim._after, A6.id);
-  sim.placePlayerAt(i, B2.id); // Bravo's swapped-out RED
-  assertEqual(sim._after[i].classification, LeagueData.getPlayerClassification(seasonId, B2.id).classification);
+  const res = sim.placePlayerAt(i, P_GREEN_STAR.id);
+  assertTruthy(res.ok, `undrafted pool player should be addable: ${res.reason}`);
+  assertEqual(sim._after[i].classification, LeagueData.getPlayerClassification(seasonId, P_GREEN_STAR.id).classification);
+  assertEqual(sim._after[i].classification, null, 'undrafted pool player is colorless');
+  const row = sim._renderTable([sim._after[i]], { editable: false, beforeEntries: [], beforeIds: new Set([P_GREEN_STAR.id]) });
+  assertNotIncludes(row, classificationBadge('RED'), 'AFTER row does not invent a historical tag');
   sim.render(c);
-  assertIncludes(c.innerHTML, classificationBadge('RED'));
-  // a colorless pool player must stay colorless (guards against any hard-coded tag)
-  const j = idxOfPlayer(sim._after, A5.id);
-  sim.placePlayerAt(j, P_GREEN_STAR.id);
-  assertEqual(sim._after[j].classification, LeagueData.getPlayerClassification(seasonId, P_GREEN_STAR.id).classification);
-  assertEqual(sim._after[j].classification, null, 'undrafted pool player is colorless');
   sim.reset();
 });
 
@@ -565,7 +579,8 @@ check('P1. Picker offers pool + own removed players; excludes other managers\' a
   sim.openPicker(i);
   const ids = () => sim._filterCandidates(sim._candidates, sim._after, sim._picker).map((x) => x.id);
   assertTruthy(ids().includes(A6.id), 'the removed player can be added back');
-  assertTruthy(ids().includes(P_GREEN_STAR.id) && ids().includes(P_BLUE_STAR.id) && ids().includes(P_WHITE.id) && ids().includes(B2.id));
+  assertTruthy(ids().includes(P_GREEN_STAR.id) && ids().includes(P_BLUE_STAR.id) && ids().includes(P_WHITE.id));
+  assertFalsy(ids().includes(B2.id), 'Bravo\'s swapped-out historical pick remains reserved to Bravo');
   assertFalsy(ids().includes(B1.id), "Bravo's rostered player is not offered");
   assertFalsy(ids().includes(A1.id), 'a player still on AFTER is not offered');
   sim.placePlayerAt(i, P_WHITE.id);
