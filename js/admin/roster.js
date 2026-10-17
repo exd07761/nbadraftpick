@@ -542,16 +542,17 @@ const AdminRosterView = {
     }
   },
 
-  // ── Revision — Add Joker Swap to Manual Roster Edit: reuses
-  // AdminActions.designateJoker unmodified (the same function
-  // admin/trades.js's Joker tab calls) — this is just an alternate entry
-  // point into that existing logic, not a second Joker implementation.
+  // ── PIN-gated Manual Roster Edit Joker Swap entry point. It shares
+  // designateJoker's core write but opts into the manual-only second-Joker
+  // exception after an explicit confirmation.
   // Pool-agnostic already (Green and Blue both eligible), so no pool
   // branching is needed here either. ─────────────────────────────────────
   _renderJokerSwapPicker(participantId, playerId, seasonId) {
     const player = LeagueData.getPlayer ? LeagueData.getPlayer(playerId) : null;
-    const currentJoker = LeagueData.getJoker(seasonId, participantId);
-    const isCurrentJoker = currentJoker && currentJoker.playerId === playerId;
+    const currentEntry = LeagueData.getCurrentRoster(seasonId, participantId)
+      .find((entry) => entry.playerId === playerId);
+    const isCurrentJoker = !!currentEntry?.isJoker;
+    const canSafelyRemove = !!currentEntry?.jokerOriginalPosition;
     const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
     return `
       <div class="roster-manual-picker card-form" style="margin-top:0.75rem;">
@@ -561,9 +562,12 @@ const AdminRosterView = {
         </div>
         <p class="helper-text">
           ${isCurrentJoker
-            ? `Already this participant's Joker (currently ${escapeHtml(currentJoker.jokerPosition || '')}) — pick a new position to reposition them.`
-            : `Designating a new Joker replaces this participant's current Joker, if any. The Joker keeps their own pool/identity and draft slot — only their roster position changes.`}
+            ? `Already this participant's Joker (currently ${escapeHtml(currentEntry.jokerPosition || '')}) — pick a new position to reposition them.`
+            : `A second Joker can coexist with the current Joker after confirmation. The Joker keeps their own pool/identity and draft slot — only their roster position changes.`}
         </p>
+        ${isCurrentJoker && !canSafelyRemove
+          ? '<p class="error-text">This Joker predates saved position history, so its original roster position cannot be restored safely.</p>'
+          : ''}
         <div class="form-group">
           <label>Assigned position</label>
           <select class="input" id="manualJokerPositionSelect" style="max-width:160px">
@@ -573,6 +577,7 @@ const AdminRosterView = {
         </div>
         <p id="manualJokerError" class="error-text"></p>
         <button type="button" class="btn btn-primary" data-manual-action="confirmJokerSwap" data-participant-id="${participantId}" data-player-id="${playerId}">Apply Joker Swap</button>
+        ${isCurrentJoker ? `<button type="button" class="btn btn-ghost" data-manual-action="removeJoker" data-participant-id="${participantId}" data-player-id="${playerId}" ${canSafelyRemove ? '' : 'disabled'}>Remove Joker</button>` : ''}
       </div>`;
   },
 
@@ -770,21 +775,39 @@ const AdminRosterView = {
           if (errEl) errEl.textContent = 'Select a position.';
           return;
         }
+        const participantId = btn.dataset.participantId;
+        const playerId = btn.dataset.playerId;
+        const currentRoster = FirebaseSync.getCache()?.seasons?.[season.id]?.currentRosters?.[participantId] || [];
+        const targetEntry = currentRoster.find((entry) => entry.playerId === playerId);
+        const createsSecondJoker = !targetEntry?.isJoker
+          && currentRoster.filter((entry) => entry.isJoker).length === 1;
+        if (createsSecondJoker && !window.confirm('Warning: This participant will have two Jokers. Do you want to continue?')) return;
         try {
-          // Reuses the exact same AdminActions.designateJoker call
-          // admin/trades.js's Joker tab uses — no separate Joker logic.
-          // Revision 3: passes bypassRosterRules so a manual Joker
-          // correction isn't blocked by the resulting-position check —
-          // own-pick #1-10 eligibility (inside designateJoker itself) is
-          // never bypassed. See designateJoker's doc comment in data.js.
+          // Manual-only options preserve the ordinary admin/draft rules.
           AdminActions.designateJoker(
-            season.id, btn.dataset.participantId, btn.dataset.playerId, position,
-            { bypassRosterRules: true }
+            season.id, participantId, playerId, position,
+            { bypassRosterRules: true, allowSecondJokerManual: createsSecondJoker, captureJokerOriginalPosition: true }
           );
           showToast('Joker Swap applied.', 'success');
           this._manualJokerFor = null;
           AdminApp.renderView('roster');
         } catch (e) {
+          if (errEl) errEl.textContent = e.message;
+          else showToast(e.message, 'error');
+        }
+      };
+    });
+
+    container.querySelectorAll('[data-manual-action="removeJoker"]').forEach(btn => {
+      btn.onclick = () => {
+        AuthBoundary.requireAuth();
+        try {
+          AdminActions.manualRemoveJoker(season.id, btn.dataset.participantId, btn.dataset.playerId);
+          showToast('Joker removed and original roster position restored.', 'success');
+          this._manualJokerFor = null;
+          AdminApp.renderView('roster');
+        } catch (e) {
+          const errEl = document.getElementById('manualJokerError');
           if (errEl) errEl.textContent = e.message;
           else showToast(e.message, 'error');
         }
