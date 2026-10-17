@@ -681,6 +681,7 @@ function getPlayerClassificationInfo(season, playerId) {
  */
 function getEffectivePosition(entry, player) {
   if (entry.isJoker && entry.jokerPosition) return entry.jokerPosition;
+  if (entry.rosterPosition) return entry.rosterPosition;
   return player ? player.position : undefined;
 }
 
@@ -3394,6 +3395,13 @@ const LeagueData = {
       .map((p) => ({ ...p, classification: getPlayerClassificationInfo(season, p.id).classification }));
   },
 
+  // Manual editing intentionally sees catalog identities regardless of
+  // free-agent or draft-history status. Owned choices still pass through
+  // the editor's confirmation-gated transfer path.
+  getManualRosterCatalogPlayers(seasonId) {
+    return this.getAllPlayers(seasonId);
+  },
+
   /**
    * A participant's first current Joker entry, if any. Manual Roster Edit
    * may allow a second after confirmation; callers needing all Joker entries
@@ -3472,9 +3480,8 @@ const LeagueData = {
    * MAX_PLAYERS_PER_POSITION, MAX_ROSTER_SIZE, getOriginalPickInfo — so
    * this never invents a second copy of any roster rule. "Available" is
    * still derived from currentRosters membership only (see
-   * getSwapEligibleReplacements) — there is no second available-player
-   * list for this to conflict with, so no separate "pool integrity" check
-   * is needed beyond the duplicate-ownership check below.
+   * getSwapEligibleReplacements). Manual catalog visibility is intentionally
+   * broader, so scope and pool integrity are diagnosed explicitly below.
    *
    * Returns:
    *   {
@@ -3593,7 +3600,7 @@ const LeagueData = {
       const jokerEntries = roster.filter((e) => e.isJoker);
       if (jokerEntries.length > 1) {
         addError(participantId, "JOKER_MULTIPLE",
-          `${jokerEntries.length} players are marked as Joker on this roster — only one is allowed at a time.`);
+          `${jokerEntries.length} players are marked as Joker on this roster — ordinary roster rules allow one.`);
       }
       for (const entry of jokerEntries) {
         const p = entry.playerId ? playersById[entry.playerId] : null;
@@ -3608,6 +3615,44 @@ const LeagueData = {
           addError(participantId, "JOKER_ELIGIBILITY",
             `${p.name} is marked Joker but is not on one of this participant's own picks #1-10 ` +
             `(draftSlot: ${entry.draftSlot ?? "none"}).`);
+        }
+      }
+
+      // Report invalid pool scope while tolerating legacy roster IDs whose
+      // stable catalog identity is present in the active live scope.
+      for (const entry of resolvableEntries) {
+        const player = playersById[entry.playerId];
+        if (player.pool != null && !["green", "blue", "white"].includes(String(player.pool).toLowerCase())) {
+          addError(participantId, "INVALID_PLAYER_POOL",
+            `${player.name} has an unsupported pool assignment (${player.pool}).`);
+        }
+        if (!season.playerPoolScope || player.seasonId === season.playerPoolScope) continue;
+        const matchingScopedCatalogEntry = Object.values(playersById).some(candidate =>
+          candidate.seasonId === season.playerPoolScope
+          && player.nba2kRef
+          && candidate.nba2kRef === player.nba2kRef
+          && String(candidate.pool || "").toLowerCase() === String(player.pool || "").toLowerCase()
+        );
+        if (matchingScopedCatalogEntry) {
+          addWarning(participantId, "LEGACY_PLAYER_SCOPE_ALIAS",
+            `${player.name} is a legacy roster record matched to the current pool by stable identity.`);
+        } else {
+          addError(participantId, "PLAYER_SEASON_SCOPE",
+            `${player.name} is outside this season's player-pool scope.`);
+        }
+      }
+
+      for (const entry of resolvableEntries) {
+        if (entry.source !== "draft") continue;
+        const historicalPick = (season.playerDraftPicks || []).find(pick => pick.playerId === entry.playerId);
+        if (!historicalPick || historicalPick.participantId !== participantId) {
+          addWarning(participantId, "DRAFT_HISTORY_MISMATCH",
+            `${playersById[entry.playerId].name} is marked as a draft entry but does not match this participant's draft history.`);
+        } else if (entry.draftSlot != null && entry.draftSlot !==
+          (season.playerDraftPicks.filter(pick => pick.participantId === participantId)
+            .findIndex(pick => pick.playerId === entry.playerId) + 1)) {
+          addWarning(participantId, "DRAFT_SLOT_HISTORY_MISMATCH",
+            `${playersById[entry.playerId].name} occupies draft slot ${entry.draftSlot}, which differs from its chronological own-pick slot.`);
         }
       }
 
@@ -6417,13 +6462,12 @@ const AdminActions = {
   },
 
   /**
-   * Rule C (revised): designates one of a participant's own picks #1-10 as
-   * their Joker (PINK). Joker eligibility is no longer restricted to picks
-   * #6-10 — any of a participant's first 10 own picks qualifies. A second
-   * Joker is permitted only when the participant's first four chronological
-   * picks are Green, except in PIN-gated Manual Roster Edit after explicit
-   * confirmation; a third is rejected. Designating another eligible
-   * player preserves existing Joker flags. The player's original
+   * Rule C (revised): ordinarily designates one of a participant's own
+   * picks #1-10 as their Joker (PINK). A second Joker is permitted only
+   * when the first four chronological picks are Green; ordinary designation
+   * still rejects a third. The explicit manualRosterEdit option skips Joker
+   * gameplay eligibility/count restrictions only for PIN-gated manual edits.
+   * Designating another eligible player preserves existing Joker flags. The player's original
    * draft history (playerDraftPicks) is untouched, and their original
    * Red/Yellow classification (picks #1-2 / #3-5) is simply overridden by
    * PINK while they remain the Joker — see getPlayerClassificationInfo.
@@ -6467,17 +6511,17 @@ const AdminActions = {
     // inherit at all) is ALSO eligible now, via the same
     // isJokerEligibleRosterEntry rule getJokerEligiblePlayers uses, so
     // the 🃏 button and this check can never disagree.
-    if (!isJokerEligibleRosterEntry({ ownPickNumber: entry.draftSlot, source: entry.source, draftSlot: entry.draftSlot })) {
+    if (!options.manualRosterEdit && !isJokerEligibleRosterEntry({ ownPickNumber: entry.draftSlot, source: entry.source, draftSlot: entry.draftSlot })) {
       throw new Error(
         "Joker must be one of this participant's own picks #1-10, or a manually added player."
       );
     }
 
     const existingJokers = roster.filter((e) => e.isJoker).length;
-    if (!entry.isJoker && existingJokers >= 2) {
+    if (!options.manualRosterEdit && !entry.isJoker && existingJokers >= 2) {
       throw new Error("A participant may have at most two Jokers.");
     }
-    if (!entry.isJoker && existingJokers === 1 && !options.allowSecondJokerManual) {
+    if (!options.manualRosterEdit && !entry.isJoker && existingJokers === 1) {
       const participantPicks = (season.playerDraftPicks || [])
         .filter((pick) => pick.participantId === participantId);
       const firstFourAreGreen = participantPicks.length >= 4 && participantPicks
@@ -6492,11 +6536,11 @@ const AdminActions = {
     const afterEntries = roster.map((e) => {
       if (e.playerId !== playerId) return { ...e };
       const updated = { ...e, isJoker: true, jokerPosition };
-      // Only the PIN-gated manual editor captures the pre-Joker effective
-      // position. Existing Jokers without this field remain unknown rather
-      // than guessing from a player's natural position during removal.
+      // Only the PIN-gated manual editor captures the pre-Joker assigned
+      // position. Legacy entries remain unknown; removal asks for explicit
+      // confirmation before using the player's canonical position as fallback.
       if (!e.isJoker && options.captureJokerOriginalPosition) {
-        updated.jokerOriginalPosition = getEffectivePosition(e, player);
+        updated.jokerOriginalPosition = e.rosterPosition || getEffectivePosition(e, player);
       }
       return updated;
     });
@@ -6533,7 +6577,7 @@ const AdminActions = {
   },
 
   /** Removes a Joker only for Manual Roster Edit, restoring its saved position. */
-  manualRemoveJoker(seasonId, participantId, playerId) {
+  manualRemoveJoker(seasonId, participantId, playerId, options = {}) {
     const data = loadData(seasonId);
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
@@ -6541,8 +6585,13 @@ const AdminActions = {
     const roster = season.currentRosters?.[participantId];
     const entry = roster?.find((e) => e.playerId === playerId);
     if (!entry || !entry.isJoker) throw new Error("Player is not currently designated as a Joker.");
-    if (!entry.jokerOriginalPosition) {
-      throw new Error("Cannot safely remove this Joker because its original roster position was not saved.");
+    const savedPosition = entry.jokerOriginalPosition;
+    if (!savedPosition && !options.confirmedFallback) {
+      throw new Error("Original position is unknown. Confirm removal to restore the player's canonical position as a fallback.");
+    }
+    const restoredPosition = savedPosition || data.players[playerId]?.position;
+    if (!CORE_POSITIONS.includes(restoredPosition)) {
+      throw new Error("Cannot remove this Joker because no valid canonical fallback position is available.");
     }
 
     season.currentRosters[participantId] = roster.map((e) => {
@@ -6551,6 +6600,7 @@ const AdminActions = {
       delete restored.isJoker;
       delete restored.jokerPosition;
       delete restored.jokerOriginalPosition;
+      restored.rosterPosition = restoredPosition;
       return restored;
     });
     saveData(data);

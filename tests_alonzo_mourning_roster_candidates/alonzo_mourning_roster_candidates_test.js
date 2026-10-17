@@ -42,12 +42,17 @@ function buildScenario(targetDraftSlot = null) {
     name: 'Marcus Camby (DEN)', position: 'C', overall: 85, pool: 'blue', nba2kRef: 'marcus-camby-all-time-denver-nuggets',
   });
   const swapIn = dataContext.AdminActions.addPlayer({ name: 'Swap Replacement', position: 'PF', overall: 85, pool: 'blue' });
+  const historicalFreeRecord = dataContext.AdminActions.addPlayer({
+    name: 'Historical Free Record', position: 'SF', overall: 80, pool: 'blue',
+    nba2kRef: 'historical-free-record',
+  });
   const seasonData = cache.seasons[season.id];
   seasonData.playerPoolScope = LIVE_SCOPE;
   seasonData.rostersInitialized = true;
   seasonData.ratingCap = 875;
   seasonData.currentSeasonDay = 1;
   seasonData.playerDraftPicks = [{ participantId: maca.id, playerId: legacyAlonzo.id, round: 1, pick: 1 }];
+  seasonData.playerDraftPicks.push({ participantId: maca.id, playerId: historicalFreeRecord.id, round: 1, pick: 2 });
   seasonData.currentRosters = {
     [maca.id]: [
       { playerId: legacyAlonzo.id, source: 'draft', draftSlot: 1 },
@@ -61,6 +66,7 @@ function buildScenario(targetDraftSlot = null) {
   Object.assign(cache.players[legacyAlonzo.id], legacyAlonzo, { team: 'All-Time Miami Heat' });
   Object.assign(cache.players[camby.id], camby, { seasonId: LIVE_SCOPE });
   Object.assign(cache.players[swapIn.id], swapIn, { seasonId: LIVE_SCOPE });
+  Object.assign(cache.players[historicalFreeRecord.id], historicalFreeRecord, { seasonId: LIVE_SCOPE });
 
   // The authoritative current scoped catalog record and the separate CHA
   // variant. The old roster assignment above keeps its seeded player ID.
@@ -74,6 +80,7 @@ function buildScenario(targetDraftSlot = null) {
   };
   cache.players[liveMia.id] = liveMia;
   cache.players[liveCha.id] = liveCha;
+  cache.players[historicalFreeRecord.id].seasonId = LIVE_SCOPE;
   dataContext.FirebaseSync.save(cache);
 
   // Marcus Camby is swapped out; the All-Time Miami record remains actively
@@ -112,12 +119,12 @@ function buildScenario(targetDraftSlot = null) {
       uiContext.AdminRosterView._bindManualEditActions(pickerRoot, dataContext.LeagueData.getSeason(season.id));
     }
   };
-  return { dataContext, uiContext, season, maca, destination, legacyAlonzo, liveCha, targetDraftSlot, pickerRoot };
+  return { dataContext, uiContext, season, maca, destination, legacyAlonzo, liveCha, historicalFreeRecord, targetDraftSlot, pickerRoot };
 }
 
 function exerciseTransfer(targetDraftSlot) {
   const fixture = buildScenario(targetDraftSlot);
-  const { dataContext, uiContext, season, maca, destination, legacyAlonzo, liveCha, pickerRoot } = fixture;
+  const { dataContext, uiContext, season, maca, destination, legacyAlonzo, liveCha, historicalFreeRecord, pickerRoot } = fixture;
   const view = uiContext.AdminRosterView;
   view._manualAddTarget = destination.id;
   view._manualReplaceOutgoing = null;
@@ -137,6 +144,11 @@ function exerciseTransfer(targetDraftSlot) {
   assert.equal(charlotte.id, liveCha.id);
   assert.equal(charlotte.overall, 89);
   assert.notEqual(charlotte.id, selected.id, 'the 89 OVR CHA variant remains distinct');
+  assert.ok(candidates.some(p => p.id === historicalFreeRecord.id),
+    'historically drafted but currently unowned catalog player is manually selectable');
+  assert.ok(!dataContext.LeagueData.getSwapEligibleReplacements(season.id, 'blue')
+    .some(p => p.id === historicalFreeRecord.id),
+  'ordinary free-agent eligibility continues excluding historical picks');
 
   if (targetDraftSlot == null) {
     const markup = view._renderManualPicker(destination.id, season.id);
@@ -170,6 +182,7 @@ function exerciseTransfer(targetDraftSlot) {
   assert.equal(after.transactions.at(-1).type, 'manualRosterTransfer');
   assert.deepEqual(JSON.parse(JSON.stringify(after.playerDraftPicks)), [
     { participantId: maca.id, playerId: legacyAlonzo.id, round: 1, pick: 1 },
+    { participantId: maca.id, playerId: historicalFreeRecord.id, round: 1, pick: 2 },
   ], 'the original historical draft record is preserved');
   assert.ok(dataContext.LeagueData.getSwapEligibleReplacements(season.id, 'blue').every(p => p.id !== legacyAlonzo.id),
     'transfer does not make the historical player available as a free agent');
