@@ -146,7 +146,7 @@ function createSeason(id, name) {
     // Single source of truth for "who has which player right now".
     ratingCap: 875,       // max total OVR allowed per roster; enforced at draft time (makeDraftPick) and by Phase 5 trades/swaps
     rostersInitialized: false,
-    // currentRosters[participantId] = [{ playerId, source, isJoker?, jokerPosition?, draftSlot? }]
+    // currentRosters[participantId] = [{ playerId, source, isJoker?, jokerPosition?, jokerOriginalPosition?, draftSlot? }]
     //   source: 'draft' | 'trade' | 'swap' | 'manual' | 'empty'
     //   isJoker/jokerPosition: set only for the participant's designated Joker
     //   (Phase 5) — see AdminActions.designateJoker. Absent on every other entry.
@@ -3395,8 +3395,9 @@ const LeagueData = {
   },
 
   /**
-   * A participant's current Joker entry, if any (there can be at most one
-   * per participant at a time — see AdminActions.designateJoker).
+   * A participant's first current Joker entry, if any. Manual Roster Edit
+   * may allow a second after confirmation; callers needing all Joker entries
+   * should inspect getCurrentRoster instead.
    */
   getJoker(seasonId, participantId) {
     const season = this.getSeason(seasonId);
@@ -6420,7 +6421,8 @@ const AdminActions = {
    * their Joker (PINK). Joker eligibility is no longer restricted to picks
    * #6-10 — any of a participant's first 10 own picks qualifies. A second
    * Joker is permitted only when the participant's first four chronological
-   * picks are Green; a third is rejected. Designating another eligible
+   * picks are Green, except in PIN-gated Manual Roster Edit after explicit
+   * confirmation; a third is rejected. Designating another eligible
    * player preserves existing Joker flags. The player's original
    * draft history (playerDraftPicks) is untouched, and their original
    * Red/Yellow classification (picks #1-2 / #3-5) is simply overridden by
@@ -6434,9 +6436,13 @@ const AdminActions = {
    * js/admin/roster.js's Joker Swap entry point inside the PIN-gated
    * manual editor. admin/trades.js's ordinary Joker tab calls this with no
    * options, so normal Joker designation is completely unaffected. This is
-   * still the same single Joker mechanism — own-pick #1-10 eligibility
-   * below is unconditional either way; only the resulting-position check
-   * is ever bypassed.
+   * options.allowSecondJokerManual (default false) skips only the
+   * first-four-Green second-Joker restriction. It is set only by the
+   * PIN-gated Manual Roster Edit flow after the user confirms. A third Joker
+   * remains prohibited for every caller. options.bypassRosterRules affects
+   * only the resulting-position check. options.captureJokerOriginalPosition
+   * records the pre-designation effective position for safe Manual Roster
+   * Edit removal; ordinary designation does not add this field.
    */
   designateJoker(seasonId, participantId, playerId, jokerPosition, options = {}) {
     if (!jokerPosition) throw new Error("A Joker requires an assigned roster position.");
@@ -6471,7 +6477,7 @@ const AdminActions = {
     if (!entry.isJoker && existingJokers >= 2) {
       throw new Error("A participant may have at most two Jokers.");
     }
-    if (!entry.isJoker && existingJokers === 1) {
+    if (!entry.isJoker && existingJokers === 1 && !options.allowSecondJokerManual) {
       const participantPicks = (season.playerDraftPicks || [])
         .filter((pick) => pick.participantId === participantId);
       const firstFourAreGreen = participantPicks.length >= 4 && participantPicks
@@ -6482,11 +6488,18 @@ const AdminActions = {
       }
     }
 
-    const afterEntries = roster.map((e) =>
-      e.playerId === playerId
-        ? { ...e, isJoker: true, jokerPosition }
-        : { ...e }
-    );
+    const player = data.players[playerId];
+    const afterEntries = roster.map((e) => {
+      if (e.playerId !== playerId) return { ...e };
+      const updated = { ...e, isJoker: true, jokerPosition };
+      // Only the PIN-gated manual editor captures the pre-Joker effective
+      // position. Existing Jokers without this field remain unknown rather
+      // than guessing from a player's natural position during removal.
+      if (!e.isJoker && options.captureJokerOriginalPosition) {
+        updated.jokerOriginalPosition = getEffectivePosition(e, player);
+      }
+      return updated;
+    });
     if (!options.bypassRosterRules) {
       const posCheck = validateResultingPositions(roster, afterEntries, data.players);
       if (!posCheck.valid) throw new Error(posCheck.reason);
@@ -6516,6 +6529,30 @@ const AdminActions = {
       approvedBy: "commissioner",
     });
 
+    saveData(data);
+  },
+
+  /** Removes a Joker only for Manual Roster Edit, restoring its saved position. */
+  manualRemoveJoker(seasonId, participantId, playerId) {
+    const data = loadData(seasonId);
+    const season = data.seasons[seasonId];
+    if (!season) throw new Error("Season not found");
+    if (!season.rostersInitialized) throw new Error("Rosters must be initialized before removing a Joker.");
+    const roster = season.currentRosters?.[participantId];
+    const entry = roster?.find((e) => e.playerId === playerId);
+    if (!entry || !entry.isJoker) throw new Error("Player is not currently designated as a Joker.");
+    if (!entry.jokerOriginalPosition) {
+      throw new Error("Cannot safely remove this Joker because its original roster position was not saved.");
+    }
+
+    season.currentRosters[participantId] = roster.map((e) => {
+      if (e.playerId !== playerId) return { ...e };
+      const restored = { ...e };
+      delete restored.isJoker;
+      delete restored.jokerPosition;
+      delete restored.jokerOriginalPosition;
+      return restored;
+    });
     saveData(data);
   },
 
