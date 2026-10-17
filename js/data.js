@@ -6418,10 +6418,10 @@ const AdminActions = {
   /**
    * Rule C (revised): designates one of a participant's own picks #1-10 as
    * their Joker (PINK). Joker eligibility is no longer restricted to picks
-   * #6-10 — any of a participant's first 10 own picks qualifies. Only one
-   * Joker per participant at a time — designating a new one first clears
-   * any existing Joker flag for that participant (does not remove the
-   * player, only the isJoker/jokerPosition tag). The player's original
+   * #6-10 — any of a participant's first 10 own picks qualifies. A second
+   * Joker is permitted only when the participant's first four chronological
+   * picks are Green; a third is rejected. Designating another eligible
+   * player preserves existing Joker flags. The player's original
    * draft history (playerDraftPicks) is untouched, and their original
    * Red/Yellow classification (picks #1-2 / #3-5) is simply overridden by
    * PINK while they remain the Joker — see getPlayerClassificationInfo.
@@ -6467,10 +6467,25 @@ const AdminActions = {
       );
     }
 
+    const existingJokers = roster.filter((e) => e.isJoker).length;
+    if (!entry.isJoker && existingJokers >= 2) {
+      throw new Error("A participant may have at most two Jokers.");
+    }
+    if (!entry.isJoker && existingJokers === 1) {
+      const participantPicks = (season.playerDraftPicks || [])
+        .filter((pick) => pick.participantId === participantId);
+      const firstFourAreGreen = participantPicks.length >= 4 && participantPicks
+        .slice(0, 4)
+        .every((pick) => data.players[pick.playerId]?.pool === "green");
+      if (!firstFourAreGreen) {
+        throw new Error("A second Joker is allowed only when the participant's first four picks are all Green Pool players.");
+      }
+    }
+
     const afterEntries = roster.map((e) =>
       e.playerId === playerId
         ? { ...e, isJoker: true, jokerPosition }
-        : { ...e, isJoker: false, jokerPosition: undefined }
+        : { ...e }
     );
     if (!options.bypassRosterRules) {
       const posCheck = validateResultingPositions(roster, afterEntries, data.players);

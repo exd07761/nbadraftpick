@@ -33,6 +33,7 @@ const dataSrc = fs.readFileSync(dataJsPath, 'utf8');
 function makeSandbox() {
   const sandbox = {
     console,
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({
@@ -212,6 +213,73 @@ console.log('Joker Eligibility for Plain Manual Additions -- regression tests\n'
   check('non-manual player with no draftSlot CANNOT be designated Joker', () => {
     const err = assertThrows(() => AdminActions.designateJoker(seasonId, participant.id, swapPlayer.id, 'PF'));
     assertTrue(/own picks #1-10|manually added/.test(err.message), `unexpected error message: ${err.message}`);
+  });
+}
+
+
+function buildSecondJokerScenario(firstFourPools = ['green', 'green', 'green', 'green']) {
+  const sandbox = makeSandbox();
+  const { AdminActions } = sandbox;
+  const season = AdminActions.createSeason('Second Joker Manual Edit Test Season');
+  const participant = AdminActions.addParticipant(season.id, 'Alice');
+  const openingPicks = firstFourPools.map((pool, i) => AdminActions.addPlayer({
+    name: `Opening Pick ${i + 1}`, position: ['PG', 'SG', 'SF', 'PF'][i], overall: 80, pool,
+  }));
+  const second = AdminActions.addPlayer({ name: 'Second Joker Candidate', position: 'C', overall: 81, pool: 'green' });
+  const third = AdminActions.addPlayer({ name: 'Third Joker Candidate', position: 'C', overall: 82, pool: 'green' });
+  const s = sandbox.FirebaseSync.getCache().seasons[season.id];
+  s.rostersInitialized = true;
+  s.ratingCap = 875;
+  s.playerDraftPicks = openingPicks.map((p, i) => ({
+    participantId: participant.id, playerId: p.id, round: 1, pick: i + 1,
+    ...(i === 0 ? { isJoker: true, jokerPosition: 'PG' } : {}),
+  }));
+  s.currentRosters = {
+    [participant.id]: [
+      ...openingPicks.map((p, i) => ({
+        playerId: p.id, source: 'draft', draftSlot: i + 1,
+        ...(i === 0 ? { isJoker: true, jokerPosition: 'PG' } : {}),
+      })),
+      { playerId: second.id, source: 'signed', draftSlot: null },
+      { playerId: third.id, source: 'signed', draftSlot: null },
+    ],
+  };
+  return { sandbox, seasonId: season.id, participant, openingPicks, second, third };
+}
+
+{
+  const { sandbox, seasonId, participant, openingPicks, second, third } = buildSecondJokerScenario();
+  const { AdminActions, LeagueData } = sandbox;
+  const before = LeagueData.getRosterSummary(seasonId).find((r) => r.participant.id === participant.id)
+    .rosterEntries.reduce((sum, e) => sum + e.player.overall, 0);
+  check('Manual Edit Roster adds an eligible second Joker and preserves the first', () => {
+    AdminActions.designateJoker(seasonId, participant.id, second.id, 'C', { bypassRosterRules: true });
+    const roster = sandbox.FirebaseSync.getCache().seasons[seasonId].currentRosters[participant.id];
+    assertTrue(roster.filter((e) => e.isJoker).length === 2, 'expected two Joker flags');
+    assertTrue(roster.find((e) => e.playerId === openingPicks[0].id).isJoker, 'first Joker must remain designated');
+    assertTrue(roster.find((e) => e.playerId === second.id).isJoker, 'eligible second player must be designated');
+  });
+  check('a third Joker remains prohibited', () => {
+    const err = assertThrows(() => AdminActions.designateJoker(seasonId, participant.id, third.id, 'C', { bypassRosterRules: true }));
+    assertTrue(/at most two Jokers/.test(err.message), `unexpected error: ${err.message}`);
+  });
+  check('adding a Joker does not discount OVR or change the 875 cap calculation', () => {
+    const roster = LeagueData.getRosterSummary(seasonId).find((r) => r.participant.id === participant.id);
+    const after = roster.rosterEntries.reduce((sum, e) => sum + e.player.overall, 0);
+    assertTrue(after === before, `OVR changed from ${before} to ${after}`);
+    assertTrue(after <= 875, `roster unexpectedly exceeds 875 OVR: ${after}`);
+  });
+}
+
+{
+  const { sandbox, seasonId, participant, second } = buildSecondJokerScenario(['green', 'green', 'green', 'blue']);
+  check('a second Joker is rejected when a first-four chronological pick is not Green', () => {
+    const err = assertThrows(() => sandbox.AdminActions.designateJoker(
+      seasonId, participant.id, second.id, 'C', { bypassRosterRules: true }
+    ));
+    assertTrue(/first four picks are all Green Pool players/.test(err.message), `unexpected error: ${err.message}`);
+    const roster = sandbox.FirebaseSync.getCache().seasons[seasonId].currentRosters[participant.id];
+    assertTrue(roster.filter((e) => e.isJoker).length === 1, 'rejection must preserve the original Joker');
   });
 }
 
