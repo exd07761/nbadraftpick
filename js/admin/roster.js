@@ -288,14 +288,13 @@ const AdminRosterView = {
         <div class="roster-manual-editor-controls">
           ${showPicker ? '' : `<button type="button" class="btn btn-ghost" data-manual-action="openAdd" data-participant-id="${participant.id}">+ Add Player</button>`}
         </div>
-        ${showPicker && !this._manualReplaceOutgoing && this._manualFillSlot == null ? this._renderManualPicker(participant.id, seasonId) : ''}
         ${showJokerPicker ? this._renderJokerSwapPicker(participant.id, this._manualJokerFor.playerId, seasonId) : ''}
         ` : ''}
       </div>`;
   },
 
   _renderReplaceModal(seasonId) {
-    if (!this._manualAddTarget || (!this._manualReplaceOutgoing && this._manualFillSlot == null)) return '';
+    if (!this._manualAddTarget) return '';
     const isReplacement = !!this._manualReplaceOutgoing;
     const isFillSlot = this._manualFillSlot != null;
     const player = isReplacement ? LeagueData.getPlayer(this._manualReplaceOutgoing, seasonId) : null;
@@ -304,7 +303,7 @@ const AdminRosterView = {
     const selected = this._manualSelectedPlayer ? LeagueData.getPlayer(this._manualSelectedPlayer, seasonId) : null;
     const q = (this._manualSearch || '').trim().toLowerCase();
     const candidates = this._getManualReplaceCandidates(seasonId)
-      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.position || '').toLowerCase().includes(q));
+      .filter(p => this._matchesManualPlayerSearch(p, q));
     const selectedCandidate = candidates.find(p => p.id === this._manualSelectedPlayer)
       || (selected ? this._getManualReplaceCandidates(seasonId, selected.pool).find(p => p.id === this._manualSelectedPlayer) : null);
     const transferPending = !!selected && this._manualTransferOwner?.playerId === selected.id;
@@ -315,11 +314,21 @@ const AdminRosterView = {
         <div class="manual-roster-modal-body">${isReplacement ? `<p class="helper-text">Replacing <strong>${escapeHtml(player?.name || 'player')}</strong> · ${player?.overall ?? '—'} OVR</p>` : `<p class="helper-text">Signing to <strong>${escapeHtml(destination?.name || 'participant')}</strong>${isFillSlot ? ` · Draft slot #${this._manualFillSlot}` : ''}</p>`}
           <div class="pool-tabs"><button type="button" class="pool-tab pool-tab-green ${this._manualAddPool === 'green' ? 'active' : ''}" data-manual-pool="green">Green</button><button type="button" class="pool-tab pool-tab-blue ${this._manualAddPool === 'blue' ? 'active' : ''}" data-manual-pool="blue">Blue</button><button type="button" class="pool-tab pool-tab-white ${this._manualAddPool === 'white' ? 'active' : ''}" data-manual-pool="white">White</button></div>
           <label class="sr-only" for="manualPickerSearch">Search available players</label><input type="search" class="input" id="manualPickerSearch" placeholder="Search available players…" value="${escapeHtml(this._manualSearch)}">
-          <div class="manual-roster-candidates">${candidates.length ? candidates.map(p => `<button type="button" class="manual-roster-candidate ${selected?.id === p.id ? 'is-selected' : ''}" aria-pressed="${selected?.id === p.id}" data-manual-action="selectReplace" data-player-id="${escapeHtml(p.id)}"><span class="manual-candidate-main"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.team || 'Team unavailable')} · ${escapeHtml(p.position || '—')} · ${escapeHtml(poolLabel(p.pool))}</small><small class="manual-candidate-owner ${p.ownerId ? 'is-owned' : 'is-available'}">${p.ownerId ? `OWNED BY ${escapeHtml(p.ownerName)}` : 'AVAILABLE · UNOWNED'}</small></span><strong class="manual-candidate-ovr">${p.overall ?? '—'} <small>OVR</small></strong></button>`).join('') : '<p class="muted">No available players match.</p>'}</div>
+          <div class="manual-roster-candidates">${this._renderManualCandidateButtons(candidates, selected?.id)}</div>
           ${selected ? `<div class="manual-roster-selected"><span>Selected</span><strong>${escapeHtml(selected.name)}</strong><b>${selected.overall ?? '—'} OVR</b>${selectedCandidate?.ownerId ? `<small>Owned by ${escapeHtml(selectedCandidate.ownerName)}</small>` : ''}</div>` : '<p class="muted">Select a player to continue.</p>'}
           ${transferPending ? `<div class="manual-transfer-warning" role="alert"><strong>Transfer ${escapeHtml(selected.name)}?</strong><p>Currently owned by <strong>${escapeHtml(this._manualTransferOwner.ownerName)}</strong>. Transfer to <strong>${escapeHtml(this._manualTransferOwner.destinationName)}</strong>${isReplacement ? ` and replace ${escapeHtml(player?.name || 'the outgoing player')}` : isFillSlot ? ` and fill draft slot #${this._manualFillSlot}` : ''}?</p><button type="button" class="btn btn-ghost" data-manual-action="cancelReplaceTransfer">Cancel</button> <button type="button" class="btn btn-primary" data-manual-action="confirmReplaceTransfer">Transfer &amp; Sign</button></div>` : ''}
         </div><footer class="manual-roster-modal-footer"><button type="button" class="btn btn-ghost" data-manual-action="closePicker">Cancel</button><button type="button" class="btn btn-primary" data-manual-action="${isReplacement ? 'modalConfirmReplace' : 'modalConfirmSign'}" ${selected && !transferPending ? '' : 'disabled'}>${isReplacement ? 'Confirm Replace' : isFillSlot ? 'Sign to Draft Slot' : 'Sign Player'}</button></footer>
       </section></div>`;
+  },
+
+  _matchesManualPlayerSearch(player, query) {
+    if (!query) return true;
+    return [player.name, player.position, player.team]
+      .some(value => String(value || '').toLowerCase().includes(query));
+  },
+
+  _renderManualCandidateButtons(candidates, selectedPlayerId) {
+    return candidates.length ? candidates.map(p => `<button type="button" class="manual-roster-candidate ${selectedPlayerId === p.id ? 'is-selected' : ''}" aria-pressed="${selectedPlayerId === p.id}" data-manual-action="selectReplace" data-player-id="${escapeHtml(p.id)}"><span class="manual-candidate-main"><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.team || 'Team unavailable')} · ${escapeHtml(p.position || '—')} · ${escapeHtml(poolLabel(p.pool))}</small><small class="manual-candidate-owner ${p.ownerId ? 'is-owned' : 'is-available'}">${p.ownerId ? `OWNED BY ${escapeHtml(p.ownerName)}` : 'AVAILABLE · UNOWNED'}</small></span><strong class="manual-candidate-ovr">${p.overall ?? '—'} <small>OVR</small></strong></button>`).join('') : '<p class="muted">No available players match.</p>';
   },
 
   _getManualReplaceCandidates(seasonId, pool = this._manualAddPool) {
@@ -332,10 +341,15 @@ const AdminRosterView = {
     LeagueData.getRosterSummary(seasonId).forEach(summary => {
       if (summary.participant.id === participantId) return;
       summary.rosterEntries.forEach(entry => {
-        const p = entry.player;
+        const p = entry.player || LeagueData.getPlayer(entry.playerId, seasonId);
         if (!p || entry.source === 'empty' || !p.id || String(p.pool || '').toLowerCase() !== selectedPool) return;
-        if (season?.playerPoolScope && p.seasonId !== season.playerPoolScope) return;
-        if (!byId.has(p.id)) byId.set(p.id, { ...p, ownerId: summary.participant.id, ownerName: summary.participant.name });
+        // Legacy roster records may lack seasonId, but an explicit different
+        // scope must never leak into this season's player picker.
+        if (season?.playerPoolScope && p.seasonId != null && p.seasonId !== season.playerPoolScope) return;
+        const ownedCandidate = { ...p, ownerId: summary.participant.id, ownerName: summary.participant.name };
+        // Roster ownership is authoritative if a stale availability snapshot
+        // also contains this ID: keep one row and route it through transfer.
+        byId.set(p.id, ownedCandidate);
       });
     });
     byId.delete(this._manualReplaceOutgoing);
@@ -343,8 +357,18 @@ const AdminRosterView = {
   },
 
   _mountReplaceModal(seasonId) {
-    document.getElementById('manualReplacePlayerOverlay')?.remove();
-    if (!this._manualAddTarget || (!this._manualReplaceOutgoing && this._manualFillSlot == null)) {
+    const previousOverlay = document.getElementById('manualReplacePlayerOverlay');
+    const activeElement = document.activeElement;
+    const focusState = previousOverlay?.contains(activeElement) ? {
+      action: activeElement.dataset?.manualAction || null,
+      playerId: activeElement.dataset?.playerId || null,
+      pool: activeElement.dataset?.manualPool || null,
+      inputId: activeElement.id || null,
+      selectionStart: activeElement.id === 'manualPickerSearch' ? activeElement.selectionStart : null,
+      selectionEnd: activeElement.id === 'manualPickerSearch' ? activeElement.selectionEnd : null,
+    } : null;
+    previousOverlay?.remove();
+    if (!this._manualAddTarget) {
       if (this._replaceModalActive) this._restoreReplaceModal();
       return;
     }
@@ -352,6 +376,7 @@ const AdminRosterView = {
     portal.innerHTML = this._renderReplaceModal(seasonId);
     const overlay = portal.firstElementChild;
     document.body.appendChild(overlay);
+    if (focusState) this._restoreReplaceModalFocus(overlay, focusState);
     // Delegate from the body-mounted overlay so option clicks keep working
     // across searches and pool changes that replace the option nodes.
     overlay.addEventListener('click', e => {
@@ -393,6 +418,37 @@ const AdminRosterView = {
       this._replaceModalActive = true;
       this._previousBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
+    }
+  },
+
+  _restoreReplaceModalFocus(overlay, focusState) {
+    let target = null;
+    if (focusState.playerId) {
+      target = [...overlay.querySelectorAll('[data-manual-action="selectReplace"]')]
+        .find(element => element.dataset.playerId === focusState.playerId) || null;
+    } else if (focusState.pool) {
+      target = [...overlay.querySelectorAll('[data-manual-pool]')]
+        .find(element => element.dataset.manualPool === focusState.pool) || null;
+    } else if (focusState.inputId) {
+      target = overlay.querySelector(`#${focusState.inputId}`);
+    } else if (focusState.action) {
+      target = overlay.querySelector(`[data-manual-action="${focusState.action}"]`);
+    }
+
+    if (target?.disabled) target = null;
+    if (!target && this._manualTransferOwner) {
+      target = overlay.querySelector('[data-manual-action="cancelReplaceTransfer"]');
+    }
+    if (!target && this._manualSelectedPlayer) {
+      target = [...overlay.querySelectorAll('[data-manual-action="selectReplace"]')]
+        .find(element => element.dataset.playerId === this._manualSelectedPlayer) || null;
+    }
+    target ||= overlay.querySelector('#manualPickerSearch')
+      || overlay.querySelector('[role="dialog"]');
+    target?.focus();
+    if (target?.id === 'manualPickerSearch' && focusState.inputId === 'manualPickerSearch'
+      && focusState.selectionStart != null && focusState.selectionEnd != null) {
+      target.setSelectionRange(focusState.selectionStart, focusState.selectionEnd);
     }
   },
 
@@ -629,6 +685,8 @@ const AdminRosterView = {
         this._manualFillSlot = null;
         this._manualJokerFor = null;
         this._manualSearch = '';
+        this._manualSelectedPlayer = null;
+        this._manualTransferOwner = null;
         AdminApp.renderView('roster');
       };
     });
@@ -742,15 +800,13 @@ const AdminRosterView = {
 
     const searchInput = replaceModal?.querySelector('#manualPickerSearch') || container.querySelector('#manualPickerSearch');
     if (searchInput) {
+      const candidates = replaceModal ? this._getManualReplaceCandidates(season.id) : [];
       searchInput.oninput = (e) => {
         this._manualSearch = e.target.value;
-        // Re-render just the picker's own card would be ideal, but a full
-        // re-render keeps this file's single "mutate state → re-render
-        // whole view" pattern consistent with everything else here; the
-        // search box regains focus below.
-        AdminApp.renderView('roster');
-        const el = document.getElementById('manualPickerSearch');
-        if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); }
+        const filteredCandidates = candidates
+          .filter(player => this._matchesManualPlayerSearch(player, this._manualSearch.trim().toLowerCase()));
+        const list = replaceModal?.querySelector('.manual-roster-candidates');
+        if (list) list.innerHTML = this._renderManualCandidateButtons(filteredCandidates, this._manualSelectedPlayer);
       };
     }
 
@@ -895,11 +951,13 @@ const AdminRosterView = {
     if (!transfer || transfer.playerId !== this._manualSelectedPlayer) return;
     try {
       AuthBoundary.requireAuth();
-      if (this._manualFillSlot != null && !this._manualReplaceOutgoing) {
+      if (!this._manualReplaceOutgoing) {
         AdminActions.manualSignPlayerToRoster(
           seasonId, transfer.destinationId, transfer.playerId, true, this._manualFillSlot, transfer.ownerId
         );
-        showToast(`Player transferred and signed to draft slot #${this._manualFillSlot}.`, 'success');
+        showToast(this._manualFillSlot != null
+          ? `Player transferred and signed to draft slot #${this._manualFillSlot}.`
+          : 'Player transferred and signed.', 'success');
       } else {
         AdminActions.manualReplacePlayerOnRoster(
           seasonId, transfer.destinationId, this._manualReplaceOutgoing, transfer.playerId,
@@ -917,6 +975,7 @@ const AdminRosterView = {
     if (!this._replaceModalActive) return;
     document.body.style.overflow = this._previousBodyOverflow || '';
     document.removeEventListener('keydown', this._replaceEscape);
+    this._replaceEscape = null;
     this._replaceModalActive = false;
   },
 

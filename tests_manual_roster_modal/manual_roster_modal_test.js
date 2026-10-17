@@ -14,10 +14,14 @@ const dataSource = fs.readFileSync(path.join(root, 'js/data.js'), 'utf8');
 const publicRosterSource = fs.readFileSync(path.join(root, 'js/views/roster.js'), 'utf8');
 const adminRosterSource = fs.readFileSync(path.join(root, 'js/admin/roster.js'), 'utf8');
 const stylesheet = fs.readFileSync(path.join(root, 'css/admin.css'), 'utf8');
-const freeAgent = { id: 'free-agent-actual-id', name: 'Free Agent', team: 'Boston Celtics', position: 'PG', pool: 'green', overall: 91 };
+const freeAgent = { id: 'free-agent-actual-id', name: 'Free Agent', team: 'Boston Celtics', position: 'PG', pool: 'green', overall: 91, seasonId: 'season-scope' };
 const ownedPlayer = { id: 'owned-player-actual-id', name: 'Owned Star', team: 'Phoenix Suns', position: 'SG', pool: 'blue', overall: 94, seasonId: 'season-scope' };
-const players = [freeAgent, ownedPlayer];
-const ownerSummary = { participant: { id: 'current-owner-id', name: 'Xtian' }, rosterEntries: [{ player: ownedPlayer, source: 'draft', draftSlot: 2 }] };
+const ownedGreenPlayer = { id: 'owned-green-actual-id', name: 'Owned Green Player', team: 'Chicago Bulls', position: 'SF', pool: 'green', overall: 86 };
+const ownedScopedGreenPlayer = { id: 'owned-scoped-green-id', name: 'Owned Scoped Green', team: 'Miami Heat', position: 'PF', pool: 'green', overall: 88, seasonId: 'season-scope' };
+const ownedForeignGreenPlayer = { id: 'owned-foreign-green-id', name: 'Owned Foreign Green', team: 'Dallas Mavericks', position: 'C', pool: 'green', overall: 89, seasonId: 'other-season-scope' };
+const ownedWrongPoolPlayer = { id: 'owned-wrong-pool-id', name: 'Owned Blue Player', team: 'Denver Nuggets', position: 'SG', pool: 'blue', overall: 87, seasonId: 'season-scope' };
+const players = [freeAgent, ownedPlayer, ownedGreenPlayer];
+const ownerSummary = { participant: { id: 'current-owner-id', name: 'Xtian' }, rosterEntries: [{ player: ownedPlayer, source: 'draft', draftSlot: 2 }, { player: ownedGreenPlayer, source: 'signed', draftSlot: null }] };
 const destinationSummary = { participant: { id: 'destination-id', name: 'Destination Team' }, rosterEntries: [] };
 const replaceCalls = [];
 const appended = [];
@@ -168,6 +172,7 @@ const actualSlotDestination = dataContext.AdminActions.addParticipant(actualSeas
 const actualSigner = dataContext.AdminActions.addParticipant(actualSeason.id, 'Free Agent Signer');
 const actualOutgoing = dataContext.AdminActions.addPlayer({ name: 'Outgoing', position: 'SF', overall: 80, pool: 'green' });
 const actualOwned = dataContext.AdminActions.addPlayer({ name: 'Owned Actual', position: 'SG', overall: 99, pool: 'green' });
+const actualAddOwned = dataContext.AdminActions.addPlayer({ name: 'Add Transfer Actual', position: 'SF', overall: 82, pool: 'green' });
 const actualFree = dataContext.AdminActions.addPlayer({ name: 'Free Actual', position: 'SG', overall: 99, pool: 'green' });
 const invalidFree = dataContext.AdminActions.addPlayer({ name: 'Below Minimum', position: 'SG', overall: 70, pool: 'green' });
 const slotFree = dataContext.AdminActions.addPlayer({ name: 'Slot Free', position: 'PG', overall: 99, pool: 'green' });
@@ -182,7 +187,10 @@ seasonRecord.playerDraftPicks = [
 ];
 seasonRecord.currentRosters = {
   [actualDestination.id]: [{ playerId: actualOutgoing.id, source: 'draft', draftSlot: 1 }],
-  [actualOwner.id]: [{ playerId: actualOwned.id, source: 'draft', draftSlot: 1 }],
+  [actualOwner.id]: [
+    { playerId: actualOwned.id, source: 'draft', draftSlot: 1 },
+    { playerId: actualAddOwned.id, source: 'signed', draftSlot: null },
+  ],
   [actualSlotDestination.id]: [
     { source: 'empty', playerId: null, draftSlot: 4, classificationSourcePlayerId: null },
     { source: 'empty', playerId: null, draftSlot: 5, classificationSourcePlayerId: null },
@@ -191,6 +199,18 @@ seasonRecord.currentRosters = {
 };
 dataContext.FirebaseSync.save(persisted);
 const historyBefore = JSON.stringify(seasonRecord.playerDraftPicks);
+const staleTransferBefore = JSON.stringify([
+  seasonRecord.currentRosters[actualOwner.id], seasonRecord.currentRosters[actualDestination.id],
+]);
+assert.throws(() => dataContext.AdminActions.manualSignPlayerToRoster(
+  actualSeason.id, actualDestination.id, actualAddOwned.id, true, null, 'stale-owner-id'
+), /current owner changed/);
+assert.equal(JSON.stringify([
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualOwner.id],
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualDestination.id],
+]), staleTransferBefore, 'a stale ordinary Add Player transfer leaves both rosters unchanged');
+assert.ok(!dataContext.LeagueData.getSwapEligibleReplacements(actualSeason.id, 'green')
+  .some(player => player.id === actualOwned.id), 'historically drafted players remain reserved from the unowned candidate pool');
 dataContext.AdminActions.manualReplacePlayerOnRoster(actualSeason.id, actualDestination.id, actualOutgoing.id, invalidFree.id);
 let savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
 assert.equal(savedSeason.currentRosters[actualDestination.id][0].playerId, invalidFree.id,
@@ -341,16 +361,49 @@ assert.match(stylesheet, /#manualReplacePlayerOverlay\.modal-overlay\s*\{\s*z-in
 // in a DOM, with a scoped-only player that global getPlayer(id) cannot find.
 const dom = new JSDOM('<!doctype html><body><main id="roster"></main></body>', { url: 'http://draftp.test/admin.html' });
 let domView;
+let renderViewCalls = 0;
+let activePoolScope = 'season-scope';
+let activeEscapeListeners = 0;
+const nativeDocumentAddEventListener = dom.window.document.addEventListener.bind(dom.window.document);
+const nativeDocumentRemoveEventListener = dom.window.document.removeEventListener.bind(dom.window.document);
+dom.window.document.addEventListener = (type, listener, options) => {
+  if (type === 'keydown' && listener === domView?._replaceEscape) activeEscapeListeners++;
+  return nativeDocumentAddEventListener(type, listener, options);
+};
+dom.window.document.removeEventListener = (type, listener, options) => {
+  if (type === 'keydown' && listener === domView?._replaceEscape) activeEscapeListeners--;
+  return nativeDocumentRemoveEventListener(type, listener, options);
+};
 const domReplaceCalls = [];
 const domSignCalls = [];
+const addTransferCandidate = { id: actualAddOwned.id, name: actualAddOwned.name, team: 'Phoenix Suns', position: 'SF', pool: 'green', overall: 82 };
+players.push(addTransferCandidate, ownedScopedGreenPlayer, ownedForeignGreenPlayer, ownedWrongPoolPlayer);
+ownerSummary.rosterEntries.push(
+  { player: addTransferCandidate, source: 'signed', draftSlot: null },
+  { player: ownedScopedGreenPlayer, source: 'draft', draftSlot: 4 },
+  { player: ownedForeignGreenPlayer, source: 'draft', draftSlot: 5 },
+  { player: ownedWrongPoolPlayer, source: 'draft', draftSlot: 6 },
+);
 const domContext = {
   document: dom.window.document,
   window: dom.window,
-  AdminApp: { renderView() { domView._mountReplaceModal('season-id'); } },
+  AdminApp: { renderView() {
+    renderViewCalls++;
+    domView._mountReplaceModal('season-id');
+    if (domView._manualEditUnlocked) domView._bindManualEditActions(dom.window.document.querySelector('#roster'), { id: 'season-id' });
+  } },
   AuthBoundary: { requireAuth() {} },
   AdminActions: {
     manualReplacePlayerOnRoster(...args) { domReplaceCalls.push(args); },
-    manualSignPlayerToRoster(...args) { domSignCalls.push(args); },
+    manualSignPlayerToRoster(...args) {
+      domSignCalls.push(args);
+      if (args[2] === actualAddOwned.id) {
+        dataContext.AdminActions.manualSignPlayerToRoster(
+          actualSeason.id, args[1] === 'destination-id' ? actualDestination.id : args[1],
+          args[2], args[3], args[4], args[5] === 'current-owner-id' ? actualOwner.id : args[5]
+        );
+      }
+    },
   },
   showToast() {},
   escapeHtml(value) { return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); },
@@ -360,15 +413,170 @@ const domContext = {
   LeagueData: {
     getPlayer(id, seasonId) { return seasonId === 'season-id' ? players.find(p => p.id === id) || null : null; },
     getParticipant(_seasonId, participantId) { return [ownerSummary, destinationSummary].find(s => s.participant.id === participantId)?.participant || null; },
-    getCurrentSeason() { return { id: 'season-id', playerPoolScope: 'season-scope' }; },
-    getSeason() { return { id: 'season-id', playerPoolScope: 'season-scope' }; },
-    getSwapEligibleReplacements(_seasonId, pool) { return players.filter(p => p.id !== ownedPlayer.id && p.pool === pool); },
+    getCurrentSeason() { return { id: 'season-id', playerPoolScope: activePoolScope }; },
+    getSeason() { return { id: 'season-id', playerPoolScope: activePoolScope }; },
+    getSwapEligibleReplacements(_seasonId, pool) {
+      const rosterOwnedIds = new Set(ownerSummary.rosterEntries.map(entry => entry.player?.id));
+      return players.filter(p => p.pool === pool
+        && (p.id === actualAddOwned.id || (p.seasonId === activePoolScope && !rosterOwnedIds.has(p.id))));
+    },
     getRosterSummary() { return [ownerSummary, destinationSummary]; },
     getJokerEligiblePlayers() { return []; },
   },
 };
+
+// Ordinary Add Player opens the shared body-mounted modal, includes both
+// unowned and roster-owned candidates, and filters the list in place while
+// typing instead of re-rendering the complete roster view.
 domView = vm.runInNewContext(`${rosterSource}\nAdminRosterView;`, domContext);
 domView._manualEditUnlocked = true;
+domView._manualAddTarget = destinationSummary.participant.id;
+domView._manualReplaceOutgoing = null;
+domView._manualFillSlot = null;
+domView._manualAddPool = 'green';
+domView._manualSelectedPlayer = null;
+const addMarkup = domView._renderRosterCard({ ...destinationSummary, totalRating: 0, remaining: 875, isOverCap: false }, 875, null, 'season-id');
+assert.doesNotMatch(addMarkup, /roster-manual-picker/, 'Add Player no longer renders the old inline picker');
+domView._mountReplaceModal('season-id');
+let addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+assert.match(addOverlay.querySelector('[role="dialog"] h2').textContent, /Sign Player/);
+assert.ok(addOverlay.querySelector('[data-player-id="free-agent-actual-id"]'), 'unowned available players are shown');
+assert.ok(addOverlay.querySelector('[data-player-id="owned-green-actual-id"]'), 'players owned by another roster are offered for transfer');
+const greenCandidateIds = domView._getManualReplaceCandidates('season-id', 'green').map(player => player.id);
+assert.ok(greenCandidateIds.includes(ownedScopedGreenPlayer.id), 'owned players matching the active scope remain visible');
+assert.ok(!greenCandidateIds.includes(ownedForeignGreenPlayer.id), 'owned players with an explicit conflicting scope are excluded');
+assert.ok(!greenCandidateIds.includes(ownedWrongPoolPlayer.id), 'owned players outside the selected pool are excluded');
+assert.equal(greenCandidateIds.filter(id => id === actualAddOwned.id).length, 1,
+  'a stale duplicate from the unowned source is shown once and remains marked as owned');
+assert.equal(domView._getManualReplaceCandidates('season-id', 'green').find(p => p.id === actualAddOwned.id).ownerId,
+  ownerSummary.participant.id, 'roster ownership wins over a duplicate availability snapshot');
+activePoolScope = null;
+assert.ok(domView._getManualReplaceCandidates('season-id', 'green').some(p => p.id === ownedForeignGreenPlayer.id),
+  'unscoped legacy seasons retain their prior roster-owned candidate behavior');
+activePoolScope = 'season-scope';
+renderViewCalls = 0;
+domView._bindManualEditActions(dom.window.document.querySelector('#roster'), { id: 'season-id' });
+assert.equal(activeEscapeListeners, 1, 'opening the popup installs exactly one Escape listener');
+let addSearch = addOverlay.querySelector('#manualPickerSearch');
+assert.equal(dom.window.document.activeElement, addSearch, 'opening the popup focuses its search input');
+const outsideFocusControl = dom.window.document.createElement('button');
+outsideFocusControl.textContent = 'Unrelated roster control';
+dom.window.document.querySelector('#roster').appendChild(outsideFocusControl);
+outsideFocusControl.focus();
+domContext.AdminApp.renderView('roster');
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+assert.equal(dom.window.document.activeElement, outsideFocusControl,
+  'an unrelated roster rerender does not steal focus into the popup');
+assert.equal(activeEscapeListeners, 1, 'an unrelated rerender does not duplicate the Escape listener');
+outsideFocusControl.remove();
+addSearch = addOverlay.querySelector('#manualPickerSearch');
+renderViewCalls = 0;
+addSearch.focus();
+addSearch.value = 'Free Agent';
+addSearch.setSelectionRange(4, 4);
+addSearch.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+assert.equal(renderViewCalls, 0, 'typing does not re-render the complete roster view');
+assert.equal(dom.window.document.activeElement, addSearch, 'in-place search keeps focus on the search input');
+assert.equal(addSearch.selectionStart, 4, 'in-place search preserves the caret position');
+assert.deepEqual(Array.from(addOverlay.querySelectorAll('.manual-roster-candidate'), option => option.dataset.playerId), ['free-agent-actual-id']);
+addSearch.value = '';
+addSearch.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+assert.equal(addOverlay.querySelectorAll('.manual-roster-candidate').length, 4, 'clearing search restores every eligible available and transferable candidate');
+const greenPoolTab = addOverlay.querySelector('[data-manual-pool="green"]');
+greenPoolTab.focus();
+greenPoolTab.click();
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+assert.equal(dom.window.document.activeElement, addOverlay.querySelector('[data-manual-pool="green"]'),
+  'switching pools keeps focus on the corresponding tab inside the remounted dialog');
+assert.equal(dom.window.document.activeElement.closest('[role="dialog"]'), addOverlay.querySelector('[role="dialog"]'),
+  'pool switching does not move focus outside the dialog');
+
+// Ordinary Add Player transfer: selecting an owned player requires explicit
+// confirmation; Cancel performs no write; confirmation invokes the real
+// data-layer transfer action with the expected current owner.
+const addTransferBeforeCancel = JSON.stringify([
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualOwner.id],
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualDestination.id],
+]);
+const addTransferHistoryBefore = JSON.stringify(dataContext.FirebaseSync.getCache().seasons[actualSeason.id].playerDraftPicks);
+const addOwnedButton = addOverlay.querySelector(`[data-player-id="${actualAddOwned.id}"]`);
+addOwnedButton.focus();
+addOwnedButton.click();
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+const selectedOwnedButton = addOverlay.querySelector(`[data-player-id="${actualAddOwned.id}"]`);
+assert.equal(dom.window.document.activeElement, selectedOwnedButton,
+  'selecting a player restores focus to its candidate button after the popup rerender');
+assert.equal(selectedOwnedButton.getAttribute('aria-pressed'), 'true', 'the focused selected candidate remains keyboard-accessible');
+assert.equal(dom.window.document.activeElement.closest('[role="dialog"]'), addOverlay.querySelector('[role="dialog"]'),
+  'selecting a candidate never leaves focus on the body or outside the dialog');
+const addSignButton = addOverlay.querySelector('[data-manual-action="modalConfirmSign"]');
+addSignButton.focus();
+addSignButton.click();
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+assert.equal(dom.window.document.activeElement, addOverlay.querySelector('[data-manual-action="cancelReplaceTransfer"]'),
+  'transfer confirmation rerender focuses its in-dialog Cancel action');
+assert.match(addOverlay.querySelector('[role="alert"]').textContent, /Add Transfer Actual[\s\S]*Xtian[\s\S]*Destination Team/);
+assert.equal(domSignCalls.length, 0, 'selecting an owned player does not sign it without transfer confirmation');
+addOverlay.querySelector('[data-manual-action="cancelReplaceTransfer"]').click();
+assert.equal(JSON.stringify([
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualOwner.id],
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualDestination.id],
+]), addTransferBeforeCancel, 'canceling transfer confirmation leaves both rosters unchanged');
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+addOverlay.querySelector('[data-manual-action="modalConfirmSign"]').click();
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+addOverlay.querySelector('[aria-label="Close replace player dialog"]').click();
+assert.equal(dom.window.document.getElementById('manualReplacePlayerOverlay'), null,
+  'closing the transfer confirmation dismisses the Add Player modal');
+assert.equal(activeEscapeListeners, 0, 'closing the popup removes its Escape listener');
+assert.equal(JSON.stringify([
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualOwner.id],
+  dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[actualDestination.id],
+]), addTransferBeforeCancel, 'closing transfer confirmation leaves both rosters unchanged');
+
+domView._manualAddTarget = destinationSummary.participant.id;
+domView._manualReplaceOutgoing = null;
+domView._manualFillSlot = null;
+domView._manualSelectedPlayer = null;
+domView._manualTransferOwner = null;
+domView._manualAddPool = 'green';
+domContext.AdminApp.renderView('roster');
+assert.equal(activeEscapeListeners, 1, 'reopening the popup installs one fresh Escape listener');
+dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+assert.equal(dom.window.document.getElementById('manualReplacePlayerOverlay'), null, 'Escape closes the popup');
+assert.equal(activeEscapeListeners, 0, 'Escape-to-close removes the listener without a stale registration');
+
+domView._manualAddTarget = destinationSummary.participant.id;
+domView._manualReplaceOutgoing = null;
+domView._manualFillSlot = null;
+domView._manualSelectedPlayer = actualAddOwned.id;
+domView._manualTransferOwner = null;
+domView._manualAddPool = 'green';
+domContext.AdminApp.renderView('roster');
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+addOverlay.querySelector('[data-manual-action="modalConfirmSign"]').focus();
+addOverlay.querySelector('[data-manual-action="modalConfirmSign"]').click();
+addOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+assert.equal(domSignCalls.length, 0, 'closing the confirmation performs no roster write');
+assert.match(addOverlay.querySelector('[role="alert"]').textContent, /Add Transfer Actual[\s\S]*Xtian[\s\S]*Destination Team/);
+addOverlay.querySelector('[data-manual-action="confirmReplaceTransfer"]').click();
+assert.deepEqual(domSignCalls[0], [
+  'season-id', 'destination-id', actualAddOwned.id, true, null, 'current-owner-id',
+], 'ordinary Add Player transfer invokes manualSignPlayerToRoster with the expected owner and no draft slot');
+const addTransferSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
+assert.ok(!addTransferSeason.currentRosters[actualOwner.id].some(entry => entry.playerId === actualAddOwned.id),
+  'the former owner no longer owns the transferred player');
+assert.equal(addTransferSeason.currentRosters[actualDestination.id].filter(entry => entry.playerId === actualAddOwned.id).length, 1,
+  'the destination owns exactly one transferred player');
+assert.equal(addTransferSeason.currentRosters[actualDestination.id].find(entry => entry.playerId === actualAddOwned.id).displayPickNumber, 2,
+  'ordinary transfer receives the next destination display number');
+assert.equal(JSON.stringify(addTransferSeason.playerDraftPicks), addTransferHistoryBefore,
+  'ordinary transfer preserves historical draft-pick records');
+assert.equal(Object.values(addTransferSeason.currentRosters).flat()
+  .filter(entry => entry.source !== 'empty' && entry.playerId === actualAddOwned.id).length, 1,
+  'the transferred player has exactly one active roster assignment');
+domView._closeManualPicker();
 domView._manualAddTarget = destinationSummary.participant.id;
 domView._manualReplaceOutgoing = 'outgoing-player-id';
 domView._manualAddPool = 'blue';
@@ -419,7 +627,7 @@ assert.match(slotOverlay.querySelector('[role="dialog"]').textContent, /Fill Dra
 slotOverlay.querySelector('[data-player-id="free-agent-actual-id"] strong').click();
 slotOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
 slotOverlay.querySelector('[data-manual-action="modalConfirmSign"]').click();
-assert.deepEqual(domSignCalls[0].slice(0, 5), ['season-id', 'destination-id', freeAgent.id, false, 8],
+assert.deepEqual(domSignCalls[1].slice(0, 5), ['season-id', 'destination-id', freeAgent.id, false, 8],
   'unowned slot signing carries the player ID and exact draft slot');
 
 domView._manualAddTarget = 'destination-id';
@@ -434,14 +642,15 @@ slotOverlay.querySelector('[data-player-id="owned-player-actual-id"] strong').cl
 slotOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
 slotOverlay.querySelector('[data-manual-action="modalConfirmSign"]').click();
 slotOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
+const signCallsBeforeCancelledSlotTransfer = domSignCalls.length;
 assert.match(slotOverlay.querySelector('[role="alert"]').textContent, /Xtian[\s\S]*Destination Team[\s\S]*slot #9/);
 slotOverlay.querySelector('[data-manual-action="cancelReplaceTransfer"]').click();
-assert.equal(domSignCalls.length, 1, 'cancelling slot transfer causes no assignment');
+assert.equal(domSignCalls.length, signCallsBeforeCancelledSlotTransfer, 'cancelling slot transfer causes no assignment');
 slotOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
 slotOverlay.querySelector('[data-manual-action="modalConfirmSign"]').click();
 slotOverlay = dom.window.document.getElementById('manualReplacePlayerOverlay');
 slotOverlay.querySelector('[data-manual-action="confirmReplaceTransfer"]').click();
-assert.deepEqual(domSignCalls[1].slice(0, 6), [
+assert.deepEqual(domSignCalls[2].slice(0, 6), [
   'season-id', 'destination-id', ownedPlayer.id, true, 9, 'current-owner-id',
 ], 'owned slot transfer carries confirmed owner and exact target slot');
 
