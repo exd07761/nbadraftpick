@@ -335,7 +335,8 @@ const AdminRosterView = {
     const season = LeagueData.getSeason(seasonId) || LeagueData.getCurrentSeason();
     const selectedPool = String(pool || '').toLowerCase();
     const participantId = this._manualAddTarget;
-    const candidates = LeagueData.getSwapEligibleReplacements(seasonId, selectedPool)
+    const poolCandidates = LeagueData.getSwapEligibleReplacements(seasonId, selectedPool);
+    const candidates = poolCandidates
       .map(p => ({ ...p, ownerId: null, ownerName: null }));
     const byId = new Map(candidates.map(p => [p.id, p]));
     LeagueData.getRosterSummary(seasonId).forEach(summary => {
@@ -343,9 +344,21 @@ const AdminRosterView = {
       summary.rosterEntries.forEach(entry => {
         const p = entry.player || LeagueData.getPlayer(entry.playerId, seasonId);
         if (!p || entry.source === 'empty' || !p.id || String(p.pool || '').toLowerCase() !== selectedPool) return;
-        // Legacy roster records may lack seasonId, but an explicit different
-        // scope must never leak into this season's player picker.
-        if (season?.playerPoolScope && p.seasonId != null && p.seasonId !== season.playerPoolScope) return;
+        // A current roster can still own an old per-season seeded record
+        // after the live pool has switched to synthetic IDs. Let that owned
+        // record through only when the selected season's current pool has
+        // the same stable source slug and pool; this supports an in-season
+        // transfer without exposing unrelated out-of-scope players.
+        if (season?.playerPoolScope && p.seasonId != null && p.seasonId !== season.playerPoolScope) {
+          const scopedMatch = p.nba2kRef && poolCandidates.find(candidate =>
+            candidate.nba2kRef === p.nba2kRef
+            && String(candidate.pool || '').toLowerCase() === selectedPool
+          );
+          if (!scopedMatch) return;
+          // Keep the owner's actual roster ID for confirmation and expected-
+          // owner validation, and avoid showing the matching live ID twice.
+          if (scopedMatch.id !== p.id) byId.delete(scopedMatch.id);
+        }
         const ownedCandidate = { ...p, ownerId: summary.participant.id, ownerName: summary.participant.name };
         // Roster ownership is authoritative if a stale availability snapshot
         // also contains this ID: keep one row and route it through transfer.
@@ -574,15 +587,10 @@ const AdminRosterView = {
   _renderManualPicker(participantId, seasonId) {
     const pool = this._manualAddPool;
     const q = (this._manualSearch || '').trim().toLowerCase();
-    const eligible = LeagueData.getSwapEligibleReplacements(seasonId, pool)
-      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.position || '').toLowerCase().includes(q));
-    const owned = LeagueData.getRosterSummary(seasonId).flatMap(s => s.rosterEntries
-      .filter(e => e.player && e.player.pool === pool && s.participant.id !== participantId)
-      .map(e => ({ ...e.player, ownerId: s.participant.id, ownerName: s.participant.name })))
+    const candidates = this._getManualReplaceCandidates(seasonId, pool)
       .filter(p => !q || p.name.toLowerCase().includes(q) || (p.position || '').toLowerCase().includes(q));
 
     const headerLabel = 'Add Player';
-    const action = 'confirmSign';
 
     return `
       <div class="roster-manual-picker card-form" style="margin-top:0.75rem;">
@@ -601,12 +609,12 @@ const AdminRosterView = {
           <table class="roster-table">
             <thead><tr><th>Player</th><th>Pos</th><th>OVR</th><th></th></tr></thead>
             <tbody>
-              ${eligible.length || owned.length ? [...eligible.map(p => ({ ...p, ownerId: null })), ...owned].map(p => `
+              ${candidates.length ? candidates.map(p => `
                 <tr>
                   <td>${escapeHtml(p.name)}${p.ownerId ? `<small class="muted"> · ${escapeHtml(p.ownerName)}</small>` : ''}</td>
                   <td>${p.position || '—'}</td>
                   <td class="ovr">${p.overall ?? '—'}</td>
-                  <td><button type="button" class="btn btn-primary" style="padding:0.25rem 0.6rem;font-size:0.8rem;" data-manual-action="${p.ownerId ? 'requestTransfer' : action}" data-participant-id="${participantId}" data-player-id="${p.id}" data-owner-id="${p.ownerId || ''}" data-owner-name="${escapeHtml(p.ownerName || '')}">${p.ownerId ? 'Transfer…' : 'Sign'}</button></td>
+                  <td><button type="button" class="btn btn-primary" style="padding:0.25rem 0.6rem;font-size:0.8rem;" data-manual-action="${p.ownerId ? 'requestTransfer' : 'confirmSign'}" data-participant-id="${participantId}" data-player-id="${p.id}" data-owner-id="${p.ownerId || ''}" data-owner-name="${escapeHtml(p.ownerName || '')}">${p.ownerId ? 'Transfer…' : 'Sign'}</button></td>
                 </tr>`).join('') : `<tr><td colspan="4" class="muted" style="padding:0.5rem">No eligible players${q ? ' match your search' : ' in this pool'}.</td></tr>`}
             </tbody>
           </table>
