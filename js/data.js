@@ -930,6 +930,16 @@ function nextRosterDisplayPickNumber(season, participantId) {
   return highest + unnumberedAdditions + 1;
 }
 
+/** Lowest unused display position for a manual addition under the 10-slot cap. */
+function nextManualRosterDisplayPickNumber(roster) {
+  const used = new Set(roster
+    .filter(entry => entry.source !== "empty" && entry.playerId)
+    .map(entry => entry.displayPickNumber ?? entry.draftSlot)
+    .filter(Number.isInteger));
+  for (let slot = 1; slot <= 10; slot++) if (!used.has(slot)) return slot;
+  return null;
+}
+
 /** Persist only this participant's legacy slotless manual roster numbers. */
 function ensureRosterDisplayPickNumbers(season, participantId) {
   const roster = (season.currentRosters && season.currentRosters[participantId]) || [];
@@ -6677,7 +6687,15 @@ const AdminActions = {
       throw new Error(`${player.name} is already on ${ownerName}'s roster — cannot be assigned twice.`);
     }
 
-    const roster = season.currentRosters[participantId] || [];
+    const roster = (season.currentRosters[participantId] || []).slice();
+    const activePlayerCount = roster.filter(entry => entry.source !== "empty" && entry.playerId).length;
+    if (targetDraftSlot == null) {
+      const vacancy = roster
+        .filter(entry => entry.source === "empty" && Number.isInteger(entry.draftSlot))
+        .sort((a, b) => a.draftSlot - b.draftSlot)[0];
+      if (vacancy) targetDraftSlot = vacancy.draftSlot;
+      else if (activePlayerCount >= 10) throw new Error("This roster is full (10 players).");
+    }
     let afterEntries;
     if (targetDraftSlot != null) {
       const slotIndex = roster.findIndex((e) => e.source === "empty" && e.draftSlot === targetDraftSlot);
@@ -6695,8 +6713,9 @@ const AdminActions = {
         ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}),
       };
     } else {
-      afterEntries = [...roster, { playerId, source: "signed", draftSlot: null,
-        displayPickNumber: nextRosterDisplayPickNumber(season, participantId) }];
+      const displayPickNumber = nextManualRosterDisplayPickNumber(roster);
+      if (displayPickNumber == null) throw new Error("This roster is full (10 players).");
+      afterEntries = [...roster, { playerId, source: "signed", draftSlot: null, displayPickNumber }];
     }
 
     // Revision 3 — Manual Override: normal roster/game rules (position
@@ -6763,6 +6782,14 @@ const AdminActions = {
     }
 
     const destination = (season.currentRosters[participantId] || []).slice();
+    const activePlayerCount = destination.filter(entry => entry.source !== "empty" && entry.playerId).length;
+    if (targetDraftSlot == null) {
+      const vacancy = destination
+        .filter(entry => entry.source === "empty" && Number.isInteger(entry.draftSlot))
+        .sort((a, b) => a.draftSlot - b.draftSlot)[0];
+      if (vacancy) targetDraftSlot = vacancy.draftSlot;
+      else if (activePlayerCount >= 10) throw new Error("This roster is full (10 players).");
+    }
     let insertionIndex = destination.length;
     if (targetDraftSlot != null) {
       insertionIndex = destination.findIndex(e => e.source === "empty" && e.draftSlot === targetDraftSlot);
@@ -6786,8 +6813,10 @@ const AdminActions = {
     const transferSource = owner
       ? (owner.entry.source === "manual" ? "signed" : owner.entry.source)
       : "signed";
+    const manualDisplayNumber = targetDraftSlot == null ? nextManualRosterDisplayPickNumber(destination) : null;
+    if (targetDraftSlot == null && manualDisplayNumber == null) throw new Error("This roster is full (10 players).");
     const signedEntry = { playerId, source: transferSource, draftSlot: targetDraftSlot ?? null,
-      displayPickNumber: targetDraftSlot ?? nextRosterDisplayPickNumber(season, participantId),
+      displayPickNumber: targetDraftSlot ?? manualDisplayNumber,
       ...(inheritedClassificationSource ? { classificationSourcePlayerId: inheritedClassificationSource } : {}) };
     destination.splice(insertionIndex, 1, signedEntry);
     season.currentRosters[participantId] = destination;

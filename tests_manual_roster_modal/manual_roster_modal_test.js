@@ -186,7 +186,10 @@ seasonRecord.playerDraftPicks = [
   { participantId: actualOwner.id, playerId: actualOwned.id, pickNumber: 1 },
 ];
 seasonRecord.currentRosters = {
-  [actualDestination.id]: [{ playerId: actualOutgoing.id, source: 'draft', draftSlot: 1 }],
+  [actualDestination.id]: [
+    { playerId: actualOutgoing.id, source: 'draft', draftSlot: 1 },
+    { source: 'empty', playerId: null, draftSlot: 6, classificationSourcePlayerId: 'vacancy-classification-anchor' },
+  ],
   [actualOwner.id]: [
     { playerId: actualOwned.id, source: 'draft', draftSlot: 1 },
     { playerId: actualAddOwned.id, source: 'signed', draftSlot: null },
@@ -310,11 +313,12 @@ dataContext.FirebaseSync.save(numberedCache);
 const manualOne = dataContext.AdminActions.addPlayer({ name: 'Manual One', position: 'PG', overall: 75, pool: 'green' });
 const manualTwo = dataContext.AdminActions.addPlayer({ name: 'Manual Two', position: 'SG', overall: 75, pool: 'green' });
 dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, numberedTeam.id, manualOne.id);
-dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, numberedTeam.id, manualTwo.id);
+assert.throws(() => dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, numberedTeam.id, manualTwo.id), /roster is full/i);
 savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
 const numberedRows = dataContext.LeagueData.getCurrentRoster(actualSeason.id, numberedTeam.id);
 assert.equal(numberedRows.find(e => e.playerId === manualOne.id).displayPickNumber, 10);
-assert.equal(numberedRows.find(e => e.playerId === manualTwo.id).displayPickNumber, 11);
+assert.equal(numberedRows.find(e => e.playerId === manualTwo.id), undefined,
+  'an eleventh player is blocked once the ten-player roster is full');
 assert.equal(numberedRows.find(e => e.playerId === manualOne.id).draftSlot, null);
 assert.equal(savedSeason.currentRosters[numberedTeam.id].find(e => e.playerId === manualOne.id).source, 'signed');
 assert.deepEqual(Array.from(numberedRows.filter(e => e.source === 'draft'), e => e.displayPickNumber), [1,2,3,4,5,6,7,8,9]);
@@ -327,13 +331,39 @@ const shorterManual = dataContext.AdminActions.addPlayer({ name: 'Short Team Man
 dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, shorterTeam.id, shorterManual.id);
 savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
 assert.equal(savedSeason.currentRosters[shorterTeam.id].find(e => e.playerId === shorterManual.id).displayPickNumber, 6);
-assert.equal(savedSeason.currentRosters[numberedTeam.id].filter(e => e.source === 'signed').length, 2);
+assert.equal(savedSeason.currentRosters[numberedTeam.id].filter(e => e.source === 'signed').length, 1);
 dataCache = JSON.parse(JSON.stringify(dataContext.FirebaseSync.getCache()));
-assert.equal(dataContext.LeagueData.getCurrentRoster(actualSeason.id, numberedTeam.id).find(e => e.playerId === manualTwo.id).displayPickNumber, 11);
+assert.equal(dataContext.LeagueData.getCurrentRoster(actualSeason.id, numberedTeam.id).find(e => e.playerId === manualTwo.id), undefined);
+const vacancyTeam = dataContext.AdminActions.addParticipant(actualSeason.id, 'Vacancy Team');
+const vacancyRoster = [];
+const vacancyPicks = [];
+for (let slot = 1; slot <= 10; slot++) {
+  if (slot === 6) {
+    vacancyRoster.push({ source: 'empty', playerId: null, draftSlot: 6, classificationSourcePlayerId: 'pick-6-classification' });
+    continue;
+  }
+  const drafted = dataContext.AdminActions.addPlayer({ name: `Vacancy Drafted ${slot}`, position: 'SG', overall: 75, pool: 'blue' });
+  vacancyRoster.push({ playerId: drafted.id, source: 'draft', draftSlot: slot });
+  vacancyPicks.push({ participantId: vacancyTeam.id, playerId: drafted.id, round: 1, pick: slot });
+}
+const vacancyCache = dataContext.FirebaseSync.getCache();
+vacancyCache.seasons[actualSeason.id].currentRosters[vacancyTeam.id] = vacancyRoster;
+vacancyCache.seasons[actualSeason.id].playerDraftPicks.push(...vacancyPicks);
+dataContext.FirebaseSync.save(vacancyCache);
+const slotSixSigner = dataContext.AdminActions.addPlayer({ name: 'Slot Six Signer', position: 'PG', overall: 80, pool: 'green' });
+dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, vacancyTeam.id, slotSixSigner.id);
+const filledVacancyRoster = dataContext.FirebaseSync.getCache().seasons[actualSeason.id].currentRosters[vacancyTeam.id];
+assert.equal(filledVacancyRoster.length, 10, 'Add Player fills the vacancy without creating pick #11');
+assert.equal(filledVacancyRoster.filter(entry => entry.source !== 'empty' && entry.playerId).length, 10,
+  'the filled roster has ten active players; empty slots are excluded from the count');
+assert.equal(filledVacancyRoster.find(entry => entry.playerId === slotSixSigner.id).draftSlot, 6);
+assert.equal(filledVacancyRoster.find(entry => entry.playerId === slotSixSigner.id).classificationSourcePlayerId,
+  'pick-6-classification', 'slot #6 classification metadata survives automatic filling');
+assert.equal(dataContext.FirebaseSync.getCache().seasons[actualSeason.id].playerDraftPicks.filter(pick => pick.participantId === vacancyTeam.id).length, 9,
+  'automatic filling leaves historical draft records unchanged');
 const manualThree = dataContext.AdminActions.addPlayer({ name: 'Manual Three', position: 'SF', overall: 75, pool: 'green' });
-dataContext.AdminActions.manualAddPlayerToRoster(actualSeason.id, numberedTeam.id, manualThree.id);
-savedSeason = dataContext.FirebaseSync.getCache().seasons[actualSeason.id];
-assert.equal(savedSeason.currentRosters[numberedTeam.id].find(e => e.playerId === manualThree.id).displayPickNumber, 12);
+assert.throws(() => dataContext.AdminActions.manualSignPlayerToRoster(actualSeason.id, numberedTeam.id, manualThree.id), /roster is full/i);
+assert.throws(() => dataContext.AdminActions.manualAddPlayerToRoster(actualSeason.id, numberedTeam.id, manualThree.id), /roster is full/i);
 assert.match(publicRosterSource, /e\.displayPickNumber \?\? e\.draftSlot/);
 assert.match(adminRosterSource, /e\.displayPickNumber \?\? e\.draftSlot/);
 dataContext.AdminActions.manualRemovePlayerFromRoster(actualSeason.id, actualSlotDestination.id, acuff.id);
@@ -578,8 +608,14 @@ assert.ok(!addTransferSeason.currentRosters[actualOwner.id].some(entry => entry.
   'the former owner no longer owns the transferred player');
 assert.equal(addTransferSeason.currentRosters[actualDestination.id].filter(entry => entry.playerId === actualAddOwned.id).length, 1,
   'the destination owns exactly one transferred player');
-assert.equal(addTransferSeason.currentRosters[actualDestination.id].find(entry => entry.playerId === actualAddOwned.id).displayPickNumber, 2,
-  'ordinary transfer receives the next destination display number');
+assert.equal(addTransferSeason.currentRosters[actualDestination.id].find(entry => entry.playerId === actualAddOwned.id).draftSlot, 6,
+  'ordinary Add Player transfer fills the lowest destination vacancy');
+assert.equal(addTransferSeason.currentRosters[actualDestination.id].find(entry => entry.playerId === actualAddOwned.id).classificationSourcePlayerId,
+  'vacancy-classification-anchor', 'the filled vacancy preserves its classification metadata');
+assert.equal(addTransferSeason.currentRosters[actualDestination.id].length, 2,
+  'filling a vacancy replaces the roster entry instead of appending');
+assert.equal(addTransferSeason.currentRosters[actualDestination.id].filter(entry => entry.source !== 'empty' && entry.playerId).length, 2,
+  'empty draft slots are not counted as active players');
 assert.equal(JSON.stringify(addTransferSeason.playerDraftPicks), addTransferHistoryBefore,
   'ordinary transfer preserves historical draft-pick records');
 assert.equal(Object.values(addTransferSeason.currentRosters).flat()
