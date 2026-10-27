@@ -39,11 +39,19 @@ const ScheduleView = {
     const isGroupStage = season.scheduleFormat === 'groupStage';
     const isConferenceRoundRobin = season.scheduleFormat === 'conferenceRoundRobin';
     const activeStage = activeRound.matchups[0]?.stage || null;
+    const groupTeams = isGroupStage ? (season.groupStageState?.groups?.A?.length || 0) : 0;
+    const availableStages = groupTeams > 4 ? 1 : 3;
+    const stageRounds = isGroupStage
+      ? rounds.filter((r) => r.matchups.some((m) => m.stage === activeStage)).length
+      : 0;
+    const stageGames = isGroupStage
+      ? rounds.flatMap((r) => r.matchups).filter((m) => m.stage === activeStage && m.teamB !== null).length
+      : 0;
 
     container.innerHTML = `
       <div class="schedule-view" style="max-width:none;">
         <h2 class="section-title">Regular Season Schedule${isGroupStage ? ' — Group Stage' : isConferenceRoundRobin ? ' — Conference Round Robin' : ''}</h2>
-        ${isGroupStage ? `<p class="helper-text">Stage ${activeStage} of 2 — 4 groups of 4, 3 games/team per stage.</p>` : ''}
+        ${isGroupStage ? `<p class="helper-text">Stage ${activeStage} of ${availableStages} — 4 equal groups of ${groupTeams}; ${stageRounds} rounds, ${stageGames} games total, ${Math.max(0, groupTeams - 1)} games/team.</p>` : ''}
         ${isConferenceRoundRobin ? `<p class="helper-text">Each team plays every other team in its own conference exactly once.</p>` : ''}
 
         <div class="round-tabs" id="roundTabs">

@@ -11,7 +11,7 @@
  * shape (see AdminActions.generateSchedule / generateGroupStageSchedule
  * in data.js):
  *   - Round Robin (original, default): every team plays every other team once.
- *   - Group Stage (legacy 16-team/4-group format): three 24-game stages.
+ *   - Group Stage: three stages of four equal groups playing one round robin each.
  *     Round 1 groups are auto-assigned from the existing team order
  *     (adjustable). Round 2 and Round 3 groups are entered manually by the
  *     commissioner after running an external online roulette — this file
@@ -59,7 +59,7 @@ const AdminScheduleView = {
 
   // ── Pre-generation: choose Round Robin or Group Stage ──────────────────
   _renderFormatPicker(container, season) {
-    const assignedCount = Object.keys(season.nbaTeamAssignments).length;
+    const assignedCount = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]).length;
     const isGroupStage = this._pendingFormat === 'groupStage';
     const isConferenceRoundRobin = this._pendingFormat === 'conferenceRoundRobin';
 
@@ -224,30 +224,43 @@ const AdminScheduleView = {
     });
   },
 
-  /** Automatic assignment: teamAssignmentOrder sliced into 4 consecutive groups of 4 — the "official" existing team order (DuckRace #2), per the ticket's guidance. */
-  _autoAssignGroups(season) {
-    const teamIds = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]);
+  _groupStageConfig(teamCount) {
+    if (!Number.isInteger(teamCount) || teamCount < 8 || teamCount % 4 !== 0) return null;
+    const teamsPerGroup = teamCount / 4;
     return {
-      A: teamIds.slice(0, 4),
-      B: teamIds.slice(4, 8),
-      C: teamIds.slice(8, 12),
-      D: teamIds.slice(12, 16),
+      teamsPerGroup,
+      gamesPerGroup: teamsPerGroup * (teamsPerGroup - 1) / 2,
+      gamesPerTeam: teamsPerGroup - 1,
+      roundsPerStage: teamsPerGroup % 2 === 0 ? teamsPerGroup - 1 : teamsPerGroup,
+      gamesPerStage: 4 * teamsPerGroup * (teamsPerGroup - 1) / 2,
+      availableStages: teamsPerGroup > 4 ? 1 : 3,
     };
   },
 
+  /** Automatic assignment: teamAssignmentOrder split into four consecutive equal groups. */
+  _autoAssignGroups(season) {
+    const teamIds = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]);
+    const teamsPerGroup = Math.ceil(teamIds.length / 4);
+    return Object.fromEntries(GROUP_NAMES.map((g, index) => [
+      g,
+      teamIds.slice(index * teamsPerGroup, (index + 1) * teamsPerGroup),
+    ]));
+  },
+
   _renderGroupStageSetup(season, assignedCount) {
-    const validCount = assignedCount === 16;
+    const config = this._groupStageConfig(assignedCount);
+    const validCount = !!config;
     const nameFor = (pid) => season.participants[pid]?.name || '—';
     const abbrFor = (pid) => season.nbaTeamAssignments[pid];
 
-    const groupCols = ['A', 'B', 'C', 'D'].map((g) => {
+    const groupCols = GROUP_NAMES.map((g) => {
       const teamIds = this._pendingGroups[g] || [];
-      const countOk = teamIds.length === 4;
+      const countOk = !!config && teamIds.length === config.teamsPerGroup;
       return `
         <div class="roster-card" style="min-width:220px;">
           <div class="roster-card-header">
             <span class="roster-card-name">Group ${g}</span>
-            <span class="roster-card-count ${countOk ? '' : 'cap-over-text'}">${teamIds.length}/4</span>
+            <span class="roster-card-count ${countOk ? '' : 'cap-over-text'}">${teamIds.length}/${config?.teamsPerGroup ?? '—'}</span>
           </div>
           <div class="table-scroll">
             <table class="roster-table">
@@ -271,16 +284,20 @@ const AdminScheduleView = {
     if (!validCount) {
       return `
         <div class="info-banner warn-banner">
-          The legacy Group Stage format requires exactly 16 teams with an assigned NBA team
-          (this season has ${assignedCount}). Use Round Robin instead, or adjust NBA Team Assignment.
+          Group Stage requires at least 8 teams with assigned NBA teams, with a total divisible by 4
+          so Groups A–D can be equal (this season has ${assignedCount}). Use Round Robin instead, or adjust NBA Team Assignment.
         </div>`;
     }
 
     return `
       <div class="info-banner" style="margin-bottom:0.75rem;">
-        16 Teams → 4 Groups → Round 1: 24 games → reseeding → Round 2: 24 games → Round 3: 24 games →
-        <strong>Total: 72 games, 9 games/team</strong>.
+        ${assignedCount} teams → 4 groups of ${config.teamsPerGroup} → ${config.roundsPerStage} rounds/stage →
+        ${config.gamesPerStage} games per stage (${config.gamesPerTeam} games/team/stage) across ${config.availableStages} available stage${config.availableStages === 1 ? '' : 's'} →
+        <strong>Total: ${config.gamesPerStage * config.availableStages} games, ${config.gamesPerTeam * config.availableStages} games/team</strong>.
       </div>
+      ${config.teamsPerGroup > GROUP_NAMES.length ? `<div class="info-banner warn-banner" style="margin-bottom:0.75rem;">
+        Strict Stage 2 rematch protection makes later stages impossible with ${config.teamsPerGroup} teams per group: four Stage 1 groups cannot be repartitioned into four groups this large without repeating opponents. Stage 1 can still be generated, but Stage 2 and Stage 3 will be unavailable.
+      </div>` : ''}
       <p class="helper-text">Groups are auto-assigned from the existing NBA Team Assignment order.
         Use the dropdown next to a team to move them to a different group before generating.</p>
       <div class="roster-cards" id="groupStageSetupCols" style="display:flex;gap:0.75rem;flex-wrap:wrap;">
@@ -326,6 +343,11 @@ const AdminScheduleView = {
    */
   _renderGroupStagePanel(season, state) {
     const gs = season.groupStageState;
+    const assignedCount = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]).length;
+    const config = this._groupStageConfig(assignedCount);
+    const stageSummary = config
+      ? `(${config.gamesPerStage} games, ${config.gamesPerTeam}/team across ${config.roundsPerStage} rounds)`
+      : '';
     const nameFor = (pid) => season.participants[pid]?.name || '—';
 
     const groupTable = (standings) => `
@@ -364,25 +386,27 @@ const AdminScheduleView = {
       </div>`;
 
     if (gs.stage === 1) {
-      const round1Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 1);
+      const round1Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 1 && m.teamB !== null);
       const round1Complete = round1Matchups.every((m) => m.status === 'completed');
       return `
         <div class="info-banner" style="margin:0.75rem 0;">
-          <strong>Stage 1 — Round 1 Group Play</strong> (24 games, 3/team).
+          <strong>Stage 1 — Round 1 Group Play</strong> ${stageSummary}.
           ${round1Complete
-            ? 'Round 1 is complete. Run the external online roulette, then enter the Round 2 groups manually below.'
+            ? config?.availableStages === 1
+              ? 'Stage 1 is complete. Later stages are unavailable because strict rematch protection cannot be satisfied with this group size.'
+              : 'Round 1 is complete. Run the external online roulette, then enter the Round 2 groups manually below.'
             : 'Complete all Round 1 games, then run the roulette to assign Round 2 groups.'}
         </div>
         ${groupTable(LeagueData.getGroupStageStandings(season.id, 1))}
-        ${round1Complete ? this._renderLaterRoundAssignment(season, 2) : ''}`;
+        ${round1Complete && config?.availableStages > 1 ? this._renderLaterRoundAssignment(season, 2) : ''}`;
     }
 
     if (gs.stage === 2) {
-      const stage2Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 2);
+      const stage2Matchups = season.schedule.flatMap((r) => r.matchups).filter((m) => m.stage === 2 && m.teamB !== null);
       const stage2Complete = stage2Matchups.every((m) => m.status === 'completed');
       return `
         <div class="info-banner" style="margin:0.75rem 0;">
-          <strong>Stage 2 — Round 2 Group Play</strong> (24 games, 3/team).
+          <strong>Stage 2 — Round 2 Group Play</strong> ${stageSummary}.
           ${stage2Complete
             ? 'Round 2 is complete. Run the external online roulette, then enter the Round 3 groups manually below.'
             : 'Complete all Round 2 games before generating Round 3.'}
@@ -401,7 +425,7 @@ const AdminScheduleView = {
 
     return `
       <div class="info-banner" style="margin:0.75rem 0;">
-        <strong>Stage 3 — Round 3 Group Play</strong> (24 games, 3/team).
+        <strong>Stage 3 — Round 3 Group Play</strong> ${stageSummary}.
         Round 3 standings carry forward the complete Round 1 + Round 2 W/L/+/- record.
       </div>
       ${renderGroups('Round 3', gs.round3Groups)}
@@ -414,10 +438,12 @@ const AdminScheduleView = {
   _renderLaterRoundAssignment(season, stage) {
     const key = stage === 2 ? '_pendingRound2Groups' : '_pendingRound3Groups';
     const errorKey = stage === 2 ? '_round2Error' : '_round3Error';
-    if (!this[key]) {
-      this[key] = { A: [null, null, null, null], B: [null, null, null, null], C: [null, null, null, null], D: [null, null, null, null] };
-    }
     const assignedTeamIds = season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]);
+    const config = this._groupStageConfig(assignedTeamIds.length);
+    const teamsPerGroup = config?.teamsPerGroup || Math.ceil(assignedTeamIds.length / 4);
+    if (!this[key]) {
+      this[key] = Object.fromEntries(GROUP_NAMES.map((g) => [g, Array(teamsPerGroup).fill(null)]));
+    }
     const nameFor = (pid) => season.participants[pid]?.name || '—';
     const allSelected = GROUP_NAMES.flatMap((g) => this[key][g]).filter((pid) => pid != null);
     const assignedCount = allSelected.length;
@@ -427,7 +453,7 @@ const AdminScheduleView = {
         <div class="roster-card" style="min-width:220px;">
           <div class="roster-card-header">
             <span class="roster-card-name">Group ${g}</span>
-            <span class="roster-card-count ${slots.filter((s) => s != null).length === 4 ? '' : 'cap-over-text'}">${slots.filter((s) => s != null).length}/4</span>
+            <span class="roster-card-count ${slots.filter((s) => s != null).length === teamsPerGroup ? '' : 'cap-over-text'}">${slots.filter((s) => s != null).length}/${teamsPerGroup}</span>
           </div>
           <div class="table-scroll"><table class="roster-table"><tbody>
             ${slots.map((pid, i) => `
@@ -448,10 +474,13 @@ const AdminScheduleView = {
     return `
       <div style="margin-top:1rem;">
         <h3 class="section-title" style="font-size:1rem;margin-bottom:0.5rem;">Round ${stage} Group Assignment (from external roulette)</h3>
-        <p class="helper-text">Enter the roulette result below. Assigned: ${assignedCount}/16.</p>
+        <p class="helper-text">Enter the roulette result below. Assigned: ${assignedCount}/${assignedTeamIds.length}.</p>
+        ${stage === 2 && config && config.teamsPerGroup > GROUP_NAMES.length
+          ? `<div class="info-banner warn-banner">Stage 2 cannot be generated while strict rematch protection is enabled. With ${config.teamsPerGroup} teams per group but only ${GROUP_NAMES.length} Stage 1 groups, every Stage 2 group must repeat at least one Stage 1 opponent.</div>`
+          : ''}
         <div class="roster-cards" id="round${stage}AssignmentCols" style="display:flex;gap:0.75rem;flex-wrap:wrap;">${groupCols}</div>
         ${this[errorKey] ? `<p class="error-text" style="margin-top:0.5rem;">${escapeHtml(this[errorKey])}</p>` : ''}
-        <button class="btn btn-primary" data-action="generateLaterRound" data-stage="${stage}" style="margin-top:0.75rem;">Generate Round ${stage}</button>
+        <button class="btn btn-primary" data-action="generateLaterRound" data-stage="${stage}" style="margin-top:0.75rem;" ${stage === 2 && config && config.teamsPerGroup > GROUP_NAMES.length ? 'disabled' : ''}>Generate Round ${stage}</button>
       </div>`;
   },
 
@@ -514,7 +543,7 @@ const AdminScheduleView = {
     const isGroupStage = season.scheduleFormat === 'groupStage' && !!season.groupStageState;
     const isConferenceRoundRobin = season.scheduleFormat === 'conferenceRoundRobin' && !!season.conferenceRoundRobinState;
     const roundStage = isGroupStage
-      ? (activeRound.matchups[0]?.stage || (this._selectedRound <= 3 ? 1 : this._selectedRound <= 6 ? 2 : 3))
+      ? (activeRound.matchups.find((m) => m.stage)?.stage || season.groupStageState.stage)
       : null;
     const formatLabel = isGroupStage ? ' (Group Stage)' : isConferenceRoundRobin ? ' (Conference Round Robin)' : '';
 
@@ -635,17 +664,18 @@ const AdminScheduleView = {
       const key = stage === 2 ? '_pendingRound2Groups' : '_pendingRound3Groups';
       const errorKey = stage === 2 ? '_round2Error' : '_round3Error';
       const groups = this[key];
+      const config = this._groupStageConfig(season.teamAssignmentOrder.filter((pid) => !!season.nbaTeamAssignments[pid]).length);
       const summary = ['A', 'B', 'C', 'D']
         .map((g) => `Group ${g}:\n${groups[g].map((pid) => '  - ' + (season.participants[pid]?.name || '(empty)')).join('\n')}`)
         .join('\n\n');
       if (!confirm(
-        `Generate Round ${stage} with these groups?\n\n${summary}\n\nExpected games: 24 (3/team). ` +
+        `Generate Round ${stage} with these groups?\n\n${summary}\n\nExpected games: ${config?.gamesPerStage ?? '?'} (${config?.gamesPerTeam ?? '?'} per team). ` +
         `This locks all earlier Group Stage results — they can no longer be edited afterward.`
       )) return;
       try {
-        AdminActions[`generateGroupStageRound${stage}`](season.id, groups);
+        const newRounds = AdminActions[`generateGroupStageRound${stage}`](season.id, groups);
         showToast(`Round ${stage} generated.`, 'success');
-        this._selectedRound = stage === 2 ? 4 : 7;
+        this._selectedRound = newRounds[0]?.round || this._selectedRound;
         this[key] = null;
         this[errorKey] = null;
         this.render(container);

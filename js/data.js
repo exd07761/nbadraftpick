@@ -1236,18 +1236,29 @@ function generateRoundRobinRounds(teamIds) {
   return rounds;
 }
 
-// ─── Group Stage (legacy 16-team / 4-group format) ─────────────────────────
+// ─── Group Stage (four equal groups) ───────────────────────────────────────
 //
 // Reuses generateRoundRobinRounds() unchanged for each group's mini
-// round-robin (4 teams -> exactly 3 rounds, 2 games/round, never an odd
-// count so the BYE path in generateRoundRobinRounds never triggers) —
-// nothing about pairing/rotation logic is duplicated. This file's ONLY new
-// scheduling logic is how four separate mini-round-robins get interleaved
+// round-robin independently for each group, including its existing BYE
+// handling for odd group sizes. This file's ONLY new scheduling logic is
+// how four separate mini-round-robins get interleaved
 // into shared "global" rounds. Round 2 groups are entered manually by the
 // commissioner (Revision — Manual Online-Roulette Assignment) rather than
 // computed here.
 
 const GROUP_NAMES = ["A", "B", "C", "D"];
+
+function getGroupStageConfig(teamCount) {
+  if (!Number.isInteger(teamCount) || teamCount < 8 || teamCount % GROUP_NAMES.length !== 0) return null;
+  const teamsPerGroup = teamCount / GROUP_NAMES.length;
+  return {
+    teamsPerGroup,
+    gamesPerGroup: (teamsPerGroup * (teamsPerGroup - 1)) / 2,
+    gamesPerTeam: teamsPerGroup - 1,
+    roundsPerStage: teamsPerGroup % 2 === 0 ? teamsPerGroup - 1 : teamsPerGroup,
+    gamesPerStage: GROUP_NAMES.length * (teamsPerGroup * (teamsPerGroup - 1)) / 2,
+  };
+}
 
 /**
  * Builds one stage's worth of Group Stage rounds: runs a mini round-robin
@@ -1257,8 +1268,8 @@ const GROUP_NAMES = ["A", "B", "C", "D"];
  * admin/public UI display Group Stage exactly like Round Robin (one tab
  * per global round, every team appearing at most once per tab).
  *
- * groups: { A: [id,id,id,id], B: [...], C: [...], D: [...] } — each array
- * must have exactly 4 entries (validated by the caller, not here — this
+ * groups: { A: [id,...], B: [...], C: [...], D: [...] } — each array
+ * must have the same number of entries (validated by the caller, not here — this
  * is a pure function with no throwing/validation of its own, matching
  * generateRoundRobinRounds' own contract).
  *
@@ -1271,12 +1282,12 @@ function generateGroupStageRounds(groups, stageNumber, roundOffset) {
     group: g,
     rounds: generateRoundRobinRounds(groups[g]),
   }));
-  const numMiniRounds = perGroup[0].rounds.length; // 3 for 4 teams, always
+  const numMiniRounds = Math.max(...perGroup.map(({ rounds }) => rounds.length));
   const combined = [];
   for (let i = 0; i < numMiniRounds; i++) {
     const matchups = [];
     for (const { group, rounds } of perGroup) {
-      for (const m of rounds[i].matchups) {
+      for (const m of (rounds[i]?.matchups || [])) {
         matchups.push({ ...m, stage: stageNumber, group });
       }
     }
@@ -1383,17 +1394,15 @@ function generateConferenceRoundRobinRounds(conferences) {
 
 // ─── Group Stage home-court rule (Revision — Home Court Rule) ──────────────
 //
-// Two DIFFERENT rules, one per round — neither is the Round Robin format's
+// Two DIFFERENT rules, Stage 1 and later stages — neither is the Round Robin format's
 // business (Round Robin has no home-court concept at all and is untouched):
 //
-//   Round 1: home court goes to the team with the HIGHER original
-//     team-assignment pick number (season.teamAssignmentOrder is the
-//     "DuckRace #2" order participants picked their NBA team in — position
-//     0 = pick #1). Pick numbers are unique per team, so this never ties.
+//   Stage 1: preserves the existing playerDraftOrder rule. Pick numbers
+//     are unique per team, so this never ties.
 //
-//   Round 2: home court goes to the team with the better (higher) Stage 1
-//     point differential. Tied point differential falls back to total
-//     Round 1 points scored (pointsFor) — higher wins home court. In the
+//   Later stages: home court goes to the team with the better (higher)
+//     preceding cumulative point differential. Tied differential falls
+//     back to total points scored (pointsFor) — higher wins home court. In the
 //     effectively-impossible event BOTH are tied, this falls back to the
 //     same unique pick number Round 1 uses, purely so home court is always
 //     determined rather than left undefined; it is never a league-facing
@@ -1405,8 +1414,8 @@ function generateConferenceRoundRobinRounds(conferences) {
 // choose, and nothing should assume left==home" requirement.
 
 /**
- * Round 1: assigns home/away by comparing pickNumberOf(teamA) vs
- * pickNumberOf(teamB) — higher pick number is HOME.
+ * Stage 1: compares playerDraftOrder pick numbers; the lower pick number
+ * (earlier position) is HOME, matching the existing behavior.
  */
 function assignRound1HomeCourt(matchups, pickNumberOf) {
   for (const m of matchups) {
@@ -1414,7 +1423,7 @@ function assignRound1HomeCourt(matchups, pickNumberOf) {
     const pickA = pickNumberOf(m.teamA);
     const pickB = pickNumberOf(m.teamB);
     if (pickA === pickB) {
-      // teamAssignmentOrder positions are unique per team — this should be
+      // Draft-order positions are unique per team — this should be
       // unreachable. Fail loudly rather than silently guessing a side.
       throw new Error("Internal error: two teams share the same original pick number.");
     }
@@ -4730,17 +4739,17 @@ const AdminActions = {
   },
 
   /**
-   * Group Stage (legacy 16-team / 4-group format), Round 1. Reuses
+   * Group Stage (four equal groups), Stage 1. Reuses
    * generateRoundRobinRounds unmodified for each group's mini round-robin
    * (see generateGroupStageRounds) — this is a second entry point into
    * the same scheduling infrastructure generateSchedule uses, not a
    * parallel implementation.
    *
-   * groups: { A: [id,id,id,id], B: [...], C: [...], D: [...] } — the
+   * groups: { A: [id,...], B: [...], C: [...], D: [...] } — the
    * commissioner's chosen (or auto-generated from teamAssignmentOrder)
    * Round 1 group assignment. Validated here before anything is written:
-   * exactly 16 distinct, currently-assigned teams, split into exactly 4
-   * groups of exactly 4.
+   * a supported number of distinct, currently-assigned teams, split into
+   * exactly 4 equal groups of at least 2.
    *
    * Same regeneration-safety guard as generateSchedule: refuses to
    * overwrite a schedule that already has a completed game.
@@ -4765,9 +4774,10 @@ const AdminActions = {
     const assignedTeamIds = season.teamAssignmentOrder.filter(
       (pid) => !!season.nbaTeamAssignments[pid]
     );
-    if (assignedTeamIds.length !== 16) {
+    const groupStageConfig = getGroupStageConfig(assignedTeamIds.length);
+    if (!groupStageConfig) {
       throw new Error(
-        `The legacy Group Stage format requires exactly 16 teams with an assigned NBA team ` +
+        `Group Stage requires at least 8 assigned teams and a team count divisible by 4 ` +
         `(this season has ${assignedTeamIds.length}). Use Round Robin instead, or adjust team assignments.`
       );
     }
@@ -4776,13 +4786,13 @@ const AdminActions = {
       throw new Error("All four groups (A-D) are required.");
     }
     for (const g of GROUP_NAMES) {
-      if (groups[g].length !== 4) {
-        throw new Error(`Group ${g} must contain exactly 4 teams (has ${groups[g].length}).`);
+      if (groups[g].length !== groupStageConfig.teamsPerGroup) {
+        throw new Error(`Group ${g} must contain exactly ${groupStageConfig.teamsPerGroup} teams (has ${groups[g].length}).`);
       }
     }
     const allGroupedIds = GROUP_NAMES.flatMap((g) => groups[g]);
     const uniqueGroupedIds = new Set(allGroupedIds);
-    if (uniqueGroupedIds.size !== 16) {
+    if (uniqueGroupedIds.size !== assignedTeamIds.length) {
       throw new Error("Each team must appear in exactly one group — a team is duplicated across groups.");
     }
     const assignedSet = new Set(assignedTeamIds);
@@ -4799,30 +4809,31 @@ const AdminActions = {
 
     const round1Rounds = generateGroupStageRounds(groups, 1, 0);
     const round1Matchups = round1Rounds.flatMap((r) => r.matchups);
+    const round1RealMatchups = round1Matchups.filter((m) => m.teamB !== null);
 
-    // Home Court Rule — Round 1: higher original team-assignment pick
-    // number (season.playerDraftOrder position from DuckRace #1) gets home court. Mutates
+    // Home Court Rule — Stage 1: preserve playerDraftOrder priority. Mutates
     // round1Matchups (the same objects referenced inside round1Rounds) in
     // place before anything is written.
-    const pickNumberOf = (pid) => season.playerDraftOrder.indexOf(pid) + 1;
+    const draftOrder = Array.isArray(season.playerDraftOrder) ? season.playerDraftOrder : season.teamAssignmentOrder;
+    const pickNumberOf = (pid) => draftOrder.indexOf(pid) + 1;
     assignRound1HomeCourt(round1Matchups, pickNumberOf);
 
     // Sanity-check the generator's own output before writing anything —
     // belt-and-suspenders against a future edit to generateGroupStageRounds
     // silently breaking these invariants.
-    if (round1Matchups.length !== 24) {
-      throw new Error(`Internal error: expected 24 Round 1 games, generated ${round1Matchups.length}.`);
+    if (round1RealMatchups.length !== groupStageConfig.gamesPerStage) {
+      throw new Error(`Internal error: expected ${groupStageConfig.gamesPerStage} Stage 1 games, generated ${round1RealMatchups.length}.`);
     }
     for (const g of GROUP_NAMES) {
-      const gameCount = round1Matchups.filter((m) => m.group === g).length;
-      if (gameCount !== 6) {
-        throw new Error(`Internal error: Group ${g} has ${gameCount} Round 1 games, expected 6.`);
+      const gameCount = round1RealMatchups.filter((m) => m.group === g).length;
+      if (gameCount !== groupStageConfig.gamesPerGroup) {
+        throw new Error(`Internal error: Group ${g} has ${gameCount} Stage 1 games, expected ${groupStageConfig.gamesPerGroup}.`);
       }
     }
     for (const pid of assignedTeamIds) {
-      const played = round1Matchups.filter((m) => m.teamA === pid || m.teamB === pid).length;
-      if (played !== 3) {
-        throw new Error(`Internal error: a team has ${played} Round 1 games, expected 3.`);
+      const played = round1RealMatchups.filter((m) => m.teamA === pid || m.teamB === pid).length;
+      if (played !== groupStageConfig.gamesPerTeam) {
+        throw new Error(`Internal error: a team has ${played} Stage 1 games, expected ${groupStageConfig.gamesPerTeam}.`);
       }
     }
 
@@ -4975,7 +4986,7 @@ const AdminActions = {
 
   /**
    * Group Stage, Round 2 (Manual Online-Roulette Assignment): generates
-   * Round 2's 24 games from a commissioner-supplied group assignment and
+   * Stage 2 games from a commissioner-supplied group assignment and
    * appends them to the existing schedule. Round 2 standings carry forward
    * all Round 1 W/L/+/- into the newly assigned groups.
    */
@@ -4985,7 +4996,7 @@ const AdminActions = {
 
   /**
    * Group Stage, Round 3 (Manual Online-Roulette Assignment): generates
-   * Round 3's 24 games from a commissioner-supplied group assignment and
+   * Stage 3 games from a commissioner-supplied group assignment and
    * appends them to the existing schedule. Round 3 standings carry forward
    * all Round 1 + Round 2 W/L/+/- into the newly assigned groups.
    */
@@ -5014,7 +5025,7 @@ const AdminActions = {
 
     const priorMatchups = season.schedule
       .flatMap((r) => r.matchups)
-      .filter((m) => m.stage < targetStage);
+      .filter((m) => m.stage < targetStage && m.teamB !== null);
     const completedCount = priorMatchups.filter((m) => m.status === "completed").length;
     if (completedCount < priorMatchups.length) {
       throw new Error(
@@ -5026,6 +5037,19 @@ const AdminActions = {
     const assignedTeamIds = season.teamAssignmentOrder.filter(
       (pid) => !!season.nbaTeamAssignments[pid]
     );
+    const groupStageConfig = getGroupStageConfig(assignedTeamIds.length);
+    if (!groupStageConfig) {
+      throw new Error(
+        `Group Stage requires at least 8 assigned teams and a team count divisible by 4 ` +
+        `(this season has ${assignedTeamIds.length}).`
+      );
+    }
+    if (targetStage === 2 && groupStageConfig.teamsPerGroup > GROUP_NAMES.length) {
+      throw new Error(
+        `Stage 2 cannot be generated with strict rematch protection when groups contain more than ` +
+        `${GROUP_NAMES.length} teams: every Stage 2 group would have to repeat a Stage 1 opponent.`
+      );
+    }
     if (!proposedGroups || GROUP_NAMES.some((g) => !Array.isArray(proposedGroups[g]))) {
       throw new Error(`Round ${targetStage} cannot be generated: all four groups (A-D) are required.`);
     }
@@ -5034,8 +5058,8 @@ const AdminActions = {
       if (proposedGroups[g].some((pid) => pid == null)) {
         throw new Error(`Round ${targetStage} cannot be generated: Group ${g} has an empty slot — every slot needs a team assigned.`);
       }
-      if (count !== 4) {
-        throw new Error(`Round ${targetStage} cannot be generated: Group ${g} only contains ${count} team${count === 1 ? '' : 's'}, expected 4.`);
+      if (count !== groupStageConfig.teamsPerGroup || proposedGroups[g].length !== groupStageConfig.teamsPerGroup) {
+        throw new Error(`Stage ${targetStage} cannot be generated: Group ${g} must contain exactly ${groupStageConfig.teamsPerGroup} teams (has ${count}).`);
       }
     }
 
@@ -5094,8 +5118,9 @@ const AdminActions = {
     const maxExistingRound = season.schedule.reduce((max, r) => Math.max(max, r.round), 0);
     const newRounds = generateGroupStageRounds(proposedGroups, targetStage, maxExistingRound);
     const newMatchups = newRounds.flatMap((r) => r.matchups);
-    if (newMatchups.length !== 24) {
-      throw new Error(`Internal error: expected 24 Round ${targetStage} games, generated ${newMatchups.length}.`);
+    const newRealMatchups = newMatchups.filter((m) => m.teamB !== null);
+    if (newRealMatchups.length !== groupStageConfig.gamesPerStage) {
+      throw new Error(`Internal error: expected ${groupStageConfig.gamesPerStage} Stage ${targetStage} games, generated ${newRealMatchups.length}.`);
     }
 
     const priorStatsByParticipant = {};
@@ -5105,7 +5130,8 @@ const AdminActions = {
       }
     }
     const statsOf = (pid) => priorStatsByParticipant[pid];
-    const pickNumberOf = (pid) => season.playerDraftOrder.indexOf(pid) + 1;
+    const draftOrder = Array.isArray(season.playerDraftOrder) ? season.playerDraftOrder : season.teamAssignmentOrder;
+    const pickNumberOf = (pid) => draftOrder.indexOf(pid) + 1;
     assignRound2HomeCourt(newMatchups, statsOf, pickNumberOf);
 
     season.schedule = [...season.schedule, ...newRounds];
