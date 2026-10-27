@@ -28,6 +28,7 @@ const AdminScheduleView = {
   _pendingRound3Groups: null,   // draft manual Round 3 assignment
   _round3Error: null,           // last Round 3 validation error
   _pendingConferences: null,    // { A:[...], B:[...] } — draft Conference Round Robin conference split, not yet saved
+  _scoreModalClose: null,
 
   render(container) {
     const season = LeagueData.getCurrentSeason();
@@ -578,7 +579,6 @@ const AdminScheduleView = {
           ${activeRound.matchups.map((m) => this._renderMatchupRow(season, m)).join('')}
         </div>
 
-        <div id="scorePanel" class="score-panel hidden"></div>
       </div>`;
 
     container.querySelector('#roundTabs').addEventListener('click', (e) => {
@@ -687,7 +687,7 @@ const AdminScheduleView = {
 
     container.querySelectorAll('[data-action="enter-score"]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        this._openScorePanel(container, season, btn.dataset.matchupId);
+        this._openScoreModal(container, season, btn.dataset.matchupId, btn);
       });
     });
   },
@@ -739,50 +739,212 @@ const AdminScheduleView = {
       </div>`;
   },
 
-  _openScorePanel(container, season, matchupId) {
+  _openScoreModal(container, season, matchupId, opener = document.activeElement) {
     const found = LeagueData.getMatchup(season.id, matchupId);
-    if (!found) return;
+    if (!found || found.matchup.teamB === null) return;
     const { matchup: m } = found;
     const nameFor = (pid) => season.participants[pid]?.name || '—';
     const hasHomeCourt = m.home != null && m.away != null;
     const tagFor = (pid) => hasHomeCourt ? (pid === m.home ? ' (Home)' : ' (Away)') : '';
+    const streamerNames = ['Gigs', 'Xtian', 'Jordan', 'Ham', 'Lau', 'Err'];
+    const currentStreamer = String(m.streamer || '');
+    const streamerOptions = streamerNames.map((name) => ({ value: name, label: name }));
+    if (currentStreamer && !streamerNames.includes(currentStreamer)) {
+      streamerOptions.push({ value: currentStreamer, label: `${currentStreamer} (saved value)` });
+    }
+    const currentStreamerLabel = streamerOptions.find((option) => option.value === currentStreamer)?.label || 'Select streamer…';
+    const teamInfo = (pid) => {
+      const nbaTeam = season.nbaTeamAssignments[pid];
+      const homeAway = tagFor(pid).trim().replace(/[()]/g, '') || 'Team';
+      return `<div class="score-modal-team"><span>Participant · NBA team</span><strong>${escapeHtml(nameFor(pid))}${nbaTeam ? ` · ${escapeHtml(nbaTeam)}` : ''}</strong><small>${escapeHtml(homeAway)}</small></div>`;
+    };
+    const gameDetails = [
+      found.round != null ? `Round ${found.round}` : '',
+      m.stage != null ? `Stage ${m.stage}` : '',
+      m.group ? `Group ${m.group}` : '',
+      m.conference ? `Conference ${m.conference}` : '',
+    ].filter(Boolean).join(' · ');
 
-    const panel = container.querySelector('#scorePanel');
-    panel.classList.remove('hidden');
-    panel.innerHTML = `
-      <h4>${escapeHtml(nameFor(m.teamA))}${escapeHtml(tagFor(m.teamA))} vs ${escapeHtml(nameFor(m.teamB))}${escapeHtml(tagFor(m.teamB))}</h4>
-      <div class="score-entry-row">
-        <div class="form-group">
-          <label>${escapeHtml(nameFor(m.teamA))}${escapeHtml(tagFor(m.teamA))} Score</label>
-          <input type="number" min="0" step="1" class="input" id="scoreAInput" value="${m.scoreA ?? ''}">
+    // Mount at document.body so admin layout stacking contexts cannot cover
+    // the modal or receive keyboard/pointer input.
+    this._scoreModalClose?.(false);
+    const previousBodyOverflow = document.body.style.overflow;
+    const overlay = document.createElement('div');
+    overlay.id = 'regularSeasonScoreOverlay';
+    overlay.className = 'modal-overlay regular-season-score-overlay';
+    overlay.innerHTML = `
+      <section class="modal-card regular-season-score-modal" role="dialog" aria-modal="true" aria-labelledby="scoreModalTitle" aria-describedby="scoreModalContext" tabindex="-1">
+        <header class="score-modal-header">
+          <div><span class="modal-eyebrow">REGULAR SEASON</span><h2 id="scoreModalTitle">Enter Score</h2></div>
+        </header>
+        <p class="score-modal-context" id="scoreModalContext">${escapeHtml(gameDetails || 'Game result')}</p>
+        <div class="score-modal-teams">${teamInfo(m.teamA)}${teamInfo(m.teamB)}</div>
+        <div class="score-modal-body">
+          <div class="score-entry-row">
+            <div class="form-group">
+              <label for="scoreAInput">${escapeHtml(nameFor(m.teamA))}${escapeHtml(tagFor(m.teamA))} Score</label>
+              <input type="number" min="0" step="1" class="input" id="scoreAInput" value="${m.scoreA ?? ''}">
+            </div>
+            <div class="form-group">
+              <label for="scoreBInput">${escapeHtml(nameFor(m.teamB))}${escapeHtml(tagFor(m.teamB))} Score</label>
+              <input type="number" min="0" step="1" class="input" id="scoreBInput" value="${m.scoreB ?? ''}">
+            </div>
+          </div>
         </div>
-        <div class="form-group">
-          <label>${escapeHtml(nameFor(m.teamB))}${escapeHtml(tagFor(m.teamB))} Score</label>
-          <input type="number" min="0" step="1" class="input" id="scoreBInput" value="${m.scoreB ?? ''}">
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Streamer</label>
-        <input type="text" class="input" id="streamerInput" value="${m.streamer ? escapeHtml(m.streamer) : ''}" placeholder="Who streamed this game?">
-      </div>
-      <p id="scoreError" class="error-text"></p>
-      <div class="form-actions">
-        <button class="btn btn-primary" id="btnSaveScore">Save Result</button>
-        <button class="btn btn-ghost" id="btnCancelScore">Cancel</button>
-      </div>`;
+        <footer class="score-modal-actions">
+          <div class="score-modal-fields">
+            <div class="form-group score-modal-streamer">
+              <label id="streamerLabel" for="streamerInput">Streamer</label>
+              <button type="button" class="input score-streamer-trigger" id="streamerInput" role="combobox"
+                aria-haspopup="listbox" aria-autocomplete="none" aria-expanded="false" aria-controls="scoreStreamerOptions" aria-describedby="scoreError"
+                data-streamer-value="${escapeHtml(currentStreamer)}">
+                <span id="scoreStreamerValue">${escapeHtml(currentStreamerLabel)}</span><span aria-hidden="true">▾</span>
+              </button>
+              <div class="score-streamer-options" id="scoreStreamerOptions" role="listbox" aria-labelledby="streamerLabel" hidden>
+                ${streamerOptions.map((option, index) => `
+                  <div class="score-streamer-option" id="scoreStreamerOption${index}" role="option" tabindex="-1"
+                    aria-selected="${option.value === currentStreamer}" data-streamer-value="${escapeHtml(option.value)}">
+                    ${escapeHtml(option.label)}
+                  </div>`).join('')}
+              </div>
+            </div>
+            <p id="scoreError" class="error-text" role="alert" aria-live="polite"></p>
+          </div>
+          <div class="score-modal-action-buttons">
+            <button type="button" class="btn btn-ghost" id="btnCancelScore">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btnSaveScore">Save Score</button>
+          </div>
+        </footer>
+      </section>`;
+    document.body.appendChild(overlay);
 
-    panel.querySelector('#btnCancelScore').onclick = () => panel.classList.add('hidden');
-    panel.querySelector('#btnSaveScore').onclick = () => {
+    const dialog = overlay.querySelector('[role="dialog"]');
+    const close = (restoreFocus = true) => {
+      document.removeEventListener('keydown', onKeydown);
+      overlay.remove();
+      document.body.style.overflow = previousBodyOverflow;
+      if (this._scoreModalClose === close) this._scoreModalClose = null;
+      if (restoreFocus && opener?.isConnected) opener.focus();
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const controls = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (!controls.length) { event.preventDefault(); dialog.focus(); return; }
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    this._scoreModalClose = close;
+    document.addEventListener('keydown', onKeydown);
+    document.body.style.overflow = 'hidden';
+    dialog?.querySelector('#scoreAInput')?.focus();
+
+    const streamerTrigger = overlay.querySelector('#streamerInput');
+    const streamerValue = overlay.querySelector('#scoreStreamerValue');
+    const streamerListbox = overlay.querySelector('#scoreStreamerOptions');
+    const streamerChoices = [...streamerListbox.querySelectorAll('[role="option"]')];
+    let activeStreamerIndex = -1;
+    const closeStreamerList = () => {
+      streamerListbox.hidden = true;
+      streamerTrigger.setAttribute('aria-expanded', 'false');
+      streamerTrigger.removeAttribute('aria-activedescendant');
+      activeStreamerIndex = -1;
+    };
+    const setActiveStreamer = (index) => {
+      if (!streamerChoices.length) return;
+      activeStreamerIndex = (index + streamerChoices.length) % streamerChoices.length;
+      const active = streamerChoices[activeStreamerIndex];
+      streamerTrigger.setAttribute('aria-activedescendant', active.id);
+      streamerChoices.forEach((choice, choiceIndex) => {
+        if (choiceIndex === activeStreamerIndex) choice.setAttribute('data-active', 'true');
+        else choice.removeAttribute('data-active');
+      });
+      active.scrollIntoView?.({ block: 'nearest' });
+    };
+    const openStreamerList = (direction = 1) => {
+      streamerListbox.hidden = false;
+      streamerTrigger.setAttribute('aria-expanded', 'true');
+      const selectedIndex = streamerChoices.findIndex((choice) => choice.dataset.streamerValue === streamerTrigger.dataset.streamerValue);
+      setActiveStreamer(selectedIndex >= 0 ? selectedIndex : direction > 0 ? 0 : streamerChoices.length - 1);
+    };
+    const chooseStreamer = (choice) => {
+      streamerTrigger.dataset.streamerValue = choice.dataset.streamerValue;
+      streamerValue.textContent = choice.textContent.trim();
+      streamerChoices.forEach((option) => option.setAttribute('aria-selected', String(option === choice)));
+      closeStreamerList();
+      streamerTrigger.focus();
+    };
+    streamerTrigger.addEventListener('click', () => {
+      if (streamerListbox.hidden) openStreamerList();
+      else closeStreamerList();
+    });
+    streamerTrigger.addEventListener('keydown', (event) => {
+      if (event.key === 'Tab' && !streamerListbox.hidden) {
+        closeStreamerList();
+      } else if (event.key === 'Escape' && !streamerListbox.hidden) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeStreamerList();
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        event.stopPropagation();
+        const direction = event.key === 'ArrowDown' ? 1 : -1;
+        if (streamerListbox.hidden) openStreamerList(direction);
+        else setActiveStreamer(activeStreamerIndex + direction);
+      } else if (event.key === 'Home' || event.key === 'End') {
+        if (streamerListbox.hidden) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setActiveStreamer(event.key === 'Home' ? 0 : streamerChoices.length - 1);
+      } else if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (streamerListbox.hidden) openStreamerList();
+        else if (activeStreamerIndex >= 0) chooseStreamer(streamerChoices[activeStreamerIndex]);
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const query = event.key.toLocaleLowerCase();
+        const startAt = activeStreamerIndex + 1;
+        const matchOffset = streamerChoices.slice(startAt).concat(streamerChoices.slice(0, startAt))
+          .findIndex((choice) => choice.textContent.trim().toLocaleLowerCase().startsWith(query));
+        if (matchOffset >= 0) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (streamerListbox.hidden) openStreamerList();
+          setActiveStreamer((startAt + matchOffset) % streamerChoices.length);
+        }
+      }
+    });
+    streamerChoices.forEach((choice) => choice.addEventListener('click', () => chooseStreamer(choice)));
+
+    overlay.querySelector('#btnCancelScore').onclick = () => close();
+    overlay.querySelector('#btnSaveScore').onclick = async () => {
       AuthBoundary.requireAuth();
-      const scoreA = panel.querySelector('#scoreAInput').value;
-      const scoreB = panel.querySelector('#scoreBInput').value;
-      const streamer = panel.querySelector('#streamerInput').value;
+      const scoreA = overlay.querySelector('#scoreAInput').value;
+      const scoreB = overlay.querySelector('#scoreBInput').value;
+      const streamer = streamerTrigger.dataset.streamerValue;
       try {
         AdminActions.recordMatchResult(season.id, matchupId, { scoreA, scoreB, streamer });
+        const activeSync = window.USE_SUPABASE_SYNC ? SupabaseSync : FirebaseSync;
+        await activeSync.waitForPendingSave();
+        close(false);
         showToast('Result saved.', 'success');
         this.render(container);
+        const updatedScoreButton = [...container.querySelectorAll('[data-action="enter-score"]')]
+          .find((button) => button.dataset.matchupId === matchupId);
+        updatedScoreButton?.focus();
       } catch (e) {
-        panel.querySelector('#scoreError').textContent = e.message;
+        overlay.querySelector('#scoreError').textContent = e.message;
       }
     };
   },

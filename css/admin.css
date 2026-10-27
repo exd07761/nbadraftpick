@@ -618,6 +618,50 @@ select.input { cursor: pointer; }
   grid-template-columns: 1fr 1fr;
   gap: 1rem;
 }
+#regularSeasonScoreOverlay.modal-overlay {
+  z-index: 10000;
+  padding: 1rem;
+  background: rgba(4,7,13,.82);
+  backdrop-filter: blur(7px);
+}
+.regular-season-score-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(660px, 100%);
+  max-width: 660px;
+  max-height: min(88dvh, 760px);
+  overflow: auto;
+  padding: 0;
+  border-color: var(--border-light);
+  border-radius: 16px;
+  background: var(--bg-card);
+}
+.score-modal-header { padding: 1.1rem 1.35rem 0.8rem; border-bottom: 1px solid var(--border); }
+.score-modal-header h2 { margin: 0.15rem 0 0; font-size: 1.2rem; }
+.score-modal-context { margin: 0; padding: 0.7rem 1.35rem; color: var(--text-muted); font-size: 0.78rem; }
+.score-modal-teams { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--border); }
+.score-modal-team { display: flex; min-width: 0; flex-direction: column; gap: 0.25rem; padding: 0.75rem 1.35rem; }
+.score-modal-team + .score-modal-team { border-left: 1px solid var(--border); }
+.score-modal-team span, .score-modal-team small { color: var(--text-muted); font-size: 0.72rem; }
+.score-modal-team strong { overflow-wrap: anywhere; font-size: 0.9rem; }
+.score-modal-body { padding: 1rem 1.35rem 0.85rem; }
+.score-modal-actions { display: flex; flex-direction: column; align-items: stretch; gap: 0.85rem; padding: 0.85rem 1.35rem 1.1rem; border-top: 1px solid var(--border); }
+.score-modal-fields { width: 100%; min-width: 0; flex: 0 0 auto; }
+.score-modal-streamer { position: relative; display: block; width: 100%; min-width: 0; margin: 0; }
+.score-modal-streamer .score-streamer-trigger { display: flex; width: 100%; min-width: 0; height: 44px; align-items: center; justify-content: space-between; box-sizing: border-box; text-align: left; }
+.score-streamer-options { position: absolute; z-index: 3; right: 0; bottom: calc(100% + 0.35rem); left: 0; box-sizing: border-box; width: 100%; max-height: min(18rem, 40dvh); overflow-y: auto; padding: 0.3rem; border: 1px solid var(--border-light); border-radius: var(--r-lg); background: #1a1d24; box-shadow: 0 14px 32px rgba(0,0,0,0.48); }
+.score-streamer-options[hidden] { display: none; }
+.score-streamer-option { padding: 0.65rem 0.8rem; border-radius: var(--r); color: var(--text); cursor: pointer; }
+.score-streamer-option[aria-selected="true"], .score-streamer-option[data-active="true"] { background: var(--accent-dim); color: var(--text); }
+.score-streamer-option:hover { background: var(--bg-hover); color: var(--text); }
+.score-modal-fields .error-text { min-height: 1.2em; margin: 0.4rem 0 0; }
+.score-modal-action-buttons { display: flex; width: 100%; justify-content: flex-end; gap: 0.6rem; }
+@media (max-width: 600px) {
+  #regularSeasonScoreOverlay.modal-overlay { padding: 0.5rem; }
+  .regular-season-score-modal .score-entry-row { grid-template-columns: 1fr; gap: 0.65rem; }
+  .regular-season-score-modal { max-height: 92dvh; }
+}
 
 /* ─── Mobile Navigation (admin header) ────────────────────────────────────────
    The admin header carries 10 nav links plus the user/logout block, so it
