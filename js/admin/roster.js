@@ -787,7 +787,7 @@ const AdminRosterView = {
         }
         const participantId = btn.dataset.participantId;
         const playerId = btn.dataset.playerId;
-        const currentRoster = FirebaseSync.getCache()?.seasons?.[season.id]?.currentRosters?.[participantId] || [];
+        const currentRoster = LeagueData.getCurrentRoster(season.id, participantId);
         const targetEntry = currentRoster.find((entry) => entry.playerId === playerId);
         const existingJokers = currentRoster.filter((entry) => entry.isJoker).length;
         const createsAdditionalJoker = !targetEntry?.isJoker && existingJokers > 0;

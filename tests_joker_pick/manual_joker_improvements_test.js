@@ -10,15 +10,22 @@ const dataSource = fs.readFileSync(path.join(root, 'js', 'data.js'), 'utf8');
 const rosterSource = fs.readFileSync(path.join(root, 'js', 'admin', 'roster.js'), 'utf8');
 
 const dataContext = {
-  console, window: { USE_SUPABASE_SYNC: false },
+  console, window: { USE_SUPABASE_SYNC: true },
+  SupabaseSync: {
+    getCache() { return activeCache; },
+    save(value) { activeCache = value; },
+  },
   firebase: { firestore: () => ({ collection: () => ({ doc: () => ({ onSnapshot() {}, set() { return Promise.resolve(); } }) }) }) },
   showToast() {},
 };
+let activeCache;
 vm.createContext(dataContext);
 vm.runInContext(dataSource + '\nthis.LeagueData=LeagueData; this.AdminActions=AdminActions; this.FirebaseSync=FirebaseSync; this.getDefaultData=getDefaultData;', dataContext);
-let cache = dataContext.getDefaultData();
-dataContext.FirebaseSync.getCache = () => cache;
-dataContext.FirebaseSync.save = value => { cache = value; };
+activeCache = dataContext.getDefaultData();
+// Model the migration regression: Supabase is authoritative while Firebase
+// has an empty cache that must not affect the Manual Roster Edit UI.
+dataContext.FirebaseSync.getCache = () => dataContext.getDefaultData();
+dataContext.FirebaseSync.save = () => {};
 
 const season = dataContext.AdminActions.createSeason('Manual Joker Improvements Regression');
 const participant = dataContext.AdminActions.addParticipant(season.id, 'Joker Test');
@@ -28,7 +35,7 @@ const firstFour = ['PG', 'SG', 'SF', 'PF'].map((position, i) => dataContext.Admi
 const second = dataContext.AdminActions.addPlayer({ name: 'Second Candidate', position: 'C', overall: 81, pool: 'green' });
 const third = dataContext.AdminActions.addPlayer({ name: 'Third Candidate', position: 'C', overall: 82, pool: 'green' });
 const fourth = dataContext.AdminActions.addPlayer({ name: 'Fourth Candidate', position: 'SF', overall: 83, pool: 'blue' });
-const savedSeason = cache.seasons[season.id];
+const savedSeason = activeCache.seasons[season.id];
 savedSeason.rostersInitialized = true;
 savedSeason.ratingCap = 875;
 savedSeason.playerDraftPicks = firstFour.map((player, i) => ({
@@ -46,11 +53,11 @@ savedSeason.currentRosters = {
     { playerId: fourth.id, source: 'manual', draftSlot: null },
   ],
 };
-dataContext.FirebaseSync.save(cache);
+dataContext.SupabaseSync.save(activeCache);
 
-const rosterNow = () => cache.seasons[season.id].currentRosters[participant.id];
+const rosterNow = () => activeCache.seasons[season.id].currentRosters[participant.id];
 const rosterBefore = () => JSON.stringify(rosterNow());
-const historyBefore = JSON.stringify(cache.seasons[season.id].playerDraftPicks);
+const historyBefore = JSON.stringify(activeCache.seasons[season.id].playerDraftPicks);
 const ovrBefore = dataContext.LeagueData.getCurrentRoster(season.id, participant.id)
   .reduce((sum, entry) => sum + entry.player.overall, 0);
 assert.throws(() => dataContext.AdminActions.designateJoker(
@@ -59,6 +66,7 @@ assert.throws(() => dataContext.AdminActions.designateJoker(
 
 let confirmResult = false;
 let confirmCount = 0;
+const toasts = [];
 const confirmButton = { dataset: { participantId: participant.id, playerId: second.id } };
 const removeButton = { dataset: { participantId: participant.id, playerId: second.id } };
 const positionSelect = { value: 'PG' };
@@ -70,12 +78,12 @@ const uiContext = {
     return confirmResult;
   } },
   AuthBoundary: { requireAuth() {} },
-  FirebaseSync: dataContext.FirebaseSync,
-  AdminActions: dataContext.AdminActions,
+  FirebaseSync: { getCache: () => dataContext.getDefaultData() },
   AdminApp: { renderView() {} },
   LeagueData: dataContext.LeagueData,
   escapeHtml(value) { return String(value ?? ''); },
-  showToast() {},
+  showToast(message, type) { toasts.push({ message, type }); },
+  AdminActions: dataContext.AdminActions,
 };
 vm.createContext(uiContext);
 const view = vm.runInNewContext(rosterSource + '\nAdminRosterView;', uiContext);
@@ -88,6 +96,11 @@ const container = {
   },
 };
 view._bindManualEditActions(container, season);
+const activeRosterBeforeConfirmation = dataContext.LeagueData.getCurrentRoster(season.id, participant.id);
+assert.equal(activeRosterBeforeConfirmation.filter(entry => entry.isJoker).length, 1,
+  'active Supabase roster contains one existing Joker');
+assert.equal(dataContext.FirebaseSync.getCache().seasons[season.id], undefined,
+  'Firebase cache is empty while Supabase has the roster');
 const beforeCancel = rosterBefore();
 confirmButton.onclick();
 assert.equal(confirmCount, 1, 'a second Joker prompts for confirmation');
@@ -97,8 +110,10 @@ confirmResult = true;
 confirmButton.onclick();
 assert.equal(rosterNow().filter(entry => entry.isJoker).length, 2, 'confirmation preserves the first Joker and assigns the second');
 assert.equal(rosterNow().find(entry => entry.playerId === second.id).jokerOriginalPosition, 'PF');
-assert.equal(JSON.stringify(cache.seasons[season.id].playerDraftPicks), historyBefore);
+assert.equal(JSON.stringify(activeCache.seasons[season.id].playerDraftPicks), historyBefore);
 assert.equal(confirmCount, 2);
+assert.deepEqual(toasts.at(-1), { message: 'Joker Swap applied.', type: 'success' },
+  'confirmation completes successfully without a caught handler error');
 const picker = view._renderJokerSwapPicker(participant.id, second.id, season.id);
 assert.match(picker, /Remove Joker/);
 
@@ -119,7 +134,7 @@ assert.equal(restored.source, 'manual');
 assert.equal(restored.draftSlot, null);
 assert.equal(restored.rosterPosition, 'PF', 'saved original assigned position is restored exactly');
 assert.equal(roster.filter(entry => entry.isJoker).length, 1, 'removing one Joker leaves the other untouched');
-assert.equal(JSON.stringify(cache.seasons[season.id].playerDraftPicks), historyBefore);
+assert.equal(JSON.stringify(activeCache.seasons[season.id].playerDraftPicks), historyBefore);
 assert.equal(dataContext.LeagueData.getCurrentRoster(season.id, participant.id).reduce((sum, entry) => sum + entry.player.overall, 0), ovrBefore);
 assert.ok(ovrBefore <= 875);
 
@@ -147,5 +162,5 @@ dataContext.AdminActions.manualRemoveJoker(season.id, participant.id, firstFour[
 const legacyRestored = rosterNow().find(entry => entry.playerId === firstFour[0].id);
 assert.equal(legacyRestored.isJoker, undefined);
 assert.equal(legacyRestored.rosterPosition, 'PG', 'legacy fallback uses canonical player position');
-assert.equal(JSON.stringify(cache.seasons[season.id].playerDraftPicks), historyBefore);
+assert.equal(JSON.stringify(activeCache.seasons[season.id].playerDraftPicks), historyBefore);
 console.log('Manual Joker improvements: confirmation, cancellation, multi-Joker override, position restoration, draft isolation, OVR, and cap checks passed.');

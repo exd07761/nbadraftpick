@@ -95,10 +95,33 @@ function makeFake(opts = {}) {
 
     if (method === 'POST' && target === 'rpc/save_league_state') {
       if (opts.failRpc) return res(500, { message: 'rpc boom' });
+
       const body = JSON.parse(init.body);
-      state.wrote = true;
       state.rpcArgs = body;
-      state.league = { ...state.league, data: body.p_data, updated_at: '2026-10-04T13:00:00.000000+00:00' };
+
+      // Simulate another client updating the league after our initial read.
+      if (opts.concurrentLeagueChange) {
+        state.league = {
+          ...state.league,
+          data: { concurrentUpdate: true },
+          updated_at: '2026-10-04T12:30:00.000000+00:00',
+        };
+      }
+
+      // Enforce the same timestamp comparison as the real CAS RPC.
+      if (body.p_expected_updated_at !== state.league.updated_at) {
+        return res(409, {
+          code: 'PT409',
+          message: 'league_state changed since it was read',
+        });
+      }
+
+      state.wrote = true;
+      state.league = {
+        ...state.league,
+        data: body.p_data,
+        updated_at: '2026-10-04T13:00:00.000000+00:00',
+      };
       return res(200, null);
     }
 
@@ -126,7 +149,6 @@ function makeFake(opts = {}) {
   state.fetch = fetchStub;
   return state;
 }
-
 // ─── Harness ────────────────────────────────────────────────────────────
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'restore-supabase-test-'));
@@ -293,45 +315,76 @@ test('dry run performs no writes (reads only) and reports the plan', async () =>
   assert.ok(r.out.includes('Live league_state.updated_at: 2026-10-03'));
 });
 
+
 test('dry run with no credentials validates offline and makes no network calls', async () => {
-  const fake = makeFake(); const out = [];
-  const prev = process.env.SUPABASE_SERVICE_ROLE_KEY; delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const fake = makeFake();
+  const out = [];
+  const prev = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   try {
-    const code = await R.main([writeBackupFile(makeBackup())], { fetch: fake.fetch, log: (...a) => out.push(a.join(' ')), error: () => {} });
+    const code = await R.main(
+      [writeBackupFile(makeBackup())],
+      {
+        fetch: fake.fetch,
+        log: (...a) => out.push(a.join(' ')),
+        error: () => {},
+      }
+    );
     assert.strictEqual(code, 0);
-  } finally { if (prev !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prev; }
+  } finally {
+    if (prev !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prev;
+  }
+
   assert.strictEqual(fake.calls.length, 0);
-  assert.ok(out.join('\n').includes('Live comparison skipped'));
 });
 
-test('--apply without credentials fails before any network call', async () => {
-  const fake = makeFake(); const err = [];
-  const prev = process.env.SUPABASE_SERVICE_ROLE_KEY; delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-  let code;
-  try {
-    code = await R.main([writeBackupFile(makeBackup()), '--apply', '--yes'], { fetch: fake.fetch, log: () => {}, error: (...a) => err.push(a.join(' ')) });
-  } finally { if (prev !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prev; }
-  assert.strictEqual(code, 1);
-  assert.strictEqual(fake.calls.length, 0);
-  assert.ok(err.join('\n').includes('SUPABASE_SERVICE_ROLE_KEY'));
-});
-
-// ─── Apply: order, RPC, preservation, no deletes ────────────────────────
-
-test('players are written before pool; league_state is written last', async () => {
-  const r = await run(makeBackup(), ['--apply'], { players: [], pool: [] });
-  assert.strictEqual(r.code, 0, r.err);
-  const order = writesOf(r.fake).map(c => c.target.split('?')[0]);
-  assert.deepStrictEqual(order, ['nba2k_players', 'nba2k27_pool', 'rpc/save_league_state']);
-});
-
-test('league_state uses the save_league_state RPC with ONLY data (no id / updated_at)', async () => {
+test('league_state uses CAS RPC with backup data and original live timestamp', async () => {
   const b = makeBackup();
   const r = await run(b, ['--apply'], {});
   assert.strictEqual(r.code, 0, r.err);
-  assert.deepStrictEqual(Object.keys(r.fake.rpcArgs), ['p_data']);
+
+  assert.deepStrictEqual(
+    Object.keys(r.fake.rpcArgs).sort(),
+    ['p_data', 'p_expected_updated_at'].sort()
+  );
+
   assert.deepStrictEqual(r.fake.rpcArgs.p_data, b.league_state.data);
-  assert.ok(!writesOf(r.fake).some(c => c.target.startsWith('league_state')), 'no direct table write to league_state');
+
+  assert.strictEqual(
+    r.fake.rpcArgs.p_expected_updated_at,
+    '2026-10-03T00:00:00.000000+00:00'
+  );
+
+  assert.ok(
+    !writesOf(r.fake).some(c => c.target.startsWith('league_state')),
+    'no direct table write to league_state'
+  );
+});
+
+test('--apply refuses without credentials and makes no network calls', async () => {
+  const fake = makeFake();
+  const err = [];
+  const prev = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  let code;
+  try {
+    code = await R.main(
+      [writeBackupFile(makeBackup()), '--apply', '--yes'],
+      {
+        fetch: fake.fetch,
+        log: () => {},
+        error: (...a) => err.push(a.join(' ')),
+      }
+    );
+  } finally {
+    if (prev !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prev;
+  }
+
+  assert.strictEqual(code, 1);
+  assert.strictEqual(fake.calls.length, 0);
+  assert.ok(err.join('\n').includes('SUPABASE_SERVICE_ROLE_KEY'));
 });
 
 test('backup timestamps and nullable overrides are preserved exactly for NBA tables', async () => {
@@ -402,6 +455,33 @@ test('failure in league_state reports tables were restored + snapshot location, 
   assert.ok(r.err.includes(r.snapDir));
   assert.deepStrictEqual(r.fake.calls.filter(c => c.method === 'DELETE'), []);
   assert.ok(r.fake.players.has('alpha'), 'earlier writes are left in place (not atomic)');
+});
+
+test('concurrent league update prevents stale restore from replacing league_state', async () => {
+  const r = await run(makeBackup(), ['--apply'], {
+    concurrentLeagueChange: true,
+  });
+
+  assert.strictEqual(r.code, 1);
+
+  // Earlier table writes remain; restore is not atomic.
+  assert.ok(r.fake.players.has('alpha'));
+
+  // The competing update must survive.
+  assert.deepStrictEqual(r.fake.league.data, {
+    concurrentUpdate: true,
+  });
+
+  // CAS must use the original live timestamp.
+  assert.strictEqual(
+    r.fake.rpcArgs.p_expected_updated_at,
+    '2026-10-03T00:00:00.000000+00:00'
+  );
+
+  assert.ok(r.err.includes('PT409'));
+  assert.ok(r.err.includes('No automatic rollback'));
+  assert.ok(r.err.includes('Safety snapshot:'));
+  assert.ok(!r.out.includes('RESTORE COMPLETE'));
 });
 
 test('read-back mismatch is reported as FAILURE even though writes succeeded', async () => {

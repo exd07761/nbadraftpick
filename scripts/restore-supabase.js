@@ -422,11 +422,14 @@ function makeClient({ url, serviceRoleKey }, fetchImpl) {
     }
   }
 
-  async function saveLeagueState(data) {
+  async function saveLeagueState(data, expectedUpdatedAt) {
     const res = await fetchImpl(`${base}/rest/v1/rpc/${SAVE_RPC}`, {
       method: 'POST',
       headers: headers({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ p_data: data }),
+      body: JSON.stringify({
+        p_data: data,
+        p_expected_updated_at: expectedUpdatedAt,
+      }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`${SAVE_RPC} failed\n  ${await failureText(res)}`);
@@ -706,7 +709,10 @@ async function main(argv, deps = {}) {
 
   log('\nREPLACING league_state via save_league_state ...');
   try {
-    await client.saveLeagueState(backup.league_state.data);
+    await client.saveLeagueState(
+      backup.league_state.data,
+      live.league.updated_at
+);
   } catch (err) {
     error(`\nRESTORE FAILED while writing league_state: ${err.message}`);
     if (err.name === 'TimeoutError' || err.name === 'AbortError') error('The outcome of that request is UNKNOWN (timeout) — check the live league_state before retrying.');
