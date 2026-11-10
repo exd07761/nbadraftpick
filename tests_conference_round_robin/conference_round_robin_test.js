@@ -37,6 +37,8 @@ const assert = require('assert');
 const dataSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'data.js'), 'utf8');
 const utilsSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'shared-utils.js'), 'utf8');
 const standingsSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'views', 'standings.js'), 'utf8');
+const publicScheduleSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'views', 'schedule.js'), 'utf8');
+const adminScheduleSrc = fs.readFileSync(path.join(__dirname, '..', 'js', 'admin', 'schedule.js'), 'utf8');
 
 let failures = 0;
 function test(name, fn) {
@@ -51,27 +53,32 @@ function test(name, fn) {
 }
 
 // ─── data.js harness (real production logic, fake Firestore) ─────────────
-function makeSandbox(seasonData) {
-  const dataDoc = { exists: true, data: () => ({ seasons: seasonData, players: {}, settings: {} }), metadata: { hasPendingWrites: false } };
+function makeSandbox(seasonData, random = Math.random) {
+  let persistedData = { seasons: seasonData, players: {}, settings: {} };
+  const dataDoc = { exists: true, data: () => persistedData, metadata: { hasPendingWrites: false } };
+  const writes = [];
   const sandbox = {
     console,
+    Math: Object.create(Math),
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({
           doc: () => ({
             onSnapshot: (onNext) => { onNext(dataDoc); return () => {}; },
-            set: () => Promise.resolve(),
+            set: (value) => { persistedData = JSON.parse(JSON.stringify(value)); writes.push(persistedData); return Promise.resolve(); },
           }),
         }),
         enablePersistence: () => Promise.resolve(),
       }),
     },
   };
+  sandbox.Math.random = random;
   vm.createContext(sandbox);
   vm.runInContext(dataSrc, sandbox, { filename: 'data.js' });
   vm.runInContext('this.FirebaseSync = FirebaseSync; this.LeagueData = LeagueData; this.AdminActions = AdminActions;', sandbox, { filename: 'export.js' });
   sandbox.FirebaseSync.init();
-  return { LeagueData: sandbox.LeagueData, AdminActions: sandbox.AdminActions };
+  return { LeagueData: sandbox.LeagueData, AdminActions: sandbox.AdminActions, getPersistedData: () => persistedData, writes };
 }
 
 /** Builds a minimal season with N assigned teams, participants p1..pN, an
@@ -96,6 +103,7 @@ function makeSeason(teamCount) {
       name: 'Test Season',
       participants,
       teamAssignmentOrder,
+      playerDraftOrder: [...teamAssignmentOrder],
       nbaTeamAssignments,
       teamAssignmentComplete: true,
       schedule: [],
@@ -218,6 +226,93 @@ test('an unequal 5+3 conference split (8 teams total) also generates a correct, 
     const confOfB = conferences.A.includes(m.teamB) ? 'A' : 'B';
     assert.strictEqual(confOfA, confOfB, 'no matchup crosses conferences even with unequal conference sizes');
   }
+});
+
+test('home/away counts are balanced and explicit for odd and even conference sizes', () => {
+  for (const [teamCount, aCount] of [[8, 4], [9, 5], [10, 6], [11, 5]]) {
+    const seasons = makeSeason(teamCount);
+    const { LeagueData, AdminActions } = makeSandbox(seasons);
+    const conferences = conferencesFor(seasons.season1.teamAssignmentOrder, aCount);
+    AdminActions.generateConferenceRoundRobinSchedule('season1', conferences);
+    const real = LeagueData.getSeason('season1').schedule.flatMap((r) => r.matchups).filter((m) => m.teamB !== null);
+    const expected = new Set();
+    for (const ids of Object.values(conferences)) {
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) expected.add([ids[i], ids[j]].sort().join('::'));
+    }
+    const homes = new Map(seasons.season1.teamAssignmentOrder.map((id) => [id, 0]));
+    const aways = new Map(seasons.season1.teamAssignmentOrder.map((id) => [id, 0]));
+    const pairs = new Set();
+    for (const m of real) {
+      assert.ok(m.home && m.away, 'every game has explicit home and away IDs');
+      assert.notStrictEqual(m.home, m.away, 'a team never plays itself');
+      assert.deepStrictEqual(new Set([m.home, m.away]), new Set([m.teamA, m.teamB]));
+      const pair = [m.teamA, m.teamB].sort().join('::');
+      assert.ok(!pairs.has(pair), `pair ${pair} occurs once`);
+      pairs.add(pair);
+      homes.set(m.home, homes.get(m.home) + 1);
+      aways.set(m.away, aways.get(m.away) + 1);
+    }
+    assert.deepStrictEqual(pairs, expected, 'every expected matchup appears exactly once');
+    for (const ids of Object.values(conferences)) {
+      const homeCounts = ids.map((id) => homes.get(id));
+      assert.ok(Math.max(...homeCounts) - Math.min(...homeCounts) <= 1, `home counts balanced for ${ids.length}-team conference`);
+      for (const id of ids) assert.strictEqual(homes.get(id) + aways.get(id), ids.length - 1);
+    }
+  }
+});
+
+test('equal home-count choices are randomized across schedule generations', () => {
+  const generations = [];
+  for (const random of [() => 0, () => 0.999999]) {
+    const seasons = makeSeason(8);
+    const { LeagueData, AdminActions } = makeSandbox(seasons, random);
+    AdminActions.generateConferenceRoundRobinSchedule('season1', conferencesFor(seasons.season1.teamAssignmentOrder, 4));
+    generations.push(LeagueData.getSeason('season1').schedule);
+  }
+  const normalized = (schedule) => schedule.map((round) => round.matchups
+    .filter((m) => m.teamB !== null)
+    .map((m) => [m.conference, ...[m.teamA, m.teamB].sort()].join(':')).sort());
+  assert.strictEqual(JSON.stringify(normalized(generations[0])), JSON.stringify(normalized(generations[1])),
+    'randomization leaves pairings in every round unchanged');
+  const homes = (schedule) => schedule.flatMap((round) => round.matchups)
+    .filter((m) => m.teamB !== null).map((m) => `${m.id}:${m.home}`).join(',');
+  assert.notStrictEqual(homes(generations[0]), homes(generations[1]), 'different random choices change home assignments');
+  for (const schedule of generations) {
+    for (const conf of ['A', 'B']) {
+      const ids = conf === 'A' ? ['p1', 'p2', 'p3', 'p4'] : ['p5', 'p6', 'p7', 'p8'];
+      const counts = new Map(ids.map((id) => [id, 0]));
+      for (const m of schedule.flatMap((round) => round.matchups)) if (m.conference === conf && m.teamB !== null) counts.set(m.home, counts.get(m.home) + 1);
+      assert.ok(Math.max(...counts.values()) - Math.min(...counts.values()) <= 1, `balanced counts for conference ${conf}`);
+    }
+  }
+});
+
+test('home/away assignments persist through save and reload; legacy games remain safe', () => {
+  const seasons = makeSeason(8);
+  const first = makeSandbox(seasons);
+  const conferences = conferencesFor(seasons.season1.teamAssignmentOrder, 4);
+  first.AdminActions.generateConferenceRoundRobinSchedule('season1', conferences);
+
+  assert.strictEqual(first.writes.length, 1, 'schedule generation saves the season');
+  const savedSchedule = first.getPersistedData().seasons.season1.schedule;
+  const savedGames = savedSchedule.flatMap((round) => round.matchups).filter((m) => m.teamB !== null);
+  assert.ok(savedGames.every((m) => m.home && m.away), 'persisted games contain home/away participant IDs');
+
+  const reloaded = makeSandbox(first.getPersistedData().seasons);
+  const loadedGames = reloaded.LeagueData.getSchedule('season1').flatMap((round) => round.matchups).filter((m) => m.teamB !== null);
+  assert.strictEqual(
+    JSON.stringify(loadedGames.map((m) => [m.id, m.home, m.away])),
+    JSON.stringify(savedGames.map((m) => [m.id, m.home, m.away]))
+  );
+
+  const uiSandbox = {};
+  vm.createContext(uiSandbox);
+  vm.runInContext(utilsSrc, uiSandbox, { filename: 'shared-utils.js' });
+  const legacyGame = { teamA: 'p1', teamB: 'p2', scoreA: null, scoreB: null, winner: null };
+  const legacyDisplay = uiSandbox.matchupHomeAway(legacyGame);
+  assert.strictEqual(legacyDisplay.hasHomeCourt, false);
+  assert.strictEqual(legacyDisplay.leftId, 'p1');
+  assert.strictEqual(legacyDisplay.rightId, 'p2');
 });
 
 // ─── Validation ────────────────────────────────────────────────────────
@@ -377,6 +472,29 @@ test('view: Round Robin rendering is unaffected (still shows the combined table,
 
   assert.ok(container.innerHTML.includes('id="teamStandingsTable"'), 'Round Robin still shows the combined table');
   assert.ok(!container.innerHTML.includes('Conference Standings'), 'no Conference Standings section for Round Robin');
+});
+
+test('Admin and public schedule render stored home first with the correct participant names', () => {
+  const sandbox = { console };
+  vm.createContext(sandbox);
+  vm.runInContext(utilsSrc, sandbox, { filename: 'shared-utils.js' });
+  sandbox.teamBadge = (abbr) => `<i>${abbr}</i>`;
+  vm.runInContext(publicScheduleSrc, sandbox, { filename: 'schedule.js' });
+  vm.runInContext(adminScheduleSrc, sandbox, { filename: 'admin-schedule.js' });
+  vm.runInContext('this.publicSchedule = ScheduleView; this.adminSchedule = AdminScheduleView;', sandbox);
+  const season = {
+    participants: { p1: { name: 'Away Team' }, p2: { name: 'Home Team' } },
+    nbaTeamAssignments: { p1: 'AWY', p2: 'HOM' },
+    groupStageState: null,
+  };
+  const matchup = { id: 'm1', teamA: 'p1', teamB: 'p2', home: 'p2', away: 'p1', status: 'scheduled' };
+  const publicHtml = sandbox.publicSchedule._renderMatchupCard(season, matchup);
+  const adminHtml = sandbox.adminSchedule._renderMatchupRow(season, matchup);
+  for (const html of [publicHtml, adminHtml]) {
+    assert.ok(html.indexOf('Home Team') < html.indexOf('Away Team'), 'home participant appears before away participant');
+    assert.ok(html.includes('🏠'), 'home court marker is on the home side');
+    assert.ok(html.includes('AWY') && html.includes('HOM'), 'team badges are resolved by participant ID');
+  }
 });
 
 console.log(`\n${failures === 0 ? 'All tests passed.' : failures + ' test(s) FAILED.'}`);

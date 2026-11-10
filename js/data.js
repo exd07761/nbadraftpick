@@ -221,12 +221,9 @@ function createSeason(id, name) {
     //   conference,              // Conference Round Robin only — absent/
     //                            // undefined on every other format's
     //                            // matchup. conference: 'A'|'B'.
-    //   home, away,              // Group Stage only — explicit home/away
-    //                            // participantIds (see assignRound1HomeCourt/
-    //                            // assignRound2HomeCourt below). Absent on
-    //                            // every Round Robin matchup and on BYEs —
-    //                            // the existing Round Robin format has no
-    //                            // home-court concept and is untouched.
+    //   home, away,              // Group Stage and Conference Round Robin:
+    //                            // explicit home/away participantIds. Absent
+    //                            // on plain Round Robin matchups and BYEs.
     // }
     // NBA team abbreviation is intentionally NOT stored here — look it up via
     // season.nbaTeamAssignments[participantId] (single source of truth,
@@ -1377,6 +1374,42 @@ function generateConferenceRoundRobinRounds(conferences) {
       }
     }
     combined.push({ round: i + 1, matchups });
+  }
+
+  // Orient each conference's complete graph as a balanced tournament.
+  // A random team order breaks ties, then the cyclic orientation gives
+  // every team (n-1)/2 home games for odd n, or floor/ceil((n-1)/2) for
+  // even n. Pairings and rounds remain those produced above.
+  const ranksByConference = new Map();
+  for (const c of CONFERENCE_NAMES) {
+    const ids = [...conferences[c]];
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    ranksByConference.set(c, new Map(ids.map((id, rank) => [id, rank])));
+  }
+  for (const round of combined) {
+    for (const m of round.matchups) {
+      if (m.teamB === null) continue;
+      const ranks = ranksByConference.get(m.conference);
+      const rankA = ranks.get(m.teamA);
+      const rankB = ranks.get(m.teamB);
+      let homeRank;
+      if (conferences[m.conference].length % 2 === 1) {
+        const n = conferences[m.conference].length;
+        homeRank = ((rankB - rankA + n) % n) <= Math.floor(n / 2) ? rankA : rankB;
+      } else if (rankA === conferences[m.conference].length - 1 || rankB === conferences[m.conference].length - 1) {
+        const lastRank = conferences[m.conference].length - 1;
+        const otherRank = rankA === lastRank ? rankB : rankA;
+        homeRank = otherRank < (lastRank / 2) ? lastRank : otherRank;
+      } else {
+        const n = conferences[m.conference].length - 1;
+        homeRank = ((rankB - rankA + n) % n) <= Math.floor(n / 2) ? rankA : rankB;
+      }
+      m.home = rankA === homeRank ? m.teamA : m.teamB;
+      m.away = m.home === m.teamA ? m.teamB : m.teamA;
+    }
   }
   return combined;
 }

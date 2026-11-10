@@ -293,14 +293,13 @@ function _positionPoolRow(entry, rank, mode) {
 
 /**
  * matchupHomeAway(m) — resolves display order for a non-BYE matchup,
- * honoring the Group Stage home-court rule (Revision — Home Court Rule).
+ * honoring explicit home/away assignments when present.
  *
  * If the matchup carries explicit `home`/`away` participantIds (Group
- * Stage Round 1 & Round 2 — see data.js assignRound1HomeCourt/
- * assignRound2HomeCourt), the home team is always returned as `leftId`,
+ * Stage or Conference Round Robin), the home team is always returned as `leftId`,
  * per the "HOME must always be displayed on the LEFT" requirement — never
  * assumed from teamA/teamB order. Matchups with no home/away fields
- * (Round Robin, and BYEs, which are handled separately by every caller)
+ * (plain Round Robin, and BYEs, which are handled separately by every caller)
  * keep the original teamA/teamB order and report hasHomeCourt: false, so
  * nothing about their display changes.
  *
