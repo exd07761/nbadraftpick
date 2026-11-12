@@ -186,9 +186,10 @@ function badgeTextColor(hex) {
  *                the admin Draft page. Caller wires the click.
  *   admin: boolean (legacy alias for mode:'manage', kept for existing callers)
  *   sortMode: 'ovr-desc' | 'ovr-asc' | 'name-asc' | 'name-desc'  (default 'ovr-desc')
+ *   secondaryPosition: boolean — show the stored second position in a 2ND column
  */
 function positionPoolGrid(entries, pool, options = {}) {
-  const { admin = false, sortMode = 'ovr-desc' } = options;
+  const { admin = false, sortMode = 'ovr-desc', secondaryPosition = false } = options;
   const mode = options.mode || (admin ? 'manage' : 'view');
 
   const byPos = {};
@@ -209,8 +210,8 @@ function positionPoolGrid(entries, pool, options = {}) {
   CORE_POSITIONS.forEach((pos) => byPos[pos].sort(sorter));
   other.sort(sorter);
 
-  const cols = CORE_POSITIONS.map((pos) => _positionPoolColumn(pos, byPos[pos], pool, mode));
-  if (other.length) cols.push(_positionPoolColumn('OTHER', other, pool, mode));
+  const cols = CORE_POSITIONS.map((pos) => _positionPoolColumn(pos, byPos[pos], pool, mode, secondaryPosition));
+  if (other.length) cols.push(_positionPoolColumn('OTHER', other, pool, mode, secondaryPosition));
 
   if (entries.length === 0) {
     return `<p class="muted" style="padding: 1.5rem 0;">No players in this pool yet.</p>`;
@@ -218,18 +219,18 @@ function positionPoolGrid(entries, pool, options = {}) {
   return `<div class="pos-table-grid">${cols.join('')}</div>`;
 }
 
-function _positionPoolColumn(posLabel, rows, pool, mode) {
+function _positionPoolColumn(posLabel, rows, pool, mode, secondaryPosition = false) {
   const admin = mode === 'manage';
   return `
-    <div class="pos-table pos-table-${pool} ${admin ? 'pos-table-admin' : ''}">
+    <div class="pos-table pos-table-${pool} ${admin ? 'pos-table-admin' : ''} ${secondaryPosition ? 'pos-table-secondary' : ''}">
       <div class="pos-table-head">${escapeHtml(posLabel)}</div>
       <div class="pos-table-columns-head">
-        <span>#</span><span>PLAYER</span><span>OVR</span>${admin ? '<span></span><span></span>' : ''}
+        <span>#</span><span>PLAYER</span><span>OVR</span>${secondaryPosition ? '<span>2ND</span>' : ''}${admin ? '<span></span><span></span>' : ''}
       </div>
       <div class="pos-table-body">
         ${rows.length === 0
           ? `<div class="pos-table-empty">No players</div>`
-          : rows.map((e, i) => _positionPoolRow(e, i + 1, mode)).join('')}
+          : rows.map((e, i) => _positionPoolRow(e, i + 1, mode, secondaryPosition)).join('')}
       </div>
     </div>`;
 }
@@ -244,7 +245,7 @@ const _DRAFT_STATUS_LABELS = {
   'minimum-rating': 'Below Min OVR',
 };
 
-function _positionPoolRow(entry, rank, mode) {
+function _positionPoolRow(entry, rank, mode, secondaryPosition = false) {
   const { player, status } = entry;
   const admin = mode === 'manage';
   const isDrafted = status === 'drafted';
@@ -269,6 +270,9 @@ function _positionPoolRow(entry, rank, mode) {
   // work; only the click-to-open behavior changes.
   const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'signed' && status !== 'rostered' && status !== 'variant-locked' && status !== 'minimum-rating';
   const ovr = player.overall ?? 0;
+  const secondPosition = Array.isArray(player.positions) && player.positions[1]
+    ? player.positions[1]
+    : '—';
   const tier = ovr >= 90 ? 'pos-ovr-elite' : ovr >= 80 ? 'pos-ovr-good' : 'pos-ovr-role';
   const statusTag = (mode === 'draft' || status === 'signed') && _DRAFT_STATUS_LABELS[status]
     ? `<span class="pos-drafted-tag ${status === 'position-locked' || status === 'no-position' ? 'pos-locked-tag' : ''}">${_DRAFT_STATUS_LABELS[status]}</span>`
@@ -286,6 +290,7 @@ function _positionPoolRow(entry, rank, mode) {
         ${statusTag}
       </span>
       <span class="pos-ovr ${isDrafted ? '' : tier}">${ovr}</span>
+      ${secondaryPosition ? `<span class="pos-secondary">${escapeHtml(secondPosition)}</span>` : ''}
       ${admin ? `<button type="button" class="pos-row-edit" data-action="editPlayer" data-id="${player.id}" data-name="${escapeHtml(player.name)}" title="Edit ${escapeHtml(player.name)}">✎</button>` : ''}
       ${admin ? `<button type="button" class="pos-row-delete" data-action="deletePlayer" data-id="${player.id}" data-name="${escapeHtml(player.name)}" title="Delete ${escapeHtml(player.name)}">×</button>` : ''}
     </div>`;

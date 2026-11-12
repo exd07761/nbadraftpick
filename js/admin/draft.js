@@ -316,13 +316,13 @@ const AdminDraftView = {
 
     return `
       <div class="pool-pane ${active === 'green' ? 'active' : ''}" data-pool-pane="green">
-        ${positionPoolGrid(green, 'green', { mode })}
+        ${positionPoolGrid(green, 'green', { mode, secondaryPosition: true })}
       </div>
       <div class="pool-pane ${active === 'blue' ? 'active' : ''}" data-pool-pane="blue">
-        ${positionPoolGrid(blue, 'blue', { mode })}
+        ${positionPoolGrid(blue, 'blue', { mode, secondaryPosition: true })}
       </div>
       <div class="pool-pane ${active === 'white' ? 'active' : ''}" data-pool-pane="white">
-        ${positionPoolGrid(white, 'white', { mode })}
+        ${positionPoolGrid(white, 'white', { mode, secondaryPosition: true })}
       </div>`;
   },
 

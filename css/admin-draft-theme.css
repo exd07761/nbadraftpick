@@ -99,6 +99,11 @@
 .draft-v2 .pos-table-columns-head { color: var(--nb-text-muted); }
 .draft-v2 .pos-table-row { border-bottom: 1px solid var(--nb-surface-border); }
 .draft-v2 .pos-table-row:hover { background: var(--nb-surface); }
+.draft-v2 .pos-table-secondary .pos-table-columns-head,
+.draft-v2 .pos-table-secondary .pos-table-row {
+  grid-template-columns: 1.15rem minmax(0, 1fr) 2.15rem 2.15rem;
+}
+.draft-v2 .pos-secondary { color: var(--nb-text-muted); text-align: right; font-size: 0.72rem; }
 .draft-v2 .pos-name { color: var(--nb-text); }
 .draft-v2 .pos-ovr { color: var(--nb-text-muted); }
 .draft-v2 .pos-ovr-elite { color: var(--nb-positive); }
