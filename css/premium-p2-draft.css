@@ -328,6 +328,15 @@
   font-size: var(--nb-fs-table);
   position: relative;
 }
+.dft-view .dft-panel-board .pos-table-secondary .pos-table-columns-head,
+.dft-view .dft-panel-board .pos-table-secondary .pos-table-row {
+  grid-template-columns: 1.15rem minmax(0, 1fr) 2.4rem 1.9rem;
+}
+.dft-view .dft-panel-board .pos-secondary {
+  color: var(--nb-text-muted);
+  font-size: var(--nb-fs-sm);
+  text-align: right;
+}
 .dft-view .dft-panel-board .pos-table-row:hover:not(.drafted):not(.just-picked) { background: var(--nb-surface-hover); }
 .dft-view .dft-panel-board .pos-rank {
   font-size: 0.6875rem;
@@ -620,6 +629,8 @@
   .dft-view .dft-panel-board .pos-name { font-size: 0.8125rem; }
   .dft-view .dft-panel-board .pos-table-columns-head,
   .dft-view .dft-panel-board .pos-table-row { grid-template-columns: 1rem minmax(0, 1fr) 2.1rem; }
+  .dft-view .dft-panel-board .pos-table-secondary .pos-table-columns-head,
+  .dft-view .dft-panel-board .pos-table-secondary .pos-table-row { grid-template-columns: 1rem minmax(0, 1fr) 2.1rem 1.7rem; }
   .dft-view .dft-progress-label { font-size: 0.8125rem; letter-spacing: 0.1em; }
   .dft-view .dft-progress-fraction,
   .dft-view .dft-progress-pct { font-size: 1.25rem; }

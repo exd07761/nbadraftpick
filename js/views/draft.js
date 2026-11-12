@@ -254,7 +254,7 @@ const PublicDraftView = {
     const entries = poolStatus
       .filter(({ player }) => player.pool === this._activePool)
       .filter(({ player }) => !q || player.name.toLowerCase().includes(q) || (player.position || '').toLowerCase().includes(q));
-    return positionPoolGrid(entries, this._activePool, { mode: 'view', sortMode: 'ovr-desc' });
+    return positionPoolGrid(entries, this._activePool, { mode: 'view', sortMode: 'ovr-desc', secondaryPosition: true });
   },
 
   // ── Info panel (was "History"): the reference redesign asks for a

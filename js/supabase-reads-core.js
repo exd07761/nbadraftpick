@@ -127,6 +127,7 @@ const SupabaseReadsCore = (() => {
       id: row.live_id,
       name: row.name,
       position: row.position,
+      positions: Array.isArray(row.positions) ? row.positions : [],
       overall: row.overall,
       pool: row.pool,
       variantGroup: row.variant_group_id,
