@@ -239,15 +239,19 @@ const Nba2kImport = {
         continue;
       }
 
-      // Phase 8.3.1: only 75 <= overall <= 99 is imported into
-      // nba2k_players. This is NEW filtering — no OVR range check
-      // existed in this file before this phase; the fresh NBA2KAPI
-      // datasets contain many records outside this range that must
-      // never reach the RPC. Excluded records are neither an error nor
-      // a warning (nothing is wrong with them) — they're simply out of
-      // scope for this table, tracked separately in excludedByOverall.
+      // Current roster refresh rule:
+      // Existing Current players are allowed through at ANY valid OVR,
+      // including below 75, so rating downgrades are reflected.
+      // New players still require OVR 75-99. Classics/All-Time retain
+      // the original 75-99 threshold. Existing status is known after
+      // the read-only slug lookup, so low-rated Current candidates are
+      // normalized first and filtered from creates after that lookup.
       const overallNum = Number(overall);
-      if (overallNum < 75 || overallNum > 99) {
+      if (overallNum < 0 || overallNum > 99) {
+        excludedByOverall++;
+        continue;
+      }
+      if (overallNum < 75 && teamType !== 'curr') {
         excludedByOverall++;
         continue;
       }
@@ -379,8 +383,16 @@ const Nba2kImport = {
       return;
     }
 
-    const toCreate = normalized.filter(n => !existingPlayers.has(n.slug));
+    // Existing Current players refresh even when their OVR falls below 75.
+    // New players below 75 remain excluded from import.
+    const toCreate = normalized.filter(n =>
+      !existingPlayers.has(n.slug) && n.doc.overall >= 75 && n.doc.overall <= 99
+    );
     const toUpdate = normalized.filter(n => existingPlayers.has(n.slug));
+    excludedByOverall += normalized.filter(n =>
+      !existingPlayers.has(n.slug) && n.doc.teamType === 'curr' &&
+      (n.doc.overall < 75 || n.doc.overall > 99)
+    ).length;
 
     this._lastParsed = {
       sourceTotal,
@@ -404,13 +416,14 @@ const Nba2kImport = {
         <div><span class="backup-latest-label">Existing:</span> ${existingPlayers.size}</div>
         <div><span class="backup-latest-label">New:</span> ${toCreate.length}</div>
         <div><span class="backup-latest-label">Updates:</span> ${toUpdate.length}</div>
-        <div><span class="backup-latest-label">Excluded (OVR outside 75–99):</span> ${excludedByOverall}</div>
+        <div><span class="backup-latest-label">Excluded new players (OVR below 75):</span> ${excludedByOverall}</div>
         <div><span class="backup-latest-label">Validation warnings:</span> ${warnings.length}</div>
         <div><span class="backup-latest-label">Validation errors:</span> ${errors.length}</div>
       </div>
       <p class="helper-text" style="margin-top:0.5rem;">
-        For existing players, <code>name</code> and <code>positions</code> are preserved from the
-        current database record and will NOT be overwritten by this dataset — every other field
+        Existing players are updated from the source, including ratings below 75 for Current players.
+        New players below 75 are excluded. For existing players, <code>name</code> and <code>positions</code>
+        are preserved from the current database record and will NOT be overwritten by this dataset — every other field
         updates from the source data. New players use the source data as-is, positions included.
         <code>badges</code> updates normally when the source provides a badge list (including an
         explicit empty one) — only a genuinely missing/invalid source badge list falls back to
@@ -587,7 +600,7 @@ const Nba2kImport = {
           <div>Created: ${toCreate.length}</div>
           <div>Updated: ${toUpdate.length}</div>
           <div>Skipped (validation errors): ${errors.length}</div>
-          <div>Excluded (OVR outside 75–99): ${excludedByOverall}</div>
+          <div>Excluded new players (OVR below 75): ${excludedByOverall}</div>
           <div>Warnings (non-fatal): ${warnings.length}</div>
           <div style="margin-top:0.5rem;">Breakdown — Current: ${categoryCounts.curr} · Classics: ${categoryCounts.class} · All-Time: ${categoryCounts.allt}${categoryCounts.other ? ` · Other: ${categoryCounts.other}` : ''}</div>
           <div>Source records in file: ${sourceTotal}</div>
