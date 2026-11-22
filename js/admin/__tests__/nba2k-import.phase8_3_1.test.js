@@ -145,12 +145,12 @@ check("1. existing player's name is preserved (not overwritten by API)", () => {
   assert.strictEqual(rpc.name, 'Dennis Schröder', 'existing DB name must win over the fresh API name');
 });
 
-check("2. existing player's source positions are refreshed from API", () => {
+check("2. existing non-Current player's positions remain preserved", () => {
   const { Nba2kImport } = loadNba2kImport();
   const existingPlayers = new Map([['some-slug', { name: 'Some Player', positions: ['SF', 'PF'] }]]);
   const item = { slug: 'some-slug', doc: { name: 'Some Player', team: 'T', teamType: 'allt', overall: 90, positions: ['C', 'N'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: {}, lastUpdated: null } };
   const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
-  assert.deepStrictEqual(rpc.positions, ['C', 'N'], 'source primary and secondary positions must replace the previous source positions');
+  assert.deepStrictEqual(rpc.positions, ['SF', 'PF'], 'non-Current positions must remain unchanged during a Current roster refresh');
 });
 
 check("3. existing player's overall IS updated from the API", () => {
