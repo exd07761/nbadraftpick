@@ -270,8 +270,8 @@ function _positionPoolRow(entry, rank, mode, secondaryPosition = false) {
   // work; only the click-to-open behavior changes.
   const isDraftable = mode === 'draft' && status !== 'drafted' && status !== 'signed' && status !== 'rostered' && status !== 'variant-locked' && status !== 'minimum-rating';
   const ovr = player.overall ?? 0;
-  const secondPosition = Array.isArray(player.positions) && player.positions[1]
-    ? player.positions[1]
+  const secondPosition = Array.isArray(player.positions)
+    ? player.positions.find((pos) => pos && pos !== player.position) || '—'
     : '—';
   const tier = ovr >= 90 ? 'pos-ovr-elite' : ovr >= 80 ? 'pos-ovr-good' : 'pos-ovr-role';
   const statusTag = (mode === 'draft' || status === 'signed') && _DRAFT_STATUS_LABELS[status]
