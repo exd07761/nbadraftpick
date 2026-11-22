@@ -544,7 +544,7 @@ const Nba2kImport = {
       team: doc.team,
       team_type: doc.teamType,
       overall: doc.overall,
-      positions: doc.positions,
+      positions: existing && doc.teamType !== 'curr' ? existing.positions : doc.positions,
       height: doc.height,
       weight: doc.weight,
       wingspan: doc.wingspan,
