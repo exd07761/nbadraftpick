@@ -427,6 +427,32 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
     assert.deepStrictEqual(sent.badges, existingBadges, 'badges preserved end-to-end when the source has no badges.list');
   });
 
+  await checkAsync('Current existing players are updated when their rating drops below 75', async () => {
+    const existingRows = [{ slug: 'ronald-holland', name: 'Ron Holland', positions: ['PF', 'SF'] }];
+    const { Nba2kImport } = loadNba2kImport(existingRows);
+    const container = makeFakeContainer();
+    const json = { players: [
+      rawPlayer({ name: 'Ron Holland', playerUrl: 'https://www.2kratings.com/ronald-holland', teamType: 'curr', overall: 74 }),
+    ] };
+    await Nba2kImport._validateAndPreview(container, json);
+    assert.strictEqual(Nba2kImport._lastParsed.toUpdate.length, 1, 'existing Current player at 74 must be updated');
+    assert.strictEqual(Nba2kImport._lastParsed.toCreate.length, 0, 'must not create a duplicate');
+    assert.strictEqual(Nba2kImport._lastParsed.toUpdate[0].doc.overall, 74);
+    assert.strictEqual(Nba2kImport._lastParsed.excludedByOverall, 0);
+  });
+
+  await checkAsync('new Current players below 75 remain excluded', async () => {
+    const { Nba2kImport } = loadNba2kImport([]);
+    const container = makeFakeContainer();
+    const json = { players: [
+      rawPlayer({ name: 'New Low Rated Player', playerUrl: 'https://www.2kratings.com/new-low-rated-player', teamType: 'curr', overall: 74 }),
+    ] };
+    await Nba2kImport._validateAndPreview(container, json);
+    assert.strictEqual(Nba2kImport._lastParsed.toCreate.length, 0);
+    assert.strictEqual(Nba2kImport._lastParsed.toUpdate.length, 0);
+    assert.strictEqual(Nba2kImport._lastParsed.excludedByOverall, 1);
+  });
+
   console.log(`\n${passed} check(s) passed.`);
   if (process.exitCode) {
     console.error('SOME CHECKS FAILED');
