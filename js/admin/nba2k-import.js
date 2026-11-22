@@ -483,6 +483,23 @@ const Nba2kImport = {
       );
       rows.forEach(row => existing.set(row.slug, { name: row.name, positions: row.positions, badges: row.badges }));
     }
+
+    // Read Green Pool assignments separately. The source positions are
+    // authoritative for assigned Green positions, but UNASSIGNED/null
+    // must never be auto-filled from NBA2KAPI.
+    for (let i = 0; i < slugs.length; i += CHUNK) {
+      const chunk = slugs.slice(i, i + CHUNK);
+      if (!chunk.length) continue;
+      const poolRows = await SupabaseQuery.select('nba2k27_pool', qb =>
+        qb.select('nba2k_ref, pool, position').in('nba2k_ref', chunk)
+      );
+      poolRows.forEach(row => {
+        const current = existing.get(row.nba2k_ref) || {};
+        current.pool = row.pool;
+        current.poolPosition = row.position;
+        existing.set(row.nba2k_ref, current);
+      });
+    }
     return existing;
   },
 
@@ -527,7 +544,7 @@ const Nba2kImport = {
       team: doc.team,
       team_type: doc.teamType,
       overall: doc.overall,
-      positions: existing ? existing.positions : doc.positions,
+      positions: doc.positions,
       height: doc.height,
       weight: doc.weight,
       wingspan: doc.wingspan,
@@ -590,6 +607,23 @@ const Nba2kImport = {
         // column, matching Firestore's old merge:false "never leaves a
         // stale value behind" behavior.
         await SupabaseQuery.callWriteRpc('bulk_upsert_nba2k_players', { p_players: payload });
+
+        // Sync only already-assigned Green Pool positions to the JSON
+        // primary position. Never fill null/UNASSIGNED positions.
+        const positionUpdates = chunk
+          .filter(item => item.doc.teamType === 'curr')
+          .map(item => {
+            const existing = this._lastParsed.existingPlayers.get(item.slug);
+            const primary = Array.isArray(item.doc.positions) ? item.doc.positions[0] : null;
+            if (!existing || existing.pool !== 'green' ||
+                !['PG', 'SG', 'SF', 'PF', 'C'].includes(existing.poolPosition) ||
+                !['PG', 'SG', 'SF', 'PF', 'C'].includes(primary)) return null;
+            return { nba2k_ref: item.slug, position: primary };
+          })
+          .filter(Boolean);
+        if (positionUpdates.length) {
+          await SupabaseQuery.callWriteRpc('sync_nba2k27_green_positions', { p_updates: positionUpdates });
+        }
         processed += chunk.length;
       }
 
