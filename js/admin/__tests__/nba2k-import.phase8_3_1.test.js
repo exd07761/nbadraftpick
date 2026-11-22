@@ -424,6 +424,26 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
     assert.deepStrictEqual(sent.badges, existingBadges, 'badges preserved end-to-end when the source has no badges.list');
   });
 
+  await checkAsync('assigned Green positions sync to source primary while UNASSIGNED remains untouched', async () => {
+    const existingRows = [
+      { slug: 'demar-derozan', name: 'DeMar DeRozan', positions: ['SF', 'SG'] },
+      { nba2k_ref: 'demar-derozan', pool: 'green', position: 'SF' },
+      { slug: 'ronald-holland', name: 'Ron Holland', positions: ['PF', 'SF'] },
+      { nba2k_ref: 'ronald-holland', pool: 'green', position: 'UNASSIGNED' },
+    ];
+    const { Nba2kImport, supabase } = loadNba2kImport(existingRows);
+    const container = makeFakeContainer();
+    const json = { players: [
+      rawPlayer({ name: 'DeMar DeRozan', playerUrl: 'https://www.2kratings.com/demar-derozan', positions: ['SG', 'SF'], overall: 85 }),
+      rawPlayer({ name: 'Ron Holland', playerUrl: 'https://www.2kratings.com/ronald-holland', positions: ['PF', 'SF'], overall: 74 }),
+    ] };
+    await Nba2kImport._validateAndPreview(container, json);
+    await Nba2kImport._runImport(container);
+    const sync = supabase.calls.rpc.find(c => c.name === 'sync_nba2k27_green_positions');
+    assert.ok(sync, 'assigned Green position should invoke the position-sync RPC');
+    assert.deepStrictEqual(sync.params.p_updates, [{ nba2k_ref: 'demar-derozan', position: 'SG' }]);
+  });
+
   await checkAsync('Current existing players are updated when their rating drops below 75', async () => {
     const existingRows = [{ slug: 'ronald-holland', name: 'Ron Holland', positions: ['PF', 'SF'] }];
     const { Nba2kImport } = loadNba2kImport(existingRows);
