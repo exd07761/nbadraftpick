@@ -161,12 +161,12 @@ check("3. existing player's overall IS updated from the API", () => {
   assert.strictEqual(rpc.overall, 93, 'overall must always come from the fresh API data');
 });
 
-check("4. existing player's attributes ARE updated from the API", () => {
+check("4. existing player's attributes are preserved during a Current roster refresh", () => {
   const { Nba2kImport } = loadNba2kImport();
-  const existingPlayers = new Map([['some-slug', { name: 'Old Name', positions: ['PG'] }]]);
+  const existingPlayers = new Map([['some-slug', { name: 'Old Name', positions: ['PG'], attributes: { speed: 60, strength: 70 } }]]);
   const item = { slug: 'some-slug', doc: { name: 'New Name', team: 'T', teamType: 'curr', overall: 80, positions: ['SG'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: { speed: 99, strength: 88 }, badges: {}, lastUpdated: null } };
   const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
-  assert.deepStrictEqual(rpc.attributes, { speed: 99, strength: 88 }, 'attributes must always come from the fresh API data');
+  assert.deepStrictEqual(rpc.attributes, { speed: 60, strength: 70 }, 'existing attributes must remain unchanged');
 });
 
 check("5. existing player's badges ARE updated from the API when the source has a valid badges.list", () => {
@@ -345,7 +345,7 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
   });
 
   await checkAsync('13. the full preview -> import pipeline refreshes source positions and only queries pool assignments', async () => {
-    const existingRows = [{ slug: 'existing-player', name: 'Existing Player (DB)', positions: ['C'] }];
+    const existingRows = [{ slug: 'existing-player', name: 'Existing Player (DB)', positions: ['C'], attributes: { speed: 61 } }];
     const { Nba2kImport, supabase } = loadNba2kImport(existingRows);
     const container = makeFakeContainer();
     const json = { players: [
@@ -364,6 +364,7 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
     assert.strictEqual(existingSent.name, 'Existing Player (DB)', 'existing name preserved through the full pipeline');
     assert.deepStrictEqual(existingSent.positions, ['PF'], 'source primary/secondary positions refresh through the full pipeline');
     assert.strictEqual(existingSent.overall, 91, 'existing overall still updates through the full pipeline');
+    assert.deepStrictEqual(existingSent.attributes, { speed: 61 }, 'existing attributes remain unchanged through the full pipeline');
 
     assert.strictEqual(newSent.name, 'New Player (API)', 'new player uses API name through the full pipeline');
     assert.deepStrictEqual(newSent.positions, ['SF', 'N'], 'new player API positions retained through the full pipeline, not UNASSIGNED');
