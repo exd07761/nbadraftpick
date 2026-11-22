@@ -479,9 +479,9 @@ const Nba2kImport = {
       const chunk = slugs.slice(i, i + CHUNK);
       if (!chunk.length) continue;
       const rows = await SupabaseQuery.select(this.TABLE, qb =>
-        qb.select('slug, name, positions, badges').in('slug', chunk)
+        qb.select('slug, name, positions, badges, attributes').in('slug', chunk)
       );
-      rows.forEach(row => existing.set(row.slug, { name: row.name, positions: row.positions, badges: row.badges }));
+      rows.forEach(row => existing.set(row.slug, { name: row.name, positions: row.positions, badges: row.badges, attributes: row.attributes }));
     }
 
     // Read Green Pool assignments separately. The source positions are
@@ -552,7 +552,7 @@ const Nba2kImport = {
       player_url: doc.playerUrl,
       player_image: doc.playerImage,
       team_img: doc.teamImg,
-      attributes: doc.attributes,
+      attributes: existing ? existing.attributes : doc.attributes,
       badges: preserveBadges ? existing.badges : doc.badges,
       last_updated: doc.lastUpdated,
     };
