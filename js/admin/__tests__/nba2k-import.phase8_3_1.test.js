@@ -95,7 +95,10 @@ function makeFakeSupabaseQuery(existingRows) {
       if (filterField === 'slug') {
         return existingRows.filter(r => filterValues.includes(r.slug));
       }
-      return existingRows;
+      if (table === 'nba2k27_pool' && filterField === 'nba2k_ref') {
+        return existingRows.filter(r => r.pool && filterValues.includes(r.nba2k_ref));
+      }
+      return [];
     },
     async callWriteRpc(name, params) {
       calls.rpc.push({ name, params });
@@ -142,12 +145,12 @@ check("1. existing player's name is preserved (not overwritten by API)", () => {
   assert.strictEqual(rpc.name, 'Dennis Schröder', 'existing DB name must win over the fresh API name');
 });
 
-check("2. existing player's positions are preserved (not overwritten by API)", () => {
+check("2. existing player's source positions are refreshed from API", () => {
   const { Nba2kImport } = loadNba2kImport();
   const existingPlayers = new Map([['some-slug', { name: 'Some Player', positions: ['SF', 'PF'] }]]);
   const item = { slug: 'some-slug', doc: { name: 'Some Player', team: 'T', teamType: 'allt', overall: 90, positions: ['C', 'N'], height: null, weight: null, wingspan: null, build: null, playerUrl: 'u', playerImage: null, teamImg: null, attributes: {}, badges: {}, lastUpdated: null } };
   const rpc = Nba2kImport._toRpcPlayer(item, existingPlayers);
-  assert.deepStrictEqual(rpc.positions, ['SF', 'PF'], 'existing DB positions must win over the fresh API positions');
+  assert.deepStrictEqual(rpc.positions, ['C', 'N'], 'source primary and secondary positions must replace the previous source positions');
 });
 
 check("3. existing player's overall IS updated from the API", () => {
@@ -341,7 +344,7 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
     assert.strictEqual(Nba2kImport._lastParsed.excludedByOverall, 1);
   });
 
-  await checkAsync('13. the full preview -> import pipeline never calls anything referencing nba2k27_pool, and preserves/creates correctly end-to-end', async () => {
+  await checkAsync('13. the full preview -> import pipeline refreshes source positions and only queries pool assignments', async () => {
     const existingRows = [{ slug: 'existing-player', name: 'Existing Player (DB)', positions: ['C'] }];
     const { Nba2kImport, supabase } = loadNba2kImport(existingRows);
     const container = makeFakeContainer();
@@ -352,20 +355,14 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
     await Nba2kImport._validateAndPreview(container, json);
     await Nba2kImport._runImport(container);
 
-    // No call anywhere referenced a pool table or RPC.
-    const allCallTargets = [
-      ...supabase.calls.select.map(c => c.table),
-      ...supabase.calls.rpc.map(c => c.name),
-    ];
-    assert.ok(allCallTargets.every(t => !String(t).includes('pool')), `no call should touch anything pool-related, got: ${JSON.stringify(allCallTargets)}`);
-
+    assert.ok(supabase.calls.select.some(c => c.table === 'nba2k27_pool'), 'import preview must read existing pool assignments');
     assert.strictEqual(supabase.calls.rpc.length, 1, 'the whole (small) batch should fit in one RPC call');
     const sentPlayers = supabase.calls.rpc[0].params.p_players;
     const existingSent = sentPlayers.find(p => p.slug === 'existing-player');
     const newSent = sentPlayers.find(p => p.slug === 'new-player');
 
     assert.strictEqual(existingSent.name, 'Existing Player (DB)', 'existing name preserved through the full pipeline');
-    assert.deepStrictEqual(existingSent.positions, ['C'], 'existing positions preserved through the full pipeline');
+    assert.deepStrictEqual(existingSent.positions, ['PF'], 'source primary/secondary positions refresh through the full pipeline');
     assert.strictEqual(existingSent.overall, 91, 'existing overall still updates through the full pipeline');
 
     assert.strictEqual(newSent.name, 'New Player (API)', 'new player uses API name through the full pipeline');
@@ -422,7 +419,7 @@ console.log('_validateAndPreview() / _runImport() — integration checks');
     assert.strictEqual(supabase.calls.rpc.length, 1);
     const sent = supabase.calls.rpc[0].params.p_players[0];
     assert.strictEqual(sent.name, 'Mark Price');
-    assert.deepStrictEqual(sent.positions, ['PG'], 'positions still preserved from the existing row');
+    assert.deepStrictEqual(sent.positions, ['PG', 'SG'], 'source positions refresh even when badges are preserved');
     assert.strictEqual(sent.overall, 83, 'overall still updates from the API');
     assert.deepStrictEqual(sent.badges, existingBadges, 'badges preserved end-to-end when the source has no badges.list');
   });
