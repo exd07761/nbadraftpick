@@ -5331,20 +5331,6 @@ const AdminActions = {
   // the single source of truth these actions mutate — playerDraftPicks, the
   // permanent draft history, is never touched by anything in this section).
 
-  /** Rule B: Season Day is manual/commissioner-set — never derived from a date. */
-  setSeasonDay(seasonId, day) {
-    const dayN = parseInt(day, 10);
-    if (!Number.isFinite(dayN) || dayN < 1) {
-      throw new Error("Season Day must be a positive whole number.");
-    }
-    const data = loadData();
-    const season = data.seasons[seasonId];
-    if (!season) throw new Error("Season not found");
-    season.currentSeasonDay = dayN;
-    saveData(data);
-    return { currentSeasonDay: dayN };
-  },
-
   // ── Financial Management (F2 — Entry Fee Recording) ─────────────────────
   // Uses the existing season.transactions[] ledger as the sole source of
   // truth (same array Phase 5 trade/swap/Joker entries live in, and where
