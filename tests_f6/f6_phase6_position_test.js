@@ -54,44 +54,46 @@ function ok(cond, msg) {
   if (!cond) throw new Error(msg || 'expected truthy value');
 }
 
-// ─── Mock Firestore ─────────────────────────────────────────────────────
-function makeFirestoreMock(initialDocs) {
-  const store = new Map(Object.entries(initialDocs).map(([k, v]) => [k, { ...v }]));
-  let getCalls = 0, updateCalls = 0;
-  let failNextGetWith = null;
-  let failNextUpdateWith = null;
-  const mock = {
-    collection(name) {
-      if (name !== 'nba2k_players') throw new Error('unexpected collection ' + name);
-      return {
-        get: async () => ({
-          docs: Array.from(store.entries()).map(([id, data]) => ({ id, data: () => ({ ...data }) })),
-        }),
-        doc(slug) {
-          return {
-            get: async () => {
-              getCalls++;
-              if (failNextGetWith) { const e = failNextGetWith; failNextGetWith = null; throw e; }
-              const data = store.get(slug);
-              return { exists: !!data, data: () => (data ? { ...data } : undefined) };
-            },
-            update: async (fields) => {
-              updateCalls++;
-              if (failNextUpdateWith) { const e = failNextUpdateWith; failNextUpdateWith = null; throw e; }
-              if (!store.has(slug)) { const e = new Error('no doc'); e.code = 'not-found'; throw e; }
-              store.set(slug, { ...store.get(slug), ...fields });
-            },
-          };
-        },
+// ─── Mock Supabase ──────────────────────────────────────────────────────
+function makeSupabaseMock(initialDocs) {
+  const store = new Map(Object.entries(initialDocs).map(([slug, value]) => [
+    slug, { slug, ...value, team_type: value.team_type || value.teamType },
+  ]));
+  let rpcCalls = 0;
+  let failNextRpcWith = null;
+  return {
+    async select(table, buildQuery) {
+      let orderColumn = 'slug', from = 0, to = 999;
+      const query = {
+        order(column) { orderColumn = column; return this; },
+        range(start, end) { from = start; to = end; return this; },
       };
+      buildQuery(query);
+      if (table === 'nba2k_players') {
+        return Array.from(store.values())
+          .sort((a, b) => String(a[orderColumn] || '').localeCompare(String(b[orderColumn] || '')))
+          .slice(from, to + 1).map(row => ({ ...row }));
+      }
+      if (table === 'nba2k27_pool') return [];
+      throw new Error('unexpected Supabase table ' + table);
+    },
+    async callWriteRpc(name, args) {
+      if (name !== 'save_nba2k_player_positions') throw new Error('unexpected RPC ' + name);
+      rpcCalls++;
+      if (failNextRpcWith) { const error = failNextRpcWith; failNextRpcWith = null; throw error; }
+      const row = store.get(args.p_slug);
+      if (!row) throw new Error('PLAYER_NOT_FOUND: player does not exist');
+      const current = Array.isArray(row.positions) ? row.positions : [];
+      if (JSON.stringify(current) !== JSON.stringify(args.p_expected_previous)) {
+        throw new Error('CONFLICT: player positions changed');
+      }
+      store.set(args.p_slug, { ...row, positions: [...args.p_positions] });
+      return null;
     },
     _store: store,
-    _getCalls: () => getCalls,
-    _updateCalls: () => updateCalls,
-    _failNextGet: (err) => { failNextGetWith = err; },
-    _failNextUpdate: (err) => { failNextUpdateWith = err; },
+    _rpcCalls: () => rpcCalls,
+    _failNextRpc: error => { failNextRpcWith = error; },
   };
-  return mock;
 }
 
 function samplePlayers() {
@@ -132,11 +134,11 @@ function samplePlayers() {
   };
 }
 
-function makeSandbox(firestoreMock, leaguePlayers) {
+function makeSandbox(supabaseMock, leaguePlayers) {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://example.test/' });
   const window = dom.window;
 
-  window.firebase = { firestore: () => firestoreMock };
+  window.SupabaseQuery = supabaseMock;
   window.LeagueData = { getAllPlayers: () => leaguePlayers };
   window.AdminActions = { addPlayer: () => { throw new Error('addPlayer should not be called by Phase 6 tests'); } };
   window.AuthBoundary = { requireAuth: () => {} };
@@ -163,7 +165,7 @@ function makeSandbox(firestoreMock, leaguePlayers) {
 async function run() {
   console.log('Phase 6 — pure function tests');
   {
-    const { window } = makeSandbox(makeFirestoreMock({}), []);
+    const { window } = makeSandbox(makeSupabaseMock({}), []);
     const { normalizeNba2kPositions, nba2kPositionsEqual, nba2kPositionStatus } = window;
 
     check('dedupes and orders canonically: ["PF","C","PF"] -> ["PF","C"]', () => {
@@ -228,14 +230,14 @@ async function run() {
     return V;
   }
 
-  async function loadedView({ leaguePlayers = [], firestoreMock } = {}) {
-    const fsMock = firestoreMock || makeFirestoreMock(samplePlayers());
-    const { window, document } = makeSandbox(fsMock, leaguePlayers);
+  async function loadedView({ leaguePlayers = [], supabaseMock } = {}) {
+    const dbMock = supabaseMock || makeSupabaseMock(samplePlayers());
+    const { window, document } = makeSandbox(dbMock, leaguePlayers);
     const V = freshView(window);
     const container = document.createElement('div');
     document.body.appendChild(container);
     await V._load(container);
-    return { window, document, V, container, fsMock };
+    return { window, document, V, container, dbMock };
   }
 
   function openDetail(window, document, V, container, slug) {
@@ -249,7 +251,7 @@ async function run() {
   }
 
   await checkAsync('1. single-position player: SG -> PG saves correctly', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'nique-clifford');
     // starts as ["SG","SF"]; uncheck both, check PG only
     checkboxFor(mount, 'SG').checked = false;
@@ -258,38 +260,38 @@ async function run() {
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('nique-clifford').positions, ['PG']);
+    eq(dbMock._store.get('nique-clifford').positions, ['PG']);
   });
 
   await checkAsync('2. multi-position player: [C,PF] -> [PF]', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'kristaps-porzingis');
     checkboxFor(mount, 'C').checked = false;
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('kristaps-porzingis').positions, ['PF']);
+    eq(dbMock._store.get('kristaps-porzingis').positions, ['PF']);
   });
 
   await checkAsync('3. add a position: [PG] -> [PG,SG]', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young');
     checkboxFor(mount, 'SG').checked = true;
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('trae-young').positions, ['PG', 'SG']);
+    eq(dbMock._store.get('trae-young').positions, ['PG', 'SG']);
   });
 
   await checkAsync('4. remove a position: [PG,SG] -> [PG]', async () => {
-    const fsMock = makeFirestoreMock({ ...samplePlayers(), 'trae-young': { ...samplePlayers()['trae-young'], positions: ['PG', 'SG'] } });
-    const { window, document, V, container } = await loadedView({ firestoreMock: fsMock });
+    const dbMock = makeSupabaseMock({ ...samplePlayers(), 'trae-young': { ...samplePlayers()['trae-young'], positions: ['PG', 'SG'] } });
+    const { window, document, V, container } = await loadedView({ supabaseMock: dbMock });
     const mount = openDetail(window, document, V, container, 'trae-young');
     checkboxFor(mount, 'SG').checked = false;
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('trae-young').positions, ['PG']);
+    eq(dbMock._store.get('trae-young').positions, ['PG']);
   });
 
   await checkAsync('5. duplicate checkbox values never produce duplicates in storage', () => {
@@ -307,7 +309,7 @@ async function run() {
   });
 
   await checkAsync('6. canonical ordering enforced on save: select PF,PG,C -> stored as [PG,PF,C]', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young'); // starts ["PG"]
     checkboxFor(mount, 'PG').checked = true;
     checkboxFor(mount, 'C').checked = true;
@@ -315,17 +317,17 @@ async function run() {
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('trae-young').positions, ['PG', 'PF', 'C']);
+    eq(dbMock._store.get('trae-young').positions, ['PG', 'PF', 'C']);
   });
 
   await checkAsync('7. empty selection is blocked, zero writes', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young');
     checkboxFor(mount, 'PG').checked = false;
     mount.querySelector('#nba2kPosSaveBtn').click();
     ok(mount.querySelector('#nba2kPosResult').textContent.includes('You must select at least one position.'));
-    eq(fsMock._updateCalls(), 0);
-    eq(fsMock._store.get('trae-young').positions, ['PG']); // unchanged
+    eq(dbMock._rpcCalls(), 0);
+    eq(dbMock._store.get('trae-young').positions, ['PG']); // unchanged
   });
 
   await checkAsync('8. invalid position values are rejected and never written', async () => {
@@ -335,7 +337,7 @@ async function run() {
     // choke point that guarantees it's dropped either way. Exercise the
     // full save flow with a forged extra checkbox to prove the save
     // handler itself (not just the pure function in isolation) drops it.
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young');
     const forged = document.createElement('input');
     forged.type = 'checkbox';
@@ -346,29 +348,29 @@ async function run() {
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('trae-young').positions, ['PG', 'SG'], 'forged "XYZ" checkbox value must never reach storage');
+    eq(dbMock._store.get('trae-young').positions, ['PG', 'SG'], 'forged "XYZ" checkbox value must never reach storage');
     // And directly at the normalization choke point itself:
     eq(window.normalizeNba2kPositions(['PG', 'G', 'XYZ']), ['PG']);
   });
 
-  await checkAsync('9. no-change save performs zero Firestore writes', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+  await checkAsync('9. no-change save performs zero Supabase RPC writes', async () => {
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young'); // ["PG"]
     // leave selection identical
     mount.querySelector('#nba2kPosSaveBtn').click();
     ok(mount.querySelector('#nba2kPosResult').textContent.includes('No position changes to save.'));
-    eq(fsMock._updateCalls(), 0);
+    eq(dbMock._rpcCalls(), 0);
   });
 
   await checkAsync('10. source data integrity: unrelated fields untouched after a position edit', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
-    const before = { ...fsMock._store.get('trae-young') };
+    const { window, document, V, container, dbMock } = await loadedView();
+    const before = { ...dbMock._store.get('trae-young') };
     const mount = openDetail(window, document, V, container, 'trae-young');
     checkboxFor(mount, 'SG').checked = true;
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    const after = fsMock._store.get('trae-young');
+    const after = dbMock._store.get('trae-young');
     for (const key of ['name', 'team', 'teamType', 'overall', 'attributes', 'badges', 'height', 'weight', 'wingspan', 'build', 'playerUrl', 'playerImage', 'teamImg', 'lastUpdated']) {
       eq(after[key], before[key], `field "${key}" changed`);
     }
@@ -376,7 +378,7 @@ async function run() {
 
   await checkAsync('11/12/13. pool eligibility unaffected by position edits (curr/class/allt)', async () => {
     for (const [slug, teamType] of [['trae-young', 'curr'], ['classic-1', 'class'], ['allt-1', 'allt']]) {
-      const { window, document, V, container, fsMock } = await loadedView();
+      const { window, document, V, container, dbMock } = await loadedView();
       const mount = openDetail(window, document, V, container, slug);
       // toggle something to force a real change
       const cb = mount.querySelectorAll('.nba2k-posedit input[type="checkbox"]');
@@ -388,19 +390,19 @@ async function run() {
       const confirmBtn = mount.querySelector('#nba2kPosConfirmBtn');
       if (confirmBtn) confirmBtn.click();
       await new Promise(r => setTimeout(r, 0));
-      eq(fsMock._store.get(slug).teamType, teamType, `teamType must not change for ${slug}`);
+      eq(dbMock._store.get(slug).teamType, teamType, `teamType must not change for ${slug}`);
     }
   });
 
   await checkAsync('14. existing promoted player: source edit does NOT change Draft Pool position', async () => {
     const leaguePlayers = [{ name: 'Already Promoted Guy', position: 'PF', pool: 'green', overall: 80, nba2kRef: 'already-promoted-1' }];
-    const { window, document, V, container, fsMock } = await loadedView({ leaguePlayers });
+    const { window, document, V, container, dbMock } = await loadedView({ leaguePlayers });
     const mount = openDetail(window, document, V, container, 'already-promoted-1'); // source ["C","PF"]
     checkboxFor(mount, 'C').checked = false; // -> ["PF"] wait that's same as draft pool but different from source
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
-    eq(fsMock._store.get('already-promoted-1').positions, ['PF']);
+    eq(dbMock._store.get('already-promoted-1').positions, ['PF']);
     // The league/main-side object is untouched — this test's leaguePlayers
     // array (standing in for league/main.players) is never written to by
     // Phase 6 code at all.
@@ -409,7 +411,7 @@ async function run() {
   });
 
   await checkAsync('15/16. future promotion dropdown uses corrected positions, still requires explicit choice', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     let mount = openDetail(window, document, V, container, 'kristaps-porzingis'); // ["C","PF"]
     checkboxFor(mount, 'C').checked = false; // -> ["PF"]
     mount.querySelector('#nba2kPosSaveBtn').click();
@@ -424,7 +426,7 @@ async function run() {
   });
 
   await checkAsync('17. search/filter regression: position filter reflects updated data', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     let mount = openDetail(window, document, V, container, 'kristaps-porzingis'); // ["C","PF"]
     checkboxFor(mount, 'C').checked = false; // -> ["PF"]
     mount.querySelector('#nba2kPosSaveBtn').click();
@@ -445,8 +447,8 @@ async function run() {
     for (let i = 0; i < 528; i++) players[`curr-${i}`] = { name: `Curr ${i}`, teamType: 'curr', overall: 70, positions: ['PG'] };
     for (let i = 0; i < 774; i++) players[`class-${i}`] = { name: `Class ${i}`, teamType: 'class', overall: 70, positions: ['SG'] };
     for (let i = 0; i < 455; i++) players[`allt-${i}`] = { name: `Allt ${i}`, teamType: 'allt', overall: 70, positions: ['C'] };
-    const fsMock = makeFirestoreMock(players);
-    const { window, document, V, container } = await loadedView({ firestoreMock: fsMock });
+    const dbMock = makeSupabaseMock(players);
+    const { window, document, V, container } = await loadedView({ supabaseMock: dbMock });
     const mount = openDetail(window, document, V, container, 'curr-0');
     checkboxFor(mount, 'SG').checked = true;
     mount.querySelector('#nba2kPosSaveBtn').click();
@@ -481,64 +483,63 @@ async function run() {
   });
 
   await checkAsync('21. unknown teamType regression: promotion still blocked, position editor still works', async () => {
-    const fsMock = makeFirestoreMock({ 'weird-1': { name: 'Weird Guy', teamType: 'wat', overall: 70, positions: ['PG'] } });
-    const { window, document, V, container } = await loadedView({ firestoreMock: fsMock });
+    const dbMock = makeSupabaseMock({ 'weird-1': { name: 'Weird Guy', teamType: 'wat', overall: 70, positions: ['PG'] } });
+    const { window, document, V, container } = await loadedView({ supabaseMock: dbMock });
     const mount = openDetail(window, document, V, container, 'weird-1');
     ok(mount.textContent.includes('Cannot determine pool eligibility'));
     // Position editor is independent of pool determinability.
     ok(mount.querySelector('.nba2k-posedit'), 'position editor should still render');
   });
 
-  await checkAsync('22. permission error surfaces a friendly message', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+  await checkAsync('22. authorization error surfaces a friendly message', async () => {
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young');
     checkboxFor(mount, 'SG').checked = true;
     mount.querySelector('#nba2kPosSaveBtn').click();
-    const err = new Error('permission denied raw firebase text');
-    err.code = 'permission-denied';
-    fsMock._failNextGet(err);
+    const err = new Error('UNAUTHORIZED: raw database permission details');
+    dbMock._failNextRpc(err);
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
     const text = mount.querySelector('#nba2kPosResult').textContent;
-    ok(text.includes("don't have permission"), 'should show friendly permission message');
-    ok(!text.includes('raw firebase text'), 'must not leak raw Firebase error text');
+    ok(text.includes('Unable to save positions'), 'should show friendly permission message');
+    ok(!text.includes('raw database permission details'), 'must not leak raw Firebase error text');
   });
 
-  await checkAsync('23. network/update failure does not falsely report success', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+  await checkAsync('23. RPC failure does not falsely report success', async () => {
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young');
     checkboxFor(mount, 'SG').checked = true;
     mount.querySelector('#nba2kPosSaveBtn').click();
     const err = new Error('network down');
-    fsMock._failNextUpdate(err);
+    dbMock._failNextRpc(err);
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
     const text = mount.querySelector('#nba2kPosResult').textContent;
     ok(text.includes('Unable to save positions'), 'should show friendly failure message');
-    eq(fsMock._store.get('trae-young').positions, ['PG'], 'stored value must remain unchanged on failure');
+    eq(dbMock._store.get('trae-young').positions, ['PG'], 'stored value must remain unchanged on failure');
   });
 
   await checkAsync('23b. concurrent edit protection: server changed since editor opened -> blocked', async () => {
-    const { window, document, V, container, fsMock } = await loadedView();
+    const { window, document, V, container, dbMock } = await loadedView();
     const mount = openDetail(window, document, V, container, 'trae-young'); // opened with ["PG"]
     // Simulate another admin session changing it in the meantime.
-    fsMock._store.set('trae-young', { ...fsMock._store.get('trae-young'), positions: ['SG'] });
+    dbMock._store.set('trae-young', { ...dbMock._store.get('trae-young'), positions: ['SG'] });
     checkboxFor(mount, 'PF').checked = true; // local selection now ["PG","PF"]
     mount.querySelector('#nba2kPosSaveBtn').click();
     mount.querySelector('#nba2kPosConfirmBtn').click();
     await new Promise(r => setTimeout(r, 0));
     const text = mount.querySelector('#nba2kPosResult').textContent;
     ok(text.includes('updated elsewhere'), 'should warn about concurrent update');
-    eq(fsMock._store.get('trae-young').positions, ['SG'], 'the other session\'s write must survive, not be overwritten');
-    eq(fsMock._updateCalls(), 0, 'no update should have been attempted');
+    eq(dbMock._store.get('trae-young').positions, ['SG'], 'the other session\'s write must survive, not be overwritten');
+    eq(dbMock._rpcCalls(), 0, 'no update should have been attempted');
   });
 
-  await checkAsync('missing document is handled with a friendly message', async () => {
-    const fsMock = makeFirestoreMock({});
+  await checkAsync('missing player is handled with a friendly message', async () => {
+    const dbMock = makeSupabaseMock({});
     // Load with a players list seeded manually (bypassing collection.get()
     // shape) to simulate a stale in-memory row whose doc has since been
     // deleted server-side.
-    const { window, document } = makeSandbox(fsMock, []);
+    const { window, document } = makeSandbox(dbMock, []);
     const V = freshView(window);
     V._players = [{ id: 'ghost-1', name: 'Ghost Player', teamType: 'curr', overall: 70, positions: ['PG'], attributes: {}, badges: { list: [] } }];
     const container = document.createElement('div');
@@ -566,10 +567,10 @@ async function run() {
   });
 
   await checkAsync('Data-quality indicator: complete vs missing, never inferred from other fields', async () => {
-    const fsMock = makeFirestoreMock({
+    const dbMock = makeSupabaseMock({
       'no-pos-1': { name: 'No Position Guy', teamType: 'curr', overall: 99, positions: [], attributes: {}, badges: { list: [] } },
     });
-    const { window, document, V, container } = await loadedView({ firestoreMock: fsMock });
+    const { window, document, V, container } = await loadedView({ supabaseMock: dbMock });
     const mount = openDetail(window, document, V, container, 'no-pos-1');
     ok(mount.querySelector('.nba2k-posedit-quality-warn'), 'should flag missing position data even for a 99 OVR player');
     ok(mount.textContent.includes('Position missing'));
