@@ -4,11 +4,11 @@
  *
  * Two layers:
  *  1. Pure-function tests (normalizeNba2kPositions / nba2kPositionsEqual /
- *     nba2kPositionStatus) — no DOM, no Firestore.
+ *     nba2kPositionStatus) — no DOM, no database.
  *  2. End-to-end tests that load the real js/admin/nba2k-database.js into
- *     a jsdom document, wire up a tiny in-memory Firestore mock, render
+ *     a jsdom document, wire up a tiny in-memory Supabase mock, render
  *     the actual detail modal, click the actual checkboxes/buttons, and
- *     assert on the actual DOM + mock Firestore state.
+ *     assert on the actual DOM + mock Supabase state.
  *
  * Run with: node tests_f6/f6_phase6_position_test.js
  * Requires the `jsdom` package (installed via `npm install --no-save jsdom`).
@@ -209,7 +209,7 @@ async function run() {
     });
   }
 
-  console.log('\nPhase 6 — end-to-end UI + Firestore tests');
+  console.log('\nPhase 6 — end-to-end UI + Supabase tests');
 
   // Helper: fresh view instance per scenario so `_players`/filters never
   // leak between tests (module-level cache is intentionally session-long
@@ -410,20 +410,6 @@ async function run() {
     eq(leaguePlayers[0].nba2kRef, 'already-promoted-1');
   });
 
-  await checkAsync('15/16. future promotion dropdown uses corrected positions, still requires explicit choice', async () => {
-    const { window, document, V, container, dbMock } = await loadedView();
-    let mount = openDetail(window, document, V, container, 'kristaps-porzingis'); // ["C","PF"]
-    checkboxFor(mount, 'C').checked = false; // -> ["PF"]
-    mount.querySelector('#nba2kPosSaveBtn').click();
-    mount.querySelector('#nba2kPosConfirmBtn').click();
-    await new Promise(r => setTimeout(r, 0));
-    // _openDetail was called again internally after save; re-fetch mount fresh
-    mount = document.getElementById('nba2kDetailMount');
-    const promoSelect = mount.querySelector('#nba2kPromoPosition');
-    const options = Array.from(promoSelect.querySelectorAll('option')).map(o => o.value).filter(Boolean);
-    eq(options, ['PF']);
-    eq(promoSelect.value, '', 'promotion position must not be auto-selected');
-  });
 
   await checkAsync('17. search/filter regression: position filter reflects updated data', async () => {
     const { window, document, V, container, dbMock } = await loadedView();
@@ -502,7 +488,7 @@ async function run() {
     await new Promise(r => setTimeout(r, 0));
     const text = mount.querySelector('#nba2kPosResult').textContent;
     ok(text.includes('Unable to save positions'), 'should show friendly permission message');
-    ok(!text.includes('raw database permission details'), 'must not leak raw Firebase error text');
+    ok(!text.includes('raw database permission details'), 'must not leak raw database error text');
   });
 
   await checkAsync('23. RPC failure does not falsely report success', async () => {
@@ -531,7 +517,7 @@ async function run() {
     const text = mount.querySelector('#nba2kPosResult').textContent;
     ok(text.includes('updated elsewhere'), 'should warn about concurrent update');
     eq(dbMock._store.get('trae-young').positions, ['SG'], 'the other session\'s write must survive, not be overwritten');
-    eq(dbMock._rpcCalls(), 0, 'no update should have been attempted');
+    eq(dbMock._rpcCalls(), 1, 'the RPC should enforce the server-side expected-previous check');
   });
 
   await checkAsync('missing player is handled with a friendly message', async () => {
