@@ -3,12 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const dataJsPath = path.join(__dirname, '..', 'nbadraftpick-main', 'js', 'data.js');
+const dataJsPath = path.join(__dirname, '..', 'js', 'data.js');
 const src = fs.readFileSync(dataJsPath, 'utf8');
 
 function makeSandbox() {
   const sandbox = {
     console,
+    // Use the in-memory Firebase mock below; this test does not exercise Supabase.
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({ doc: () => ({ onSnapshot: () => {}, set: () => Promise.resolve() }) }),
