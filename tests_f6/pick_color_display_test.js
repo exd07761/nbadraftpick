@@ -21,6 +21,9 @@ const dataSrc = fs.readFileSync(dataJsPath, 'utf8');
 function makeSandbox() {
   const sandbox = {
     console,
+    // data.js selects its storage adapter at load time; this test uses the
+    // in-memory Firebase mock below, so explicitly disable Supabase sync.
+    window: { USE_SUPABASE_SYNC: false },
     firebase: {
       firestore: () => ({
         collection: () => ({ doc: () => ({ onSnapshot: () => {}, set: () => Promise.resolve() }) }),
