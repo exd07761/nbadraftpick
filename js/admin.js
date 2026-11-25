@@ -24,7 +24,6 @@ const AdminApp = {
     roster: AdminRosterView,
     schedule: AdminScheduleView,
     playoffs: AdminPlayoffsView,
-    trades: AdminTradesView,
     financial: AdminFinancialView,
     backup: AdminBackupView,
     nba2kImport: Nba2kImport,
