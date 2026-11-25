@@ -384,8 +384,6 @@ const MAX_BLUE_DRAFT_PHASE1 = 3; // own picks 1-5: max Blue players
 const MAX_BLUE_DRAFT_PHASE2_ADDITIONAL = 5; // own picks 6-10: max ADDITIONAL Blue players (5 total max)
 const MAX_PLAYERS_PER_POSITION = 2;
 const MAX_ROSTER_SIZE = 10; // 5 core positions x 2 max — enforced at draft time too, not just Phase 5 transactions
-const POOL_TRADE_FEE = { green: 100, blue: 100 };
-const REGULAR_SWAP_FEE = 100;
 
 /**
  * NBA2K27 season-cutover White-pool policy: White ("Classics") players
@@ -417,9 +415,6 @@ function minRatingFor(player) {
   if (player.pool === "green") return GREEN_MIN_RATING;
   return null;
 }
-const JOKER_SWAP_FEE = 300;
-const TRADE_FEE_DOUBLE_DAYS = [9, 10, 11];
-const TRANSACTIONS_LOCKED_DAYS = [12, 13];
 
 /**
  * Finds a player's ORIGINAL draft pick record and where it falls in the
@@ -646,7 +641,7 @@ function findCurrentRosterEntry(season, playerId) {
 function getPlayerClassificationInfo(season, playerId) {
   const current = findCurrentRosterEntry(season, playerId);
   const isJoker = !!(current && current.entry.isJoker);
-  // Revision — Preserve Trade/Swap Red Tag: a manually-replaced entry's
+  // Revision — Preserve Original Draft Classification: a manually-replaced entry's
   // classification is anchored to whichever player's ORIGINAL draft
   // record the roster SLOT itself carries forward (see
   // manualReplacePlayerOnRoster's classificationSourcePlayerId), not the
@@ -809,71 +804,6 @@ function validateRatingCap(afterEntries, playersById, cap) {
   return { valid: true, reason: null };
 }
 
-/**
- * Rule F: RED can only trade for RED, YELLOW only for YELLOW. Classification
- * is unaffected by current ownership — always derived from the ORIGINAL
- * draft pick (see getPlayerClassificationInfo).
- *
- * Per the commissioner's Phase 5 correction: no aggregate/pairing rule for
- * multi-player trades has been defined, and one must not be invented. Any
- * trade touching more than 2 players total that involves at least one
- * RED- or YELLOW-classified player fails safe with an explicit
- * "commissioner review required" reason rather than guessing a pairing.
- * A simple 1-for-1 trade is unambiguous: it is rejected only for the
- * explicitly prohibited RED<->YELLOW pairing.
- */
-function validateRedYellowCompatibility(season, outgoingPlayerIds, incomingPlayerIds) {
-  const allIds = [...outgoingPlayerIds, ...incomingPlayerIds];
-  const classifications = allIds.map(
-    (id) => getPlayerClassificationInfo(season, id).classification
-  );
-  const hasRedOrYellow = classifications.some((c) => c === "RED" || c === "YELLOW");
-
-  if (allIds.length > 2) {
-    if (hasRedOrYellow) {
-      return {
-        valid: false,
-        reason: "Commissioner review required — Red/Yellow multi-player trade rule is not defined.",
-      };
-    }
-    return { valid: true, reason: null };
-  }
-
-  if (allIds.length === 2) {
-    const [a, b] = classifications;
-    if ((a === "RED" && b === "YELLOW") || (a === "YELLOW" && b === "RED")) {
-      return {
-        valid: false,
-        reason: "Red players can only be traded for Red players, and Yellow for Yellow.",
-      };
-    }
-  }
-  return { valid: true, reason: null };
-}
-
-/** Rule E: normal trade fee is by POOL only (Green=100, Blue=200), never Red/Yellow. White ("Classics") counts as Blue-like here — see isBlueLike(). */
-function getPoolTradeFee(player) {
-  return isBlueLike(player) ? POOL_TRADE_FEE.blue : POOL_TRADE_FEE.green;
-}
-
-function isFeeDoubleDay(day) {
-  return TRADE_FEE_DOUBLE_DAYS.includes(day);
-}
-
-function isTransactionsLockedDay(day) {
-  return TRANSACTIONS_LOCKED_DAYS.includes(day);
-}
-
-/**
- * Backfills pot/currentSeasonDay/transactions on a season object that
- * predates the Phase 5 schema addition — createSeason() only sets these
- * for seasons created after Phase 5 shipped, so any season already sitting
- * in localStorage from an earlier phase has none of them. Called at the
- * top of every AdminActions write that touches these fields, before any
- * push/increment, so a legacy season is backfilled in place rather than
- * throwing on `undefined.push`. Never overwrites a value that's already
- * present (e.g. a pot that's legitimately 0).
- */
 function ensureTransactionFields(season) {
   if (!Array.isArray(season.transactions)) season.transactions = [];
   if (typeof season.pot !== "number") season.pot = 0;
@@ -2993,20 +2923,6 @@ const LeagueData = {
     const season = this.getSeason(seasonId);
     if (!season || !season.playoffs) return null;
     return findPlayoffItem(season.playoffs, itemId);
-  },
-
-  // ── Phase 5: Trading / Swap System (read-only) ──────────────────────────
-
-  /** Current pot total and season day — for the Pot/Fee summary panel. */
-  getTransactionState(seasonId) {
-    const season = this.getSeason(seasonId);
-    if (!season) return null;
-    return {
-      pot: season.pot ?? 0,
-      currentSeasonDay: season.currentSeasonDay ?? 1,
-      transactionsLocked: isTransactionsLockedDay(season.currentSeasonDay ?? 1),
-      feeDoubled: isFeeDoubleDay(season.currentSeasonDay ?? 1),
-    };
   },
 
   /** Full transaction history, most recent first. */
@@ -6473,7 +6389,7 @@ const AdminActions = {
   },
 
   /**
-   * Manually swaps one roster player out for a currently-unowned one, in
+   * Manually replaces one roster player with a currently-unowned one, in
    * a single atomic write — equivalent to remove + add, but validated as
    * one operation so an in-between invalid state is never possible (and
    * never persisted, since either the whole write happens or an Error is
