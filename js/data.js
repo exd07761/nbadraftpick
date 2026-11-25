@@ -1813,7 +1813,7 @@ function createPlayer(id, { name, position, overall, pool, variantGroup, nba2kRe
  * This is a pure, read-only classification helper — it never writes
  * anything and is never used by draft/swap eligibility (those remain
  * governed entirely by `playerPoolScope`/`seasonId`, unchanged — see
- * getAvailablePlayers/getDraftPoolStatus/getSwapEligibleReplacements).
+ * getAvailablePlayers/getDraftPoolStatus/current roster ownership checks).
  * It exists solely for js/admin/players.js's archive/active display.
  */
 function isLegacyEditionPlayer(player) {
@@ -1892,7 +1892,7 @@ function getDefaultData() {
 // once it's loaded — completely transparently to every existing
 // LeagueData/AdminActions function that reads `data.players` (~60 call
 // sites in this file: getAvailablePlayers, getDraftPoolStatus,
-// getSwapEligibleReplacements, computePositionState, trade/Joker/roster
+// current roster ownership checks, computePositionState, trade/Joker/roster
 // validation, etc.) — none of them change. FirebaseSync.save()/
 // saveAndConfirm() do the reverse immediately before every write: they
 // strip any entry whose id is a live-pool id back out of `data.players`,
@@ -2534,7 +2534,7 @@ const LeagueData = {
           // Pool-agnostic — see getEffectivePosition. Added so every roster
           // display (public Rosters page, admin Rosters page) can show a
           // Joker's assigned position instead of always falling back to the
-          // player's card-native position, exactly like getRosterForTransactions
+          // player's card-native position, exactly like the roster display helpers
           // already did for the Trades page.
           effectivePosition: player ? getEffectivePosition(entry, player) : null,
           // Revision — Display Original Pick Color: classification
@@ -2542,8 +2542,8 @@ const LeagueData = {
           // preserved through Manual Roster Edit (see
           // getPlayerClassificationInfo's classificationSourcePlayerId
           // chaining) — it just wasn't exposed here, so neither roster
-          // table could show it, even though the Trade/Swap picker
-          // (getRosterForTransactions) already displays it today. An
+          // table could show it, even though the legacy transaction picker
+          // (the roster display helpers) already displays it today. An
           // 'empty' vacancy entry has no playerId, so it has no
           // classification either.
           classification: player ? getPlayerClassificationInfo(season, entry.playerId).classification : null,
@@ -3368,75 +3368,9 @@ const LeagueData = {
     return getPlayerClassificationInfo(season, playerId);
   },
 
-  /**
-   * Every player currently on a participant's roster, enriched with pool,
-   * effective position, and classification — the read the Trade/Swap
-   * builder UI uses to populate pickers.
-   */
-  getRosterForTransactions(seasonId, participantId) {
-    const season = this.getSeason(seasonId);
-    if (!season) return [];
-    const data = loadData(seasonId);
-    const entries = (season.currentRosters && season.currentRosters[participantId]) || [];
-    return entries.map((entry) => {
-      const player = data.players[entry.playerId] || null;
-      const classification = getPlayerClassificationInfo(season, entry.playerId);
-      return {
-        ...entry,
-        player,
-        effectivePosition: player ? getEffectivePosition(entry, player) : null,
-        classification: classification.classification,
-      };
-    });
-  },
 
-  /**
-   * Free-agent players eligible as a swap replacement: currently unowned
-   * by any participant's currentRosters (i.e. never drafted, or previously
-   * swapped back to the pool), matching the requested pool.
-   *
-   * Each result carries `classification` (RED/YELLOW/null) via
-   * getPlayerClassificationInfo, computed from the player's OWN original
-   * draft record — this persists correctly even for a player who was
-   * previously drafted and later swapped back out: their classification
-   * follows their original draft identity, not their current (or absent)
-   * roster location. (A pool player can never itself be flagged isJoker —
-   * that only exists on a live currentRosters entry — so this is always
-   * exactly their true RED/YELLOW identity, with nothing to unwrap.)
-   *
-   * Audit Phase 2 fix: this function previously searched the ENTIRE
-   * `data.players` map with no regard for `season.playerPoolScope` — a
-   * 2K27-scoped season's swap-replacement search could surface legacy
-   * 2K26 players and 2K27 players seeded for a DIFFERENT season as valid
-   * targets. Now mirrors the exact same scoping rule already used by
-   * getAvailablePlayers/getDraftPoolStatus above: when `playerPoolScope`
-   * is set, only players with `seasonId === playerPoolScope` are
-   * considered. When it's unset (every pre-existing/unscoped season,
-   * including every historical NBA2K26 season), this is a no-op and
-   * behavior is byte-for-byte identical to before this fix — same
-   * function, same isolated change, nothing else touched.
-   */
-  getSwapEligibleReplacements(seasonId, pool) {
-    const season = this.getSeason(seasonId);
-    if (!season) return [];
-    const data = loadData(seasonId);
-    const ownedIds = new Set();
-    Object.values(season.currentRosters || {}).forEach((entries) => {
-      entries.forEach((e) => ownedIds.add(e.playerId));
-    });
-    // A historical draft pick remains reserved to its original owner even
-    // if its active roster slot is later vacated by a signing/transfer.
-    // Manual signings themselves have no draft record and become available
-    // again after removal when no active roster owns them.
-    (season.playerDraftPicks || []).forEach(pick => ownedIds.add(pick.playerId));
-    let candidates = Object.values(data.players);
-    if (season.playerPoolScope) {
-      candidates = candidates.filter((p) => p.seasonId === season.playerPoolScope);
-    }
-    return candidates
-      .filter((p) => !ownedIds.has(p.id) && (!pool || p.pool === pool))
-      .map((p) => ({ ...p, classification: getPlayerClassificationInfo(season, p.id).classification }));
-  },
+
+
 
   // Manual editing intentionally sees catalog identities regardless of
   // free-agent or draft-history status. Owned choices still pass through
@@ -3523,7 +3457,7 @@ const LeagueData = {
    * MAX_PLAYERS_PER_POSITION, MAX_ROSTER_SIZE, getOriginalPickInfo — so
    * this never invents a second copy of any roster rule. "Available" is
    * still derived from currentRosters membership only (see
-   * getSwapEligibleReplacements). Manual catalog visibility is intentionally
+   * current roster ownership checks). Manual catalog visibility is intentionally
    * broader, so scope and pool integrity are diagnosed explicitly below.
    *
    * Returns:
@@ -6098,411 +6032,13 @@ const AdminActions = {
     return { runId, totalPotAtPayout, salaryPool, individualSalary, eligibleCount: eligible.length, pot: season.pot };
   },
 
-  /**
-   * Runs every Trade validation check (rule set §16 / trade workflow) and
-   * returns an itemized result WITHOUT mutating anything. Used both for the
-   * live preview in the UI and, re-run, as the gate inside commitTrade.
-   */
-  evaluateTrade(seasonId, { teamA, playersOutA, teamB, playersOutB }) {
-    const data = loadData(seasonId);
-    const season = data.seasons[seasonId];
-    const checks = [];
-    const fail = (label, reason) => checks.push({ label, valid: false, reason });
-    const pass = (label) => checks.push({ label, valid: true, reason: null });
-
-    if (!season) {
-      fail("Season", "Season not found.");
-      return { valid: false, checks, fee: 0, feeDoubled: false };
-    }
-    if (!season.rostersInitialized) {
-      fail("Rosters", "Rosters must be initialized (post-draft) before trading.");
-      return { valid: false, checks, fee: 0, feeDoubled: false };
-    }
-    if (!teamA || !teamB) {
-      fail("Teams", "Select two different teams.");
-      return { valid: false, checks, fee: 0, feeDoubled: false };
-    }
-    if (teamA === teamB) {
-      // Same participant selected on both sides (e.g. Team A = Maka, Team
-      // B = Maka) — a participant can never trade with themselves. Named
-      // explicitly here (rather than a generic "select two different
-      // teams") so the preview/commit failure is unambiguous about why.
-      const name = season.participants?.[teamA]?.name || "This participant";
-      fail("Teams", `${name} cannot trade with themselves — Team A and Team B must be different participants.`);
-      return { valid: false, checks, fee: 0, feeDoubled: false };
-    }
-    if (!playersOutA?.length || !playersOutB?.length) {
-      fail("Players", "Select at least one player from each team.");
-      return { valid: false, checks, fee: 0, feeDoubled: false };
-    }
-
-    const rosterA = season.currentRosters[teamA] || [];
-    const rosterB = season.currentRosters[teamB] || [];
-
-    const missingA = playersOutA.filter((pid) => !rosterA.some((e) => e.playerId === pid));
-    const missingB = playersOutB.filter((pid) => !rosterB.some((e) => e.playerId === pid));
-    if (missingA.length || missingB.length) {
-      fail("Ownership", "One or more selected players are not currently owned by the selected team.");
-      return { valid: false, checks, fee: 0, feeDoubled: false };
-    }
-    pass("Ownership");
-
-    const day = season.currentSeasonDay ?? 1;
-    if (isTransactionsLockedDay(day)) {
-      fail("Season Day", `Day ${day} — trading is closed.`);
-    } else {
-      pass("Season Day");
-    }
-
-    const playersA = playersOutA.map((pid) => data.players[pid]).filter(Boolean);
-    const playersB = playersOutB.map((pid) => data.players[pid]).filter(Boolean);
-    const totalA = playersA.reduce((s, p) => s + p.overall, 0);
-    const totalB = playersB.reduce((s, p) => s + p.overall, 0);
-    const diff = Math.abs(totalA - totalB);
-    if (diff > 4) {
-      fail("Rating balance", `Trade difference is ${diff} OVR (max ±4). Team A sends ${totalA}, Team B sends ${totalB}.`);
-    } else {
-      pass(`Rating balance: difference ${diff}`);
-    }
-
-    const redYellow = validateRedYellowCompatibility(season, playersOutA, playersOutB);
-    if (!redYellow.valid) fail("Red/Yellow compatibility", redYellow.reason);
-    else pass("Red/Yellow compatibility");
-
-    const afterA = [
-      ...rosterA.filter((e) => !playersOutA.includes(e.playerId)),
-      ...playersOutB.map((pid) => ({ playerId: pid, source: "trade" })),
-    ];
-    const afterB = [
-      ...rosterB.filter((e) => !playersOutB.includes(e.playerId)),
-      ...playersOutA.map((pid) => ({ playerId: pid, source: "trade" })),
-    ];
-
-    const posA = validateResultingPositions(rosterA, afterA, data.players);
-    const posB = validateResultingPositions(rosterB, afterB, data.players);
-    if (!posA.valid) fail("Position limit (Team A)", posA.reason);
-    else pass("Position limit (Team A)");
-    if (!posB.valid) fail("Position limit (Team B)", posB.reason);
-    else pass("Position limit (Team B)");
-
-    const blueA = validateBlueComposition(afterA, data.players);
-    const blueB = validateBlueComposition(afterB, data.players);
-    if (!blueA.valid) fail("Blue restrictions (Team A)", blueA.reason);
-    else pass("Blue restrictions (Team A)");
-    if (!blueB.valid) fail("Blue restrictions (Team B)", blueB.reason);
-    else pass("Blue restrictions (Team B)");
-
-    for (const p of playersB) {
-      const minCheck = validateMinimumRating(p);
-      if (!minCheck.valid) fail("Minimum rating (Team A incoming)", minCheck.reason);
-    }
-    for (const p of playersA) {
-      const minCheck = validateMinimumRating(p);
-      if (!minCheck.valid) fail("Minimum rating (Team B incoming)", minCheck.reason);
-    }
-
-    const cap = season.ratingCap ?? 875;
-    const capA = validateRatingCap(afterA, data.players, cap);
-    const capB = validateRatingCap(afterB, data.players, cap);
-    if (!capA.valid) fail(`Rating cap (Team A, ${cap})`, capA.reason);
-    else pass(`Rating cap (Team A, ${cap})`);
-    if (!capB.valid) fail(`Rating cap (Team B, ${cap})`, capB.reason);
-    else pass(`Rating cap (Team B, ${cap})`);
-
-    // Rule E: normal trade fee is POOL-based only, summed per player moved,
-    // doubled on Days 9-11 (never on swaps).
-    const feeDoubled = isFeeDoubleDay(day);
-    const allMoved = [...playersA, ...playersB];
-    let fee = allMoved.reduce((sum, p) => sum + getPoolTradeFee(p), 0);
-    if (feeDoubled) fee *= 2;
-
-    const valid = checks.every((c) => c.valid);
-    return { valid, checks, fee, feeDoubled, totalA, totalB, diff };
-  },
-
-  /** Re-validates (never trusts a stale preview) then atomically commits a trade. */
-  commitTrade(seasonId, { teamA, playersOutA, teamB, playersOutB }) {
-    const evaluation = this.evaluateTrade(seasonId, { teamA, playersOutA, teamB, playersOutB });
-    if (!evaluation.valid) {
-      const reasons = evaluation.checks.filter((c) => !c.valid).map((c) => c.reason).join(" ");
-      throw new Error(reasons || "Trade failed validation.");
-    }
-
-    const data = loadData(seasonId);
-    const season = data.seasons[seasonId];
-    ensureTransactionFields(season); // backfill for seasons created before Phase 5
-    const rosterA = season.currentRosters[teamA];
-    const rosterB = season.currentRosters[teamB];
-
-    season.currentRosters[teamA] = [
-      ...rosterA.filter((e) => !playersOutA.includes(e.playerId)),
-      ...rosterB.filter((e) => playersOutB.includes(e.playerId)).map((e) => ({ ...e, source: "trade" })),
-    ];
-    season.currentRosters[teamB] = [
-      ...rosterB.filter((e) => !playersOutB.includes(e.playerId)),
-      ...rosterA.filter((e) => playersOutA.includes(e.playerId)).map((e) => ({ ...e, source: "trade" })),
-    ];
-
-    season.pot = (season.pot || 0) + evaluation.fee;
-
-    const describe = (pid) => {
-      const p = data.players[pid];
-      const info = getPlayerClassificationInfo(season, pid);
-      return {
-        playerId: pid,
-        name: p?.name,
-        overall: p?.overall,
-        pool: p?.pool,
-        pickClassification: info.classification === "PINK" ? "PINK" : info.classification,
-        isJoker: info.isJoker,
-      };
-    };
-    const tradeTransactionId = generateId("txn");
-    season.transactions.push({
-      id: tradeTransactionId,
-      seasonId,
-      seasonDay: season.currentSeasonDay,
-      timestamp: new Date().toISOString(),
-      type: "trade",
-      teamA,
-      teamB,
-      playersOut: playersOutA.map(describe),
-      playersIn: playersOutB.map(describe),
-      fee: evaluation.fee,
-      feeDoubled: evaluation.feeDoubled,
-      approvedBy: "commissioner",
-    });
-
-    // ── Financial Management (F3 — Trade Fee Splitting) ─────────────────────
-    // Attribution only — season.pot was already increased by the FULL
-    // evaluation.fee above, exactly as before F3; the two records below
-    // never touch season.pot themselves, so a ₱200 trade still adds
-    // exactly ₱200 to the pot, not ₱400. They exist so a later phase can
-    // derive each participant's trade-fee total from the ledger without
-    // re-splitting the shared `trade` transaction's fee itself.
-    // evaluation.fee is always a sum of POOL_TRADE_FEE (100/200) across at
-    // least one player per side, optionally doubled — always an even
-    // number under every existing fee rule, so `/ 2` is always a whole
-    // peso amount; no rounding policy is needed or invented here. Skipped
-    // entirely if fee is ever 0 (not currently reachable — a valid trade
-    // always has fee >= 200 — but guarded per the no-unnecessary-₱0-
-    // records rule rather than assumed away).
-    //
-    // F6 Revision 2: status is "pending", not "paid" — the fee is CHARGED
-    // now (pot already reflects it, above) but not yet necessarily PAID.
-    // Whether/how much has actually been paid is tracked separately via
-    // `payment` transactions (AdminActions.recordFinancialPayment) — see
-    // f6ParticipantBreakdown's doc comment for the full model. A
-    // tradeFeeSplit written by code that predates this revision always has
-    // status "paid" explicitly, so old records are unambiguous and need no
-    // migration — see f6IsCollected().
-    if (evaluation.fee > 0) {
-      ensureFinancialFields(season); // backfill for seasons created before F1
-      const half = evaluation.fee / 2;
-      const makeSplit = (participantId, label) => ({
-        id: generateId("txn"),
-        seasonId,
-        seasonDay: season.currentSeasonDay,
-        timestamp: new Date().toISOString(),
-        type: "tradeFeeSplit",
-        teamA: participantId,
-        teamB: null,
-        playersOut: [],
-        playersIn: [],
-        amount: half,
-        status: "pending",
-        relatedTransactionId: tradeTransactionId,
-        description: `Trade fee — ${label} share`,
-        approvedBy: "commissioner",
-      });
-      season.transactions.push(makeSplit(teamA, "Team A"));
-      season.transactions.push(makeSplit(teamB, "Team B"));
-    }
-
-    saveData(data);
-    return evaluation;
-  },
-
-  /**
-   * Runs Swap validation (rule set §17 / swap workflow). isJokerSwap=true
-   * uses the ₱300 Joker fee and, on commit, makes the participant's
-   * incomingPlayerId the new Joker at jokerPosition. Any other Joker already
-   * on that roster is cleared in the same commit, since only one Joker per
-   * participant is allowed at a time.
-   *
-   * Normal and Joker swaps enforce Season Day, Minimum Rating, and the
-   * resulting-roster Rating Cap (875 by default). Joker designation,
-   * position limit, Blue Pool, and roster-composition rules are bypassed.
-   * Basic ownership and replacement eligibility still apply.
-   *
-   * This does not change how Red/Yellow tags are computed or displayed:
-   * getPlayerClassificationInfo remains the source of those tags elsewhere
-   * in the application.
-   *
-   * Revision — Fix Joker Swap: outgoing player / new Joker logic. A Joker
-   * Swap no longer requires outgoingPlayerId to already be the current
-   * Joker — the Swap UI never communicated or enforced that (the outgoing
-   * picker lists every roster player, Joker or not), and its "Assigned
-   * position for new Joker" field makes the actual intent explicit:
-   * OUTGOING PLAYER leaves → INCOMING PLAYER arrives AND becomes the new
-   * Joker, unconditionally. See afterEntries below for how an existing,
-   * different Joker gets cleared in the same transaction.
-   */
-  evaluateSwap(seasonId, { participantId, outgoingPlayerId, incomingPlayerId, isJokerSwap, jokerPosition }) {
-    const data = loadData(seasonId);
-    const season = data.seasons[seasonId];
-    const checks = [];
-    const fail = (label, reason) => checks.push({ label, valid: false, reason });
-    const pass = (label) => checks.push({ label, valid: true, reason: null });
-
-    if (!season) {
-      fail("Season", "Season not found.");
-      return { valid: false, checks, fee: 0 };
-    }
-    if (!season.rostersInitialized) {
-      fail("Rosters", "Rosters must be initialized (post-draft) before swapping.");
-      return { valid: false, checks, fee: 0 };
-    }
-    const roster = season.currentRosters[participantId] || [];
-    const outgoingEntry = roster.find((e) => e.playerId === outgoingPlayerId);
-    if (!outgoingEntry) {
-      fail("Ownership", "That player is not currently on this roster.");
-      return { valid: false, checks, fee: 0 };
-    }
-    pass("Ownership");
-
-    const outgoingPlayer = data.players[outgoingPlayerId];
-    const incomingPlayer = data.players[incomingPlayerId];
-    if (!incomingPlayer) {
-      fail("Replacement", "Replacement player not found.");
-      return { valid: checks.every((c) => c.valid), checks, fee: 0 };
-    }
-
-    // Rule 10: a swap returns the outgoing player to the pool and draws an
-    // eligible replacement — the incoming player must not already be owned
-    // by any roster. The Discord rules don't require the replacement to
-    // come from the SAME pool as the outgoing player; pool, position, and
-    // roster-composition restrictions are intentionally bypassed for swaps.
-    // Minimum rating and resulting-roster cap checks still apply below.
-    const ownedElsewhere = Object.entries(season.currentRosters).some(
-      ([pid, entries]) => pid !== participantId && entries.some((e) => e.playerId === incomingPlayerId)
-    );
-    const ownedHere = roster.some((e) => e.playerId === incomingPlayerId);
-    if (ownedElsewhere || ownedHere) {
-      fail("Replacement eligibility", `${incomingPlayer.name} is already owned by a roster.`);
-    } else {
-      pass("Replacement eligibility");
-    }
 
 
-    const day = season.currentSeasonDay ?? 1;
-    if (isTransactionsLockedDay(day)) fail("Season Day", `Day ${day} — transactions are closed.`);
-    else pass("Season Day");
-    const minimumCheck = validateMinimumRating(incomingPlayer);
-    if (!minimumCheck.valid) fail("Minimum rating", minimumCheck.reason);
-    else pass("Minimum rating");
 
-    // Revision — Fix Joker Swap: outgoing player / new Joker logic. A
-    // Joker Swap no longer requires the OUTGOING player to already be the
-    // participant's current Joker — the UI never communicated or enforced
-    // that (the outgoing-player picker lists every roster player,
-    // regardless of Joker status), and its own "Assigned position for new
-    // Joker" field makes the intent explicit: whichever player comes IN
-    // becomes the Joker, unconditionally. If the participant already had a
-    // DIFFERENT designated Joker, that designation is cleared here — same
-    // "only one Joker per participant at a time, designating a new one
-    // clears the old one" invariant designateJoker already enforces — so a
-    // Joker Swap can never leave two Joker-flagged entries on one roster.
-    const afterEntries = [
-      ...roster
-        .filter((e) => e.playerId !== outgoingPlayerId)
-        .map((e) => (isJokerSwap && e.isJoker ? { ...e, isJoker: false, jokerPosition: undefined } : e)),
-      isJokerSwap
-        ? { playerId: incomingPlayerId, source: "swap", isJoker: true, jokerPosition }
-        : { playerId: incomingPlayerId, source: "swap" },
-    ];
 
-    // Position-limit and Blue-composition checks are intentionally bypassed
-    // for both swap types; rating cap remains enforced below.
 
-    const cap = season.ratingCap ?? 875;
-    const capCheck = validateRatingCap(afterEntries, data.players, cap);
-    if (!capCheck.valid) fail(`Rating cap (${cap})`, capCheck.reason);
-    else pass(`Rating cap (${cap})`);
 
-    const fee = isJokerSwap ? JOKER_SWAP_FEE : REGULAR_SWAP_FEE;
-    const valid = checks.every((c) => c.valid);
-    return { valid, checks, fee, isJokerSwap: !!isJokerSwap };
-  },
 
-  /** Re-validates then atomically commits a swap. */
-  commitSwap(seasonId, { participantId, outgoingPlayerId, incomingPlayerId, isJokerSwap, jokerPosition }) {
-    const evaluation = this.evaluateSwap(seasonId, {
-      participantId, outgoingPlayerId, incomingPlayerId, isJokerSwap, jokerPosition,
-    });
-    if (!evaluation.valid) {
-      const reasons = evaluation.checks.filter((c) => !c.valid).map((c) => c.reason).join(" ");
-      throw new Error(reasons || "Swap failed validation.");
-    }
-
-    const data = loadData(seasonId);
-    const season = data.seasons[seasonId];
-    ensureTransactionFields(season); // backfill for seasons created before Phase 5
-    const roster = season.currentRosters[participantId];
-    const outgoingEntry = roster.find((e) => e.playerId === outgoingPlayerId);
-    const newEntry = isJokerSwap
-      ? { playerId: incomingPlayerId, source: "swap", isJoker: true, jokerPosition }
-      : { playerId: incomingPlayerId, source: "swap" };
-
-    // Revision — Fix Joker Swap: mirrors evaluateSwap's afterEntries — if
-    // the participant already had a DIFFERENT designated Joker (i.e. one
-    // other than whoever's leaving via outgoingPlayerId), that Joker flag
-    // is cleared here so the new incoming Joker is always the only one.
-    season.currentRosters[participantId] = [
-      ...roster
-        .filter((e) => e.playerId !== outgoingPlayerId)
-        .map((e) => (isJokerSwap && e.isJoker ? { ...e, isJoker: false, jokerPosition: undefined } : e)),
-      newEntry,
-    ];
-    season.pot = (season.pot || 0) + evaluation.fee;
-
-    const outPlayer = data.players[outgoingPlayerId];
-    const inPlayer = data.players[incomingPlayerId];
-    season.transactions.push({
-      id: generateId("txn"),
-      seasonId,
-      seasonDay: season.currentSeasonDay,
-      timestamp: new Date().toISOString(),
-      type: isJokerSwap ? "jokerSwap" : "swap",
-      teamA: participantId,
-      teamB: null,
-      playersOut: [{
-        // Revision — Fix Joker Swap: the outgoing player is only actually
-        // "the Joker" if their own roster entry says so — no longer
-        // inferred from isJokerSwap, since a Joker Swap can now swap out
-        // ANY player, not only the participant's current Joker.
-        playerId: outgoingPlayerId, name: outPlayer?.name, overall: outPlayer?.overall,
-        pool: outPlayer?.pool, isJoker: !!(outgoingEntry && outgoingEntry.isJoker),
-      }],
-      playersIn: [{
-        playerId: incomingPlayerId, name: inPlayer?.name, overall: inPlayer?.overall,
-        pool: inPlayer?.pool, isJoker: !!isJokerSwap,
-      }],
-      fee: evaluation.fee,
-      feeDoubled: false,
-      // F6 Revision 2: charged now (pot already reflects it, above via
-      // season.pot += evaluation.fee), not yet necessarily paid — see
-      // f6ParticipantBreakdown's doc comment. A swap/jokerSwap record from
-      // before this revision has no status field at all; f6IsCollected()
-      // treats that specific absence as "collected" (the old commitSwap()
-      // unconditionally paid it at creation), so no migration is needed.
-      status: "pending",
-      approvedBy: "commissioner",
-    });
-
-    saveData(data);
-    return evaluation;
-  },
 
   /**
    * Rule C (revised): ordinarily designates one of a participant's own
@@ -6678,7 +6214,7 @@ const AdminActions = {
   //   - player identity (the playerId must resolve to a real player record)
   //   - Firestore/document structure, auth, and the PIN gate itself
   // "Available" is never a separately stored list — exactly like
-  // getSwapEligibleReplacements already does for Phase 5, a player is
+  // current roster ownership checks already does for Phase 5, a player is
   // available the instant they are absent from every entry of every
   // season.currentRosters[*] array, and unavailable the instant they're
   // present in one. Player ID (never name) is the identity used
@@ -6870,8 +6406,8 @@ const AdminActions = {
    * player from the global database (js/admin/players.js's Delete
    * Player/Delete All Players is the only thing that does that) — so the
    * player is immediately draftable/assignable again everywhere
-   * "available" is derived from currentRosters (getSwapEligibleReplacements,
-   * getRosterForTransactions, and this same manual editor).
+   * "available" is derived from currentRosters (current roster ownership checks,
+   * the roster display helpers, and this same manual editor).
    *
    * If the removed entry carried an original draftSlot (Revision —
    * Preserve Original Draft Pick Slot), that slot is never simply deleted
