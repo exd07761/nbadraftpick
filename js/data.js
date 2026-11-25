@@ -189,21 +189,6 @@ function createSeason(id, name) {
     currentSeasonDay: 1,
     transactions: [],
 
-    // ── Financial Management (F1 — schema only) ──────────────────────────────
-    // Season-specific financial configuration. Entirely separate from `pot`/
-    // `transactions` above (Phase 5's existing trade/swap fee system, left
-    // untouched by F1) — this is the foundation for the new Financial
-    // Management system being built in later phases (F2+). Nothing yet reads
-    // this field; AdminActions.createSeason accepts optional overrides at
-    // creation time (see below), and old seasons safely lack this field
-    // until ensureFinancialFields() backfills it, matching the
-    // ensureTransactionFields() pattern above.
-    financialSettings: {
-      entryFee: 300,
-      freeTrades: 2,
-      freeSwaps: 2,
-    },
-
     // ── Phase 7: Regular Season Schedule ──────────────────────────────────────
     // schedule[i] = { round: Number, matchups: [Matchup] }
     // Matchup = {
@@ -3617,22 +3602,11 @@ const AdminActions = {
    *   unmodified and still callable directly for a manual/retry seed of
    *   such a season), but is no longer how a NEW season gets scoped.
    */
-  createSeason(name, financialSettings, scopePlayerPool) {
+  createSeason(name, scopePlayerPool) {
     const data = loadData();
     const id = generateId("s");
     const season = createSeason(id, name);
     if (scopePlayerPool) season.playerPoolScope = LIVE_NBA2K27_POOL_SCOPE;
-
-    if (financialSettings && typeof financialSettings === "object") {
-      for (const key of ["entryFee", "freeTrades", "freeSwaps"]) {
-        if (financialSettings[key] === undefined) continue;
-        const n = Number(financialSettings[key]);
-        if (!Number.isFinite(n) || n < 0) {
-          throw new Error(`${key} must be a non-negative number.`);
-        }
-        season.financialSettings[key] = n;
-      }
-    }
 
     data.seasons[id] = season;
     if (!data.settings.currentSeasonId) {
@@ -3970,32 +3944,8 @@ const AdminActions = {
     const data = loadData();
     const season = data.seasons[seasonId];
     if (!season) throw new Error("Season not found");
-    ensureFinancialFields(season);
-    ensureTransactionFields(season);
-
     const id = generateId("p");
     season.participants[id] = createParticipant(id, name.trim());
-
-    const entryFee = season.financialSettings.entryFee;
-    if (Number.isFinite(entryFee) && entryFee > 0) {
-      season.transactions.push({
-        id: generateId("txn"),
-        seasonId,
-        seasonDay: season.currentSeasonDay,
-        timestamp: new Date().toISOString(),
-        type: "entryFee",
-        teamA: id,
-        teamB: null,
-        playersOut: [],
-        playersIn: [],
-        amount: entryFee,
-        status: "pending",
-        relatedTransactionId: null,
-        description: "Entry fee",
-        approvedBy: "commissioner",
-      });
-      season.pot = (season.pot || 0) + entryFee;
-    }
 
     saveData(data);
     return season.participants[id];
