@@ -83,8 +83,10 @@ function makeSupabaseMock(initialDocs) {
       if (failNextRpcWith) { const error = failNextRpcWith; failNextRpcWith = null; throw error; }
       const row = store.get(args.p_slug);
       if (!row) throw new Error('PLAYER_NOT_FOUND: player does not exist');
+      const canonicalOrder = ['PG', 'SG', 'SF', 'PF', 'C'];
       const current = Array.isArray(row.positions) ? row.positions : [];
-      if (JSON.stringify(current) !== JSON.stringify(args.p_expected_previous)) {
+      const normalizedCurrent = canonicalOrder.filter(position => current.includes(position));
+      if (JSON.stringify(normalizedCurrent) !== JSON.stringify(args.p_expected_previous)) {
         throw new Error('CONFLICT: player positions changed');
       }
       store.set(args.p_slug, { ...row, positions: [...args.p_positions] });
@@ -460,12 +462,13 @@ async function run() {
     ok(mount.querySelector('.nba2k-badges-section'), 'badges section still renders');
   });
 
-  await checkAsync('20. duplicate-protection regression: name conflict still blocks promotion', async () => {
-    const leaguePlayers = [{ name: 'Trae Young', position: 'PG', pool: 'green', overall: 90 }]; // no nba2kRef -> conflict
+  await checkAsync('20. retired Draft Pool promotion controls remain absent', async () => {
+    const leaguePlayers = [{ name: 'Trae Young', position: 'PG', pool: 'green', overall: 90 }];
     const { window, document, V, container } = await loadedView({ leaguePlayers });
     const mount = openDetail(window, document, V, container, 'trae-young');
-    ok(mount.textContent.includes('An existing Draft Pool player with this name already exists'));
-    ok(!mount.querySelector('#nba2kPromoOpenConfirm'), 'promotion form must not render on name conflict');
+    ok(!mount.querySelector('#nba2kPromoOpenConfirm'), 'retired promotion form must not render');
+    ok(!mount.querySelector('.nba2k-promotion-section'), 'retired promotion section must remain absent');
+    ok(mount.querySelector('.nba2k-posedit'), 'active position management must remain available');
   });
 
   await checkAsync('21. unknown teamType regression: promotion still blocked, position editor still works', async () => {
